@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.blend1
+*.blend2
+*.log
+build/
+dist/
+*.egg-info/
+workspace/
+output/
