@@ -4,7 +4,7 @@ The scripts from the original proposal are intentionally **not promoted to produ
 
 Reason: Blender/NIF APIs are version-sensitive and the draft contains at least one confirmed contract bug (polygon count labelled as triangle count) plus operations that have not been executed in the target Blender version.
 
-`docs/original-proposal.md` preserves the draft scripts for review. Promote each script here only after:
+`docs/original-proposal.md` preserves the source intent and verification context, not executable draft code. Promote each adapter here only after:
 
 1. selecting a target Blender version;
 2. adding a fixture;
