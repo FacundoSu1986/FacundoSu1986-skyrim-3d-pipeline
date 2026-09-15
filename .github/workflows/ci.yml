@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Sintaxis de TODOS los scripts, incluidos los de Blender (medir_parte,
+      # preparar_parte): compileall no ejecuta los imports, así que valida su
+      # sintaxis aunque `bpy` no exista en el runner.
+      - name: Syntax check (compileall)
+        run: python -m compileall -q census skills tests
+
+      # Tests de Python puro: import smoke + invariantes de tablas + funciones
+      # puras. No cubren --autotest del parser (necesita el corpus vanilla, que
+      # no se versiona) ni los scripts de Blender.
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
