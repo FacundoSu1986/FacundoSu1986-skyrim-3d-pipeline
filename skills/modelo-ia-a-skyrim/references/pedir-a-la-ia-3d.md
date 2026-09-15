@@ -55,9 +55,37 @@ Si el generador acepta **image-to-3D**, usalo. El texto describe; la imagen
 manda la forma. Con imagen, varias partes de un mismo diseño salen coherentes
 entre sí; con texto solo, cada parte parece de un diseño distinto.
 
-Combinación que funciona mejor: **imagen de referencia + prompt de texto**. La
-imagen fija la forma y el texto fija las condiciones técnicas (volumen cerrado,
-orientación, sin pedestal).
+**Ojo: en muchos generadores no podés dar imagen Y prompt a la vez.** `[PROVIDER]`
+Suelen ser dos modos separados —texto→3D o imagen→3D— y en el segundo el campo
+de texto no existe o se ignora.
+
+Y en general **no es una limitación de la interfaz, es de la arquitectura**: los
+reconstructores imagen→3D infieren la geometría de la imagen, y el texto no es
+una entrada del modelo. Cambiar de herramienta no lo resuelve.
+
+> Una versión anterior de este documento decía "la combinación que funciona
+> mejor es imagen + prompt de texto", sin etiqueta y sin haberlo comprobado. Es
+> el error de siempre: escribir lo que suena razonable en vez de lo que se
+> midió.
+
+**La salida es meter el prompt DENTRO de la imagen, antes del 3D.** En vez de
+pedirle al generador 3D que combine forma y estilo, generá primero una imagen
+que ya tenga los dos:
+
+    render ortográfico del asset vanilla que vas a reemplazar
+            |  ControlNet (depth o canny) + prompt de estilo
+    imagen con las proporciones del vanilla y tu estilo
+            |  imagen -> 3D
+    malla que nace con la silueta del esqueleto correcto
+
+Esto ataca la causa de que el ajuste sea difícil: dejás de pelear contra una
+forma que nunca fue pensada para ese esqueleto. La silueta la impone el vanilla;
+el prompt solo decide los materiales.
+
+No hace falta una herramienta específica: cualquier cosa con img2img o
+ControlNet sirve para el paso del medio, y la malla la seguís pidiendo donde te
+dé mejor calidad. Un editor de nodos (tipo ComfyUI) da más control, pero es la
+versión avanzada, no el requisito.
 
 **Multivista: usá la que el generador tenga de verdad.** `[PROVIDER]` Varios
 generadores aceptan hoy varias vistas **como entradas separadas** (una ranura
