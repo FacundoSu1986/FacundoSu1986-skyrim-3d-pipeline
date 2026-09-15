@@ -82,10 +82,15 @@ Esto ataca la causa de que el ajuste sea difícil: dejás de pelear contra una
 forma que nunca fue pensada para ese esqueleto. La silueta la impone el vanilla;
 el prompt solo decide los materiales.
 
-No hace falta una herramienta específica: cualquier cosa con img2img o
-ControlNet sirve para el paso del medio, y la malla la seguís pidiendo donde te
-dé mejor calidad. Un editor de nodos (tipo ComfyUI) da más control, pero es la
-versión avanzada, no el requisito.
+El primer paso está resuelto: **`scripts/render_referencia.py`** produce las
+imágenes limpias que necesita el ControlNet —profundidad, arcilla y silueta— con
+encuadre compartido entre vistas, que es lo que evita que el generador 3D lea
+mal las proporciones.
+
+No hace falta una herramienta específica para el resto: cualquier cosa con
+img2img o ControlNet sirve para el paso del medio, y la malla la seguís pidiendo
+donde te dé mejor calidad. Un editor de nodos (tipo ComfyUI) da más control,
+pero es la versión avanzada, no el requisito.
 
 **Multivista: usá la que el generador tenga de verdad.** `[PROVIDER]` Varios
 generadores aceptan hoy varias vistas **como entradas separadas** (una ranura
