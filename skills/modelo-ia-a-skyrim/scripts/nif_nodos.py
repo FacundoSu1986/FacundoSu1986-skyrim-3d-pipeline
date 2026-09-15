@@ -21,10 +21,12 @@ import os
 import struct
 import sys
 
+# BSFurnitureMarkerNode NO hereda de NiNode (BSFurnitureMarker <- NiExtraData).
+# Incluirlo revienta al leer children: 123 archivos de muebles en el corpus.
 TIPOS_NODO = {"NiNode", "BSFadeNode", "BSLeafAnimNode", "BSTreeNode",
               "BSOrderedNode", "BSValueNode", "BSMultiBoundNode",
               "BSBlastNode", "BSDamageStage", "NiBillboardNode",
-              "NiSwitchNode", "BSFurnitureMarkerNode"}
+              "NiSwitchNode"}
 
 
 def _sized(datos, i):
