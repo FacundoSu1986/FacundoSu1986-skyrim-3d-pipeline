@@ -145,6 +145,13 @@ def main():
     y = [min(c.y for c in co), max(c.y for c in co)]
     z = [min(c.z for c in co), max(c.z for c in co)]
     h = z[1] - z[0]
+    # Pieza plana (h ~ 0) puede ser valida. No dividir; no tratarlo como fatal.
+    if h > 1e-8:
+        prop_ancho = (x[1] - x[0]) / h
+        prop_fondo = (y[1] - y[0]) / h
+        prop_txt = "ancho %.2f : fondo %.2f : alto 1.00" % (prop_ancho, prop_fondo)
+    else:
+        prop_txt = "alto ~ 0 (pieza plana); proporcion no aplica"
 
     destino = os.path.abspath(salida)
     if os.path.exists(destino) and "--force" not in args:
@@ -161,8 +168,7 @@ def main():
              else "  (sin girar; usa --girar-180 si mira a -Y)"))
     print("  caja  X %.3f..%.3f  Y %.3f..%.3f  Z %.3f..%.3f"
           % (x[0], x[1], y[0], y[1], z[0], z[1]))
-    print("  proporcion  ancho %.2f : fondo %.2f : alto 1.00"
-          % ((x[1] - x[0]) / h, (y[1] - y[0]) / h))
+    print("  proporcion  %s" % prop_txt)
     print("  UV: %s" % [u.name for u in obj.data.uv_layers])
     print("[blend] %s" % destino)
 

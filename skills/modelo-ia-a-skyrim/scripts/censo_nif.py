@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """Semilla para censar el corpus vanilla de Skyrim SE. Python puro, sin Blender.
 
+Helper reducido / legado de la skill. La fuente de verdad del censo es
+census/parser_nif.py (no importarlo desde aca: build_skill.py no empaqueta
+census/). Este archivo se queda en la skill para --autotest y mediciones
+de cabecera cuando se instala solo el .skill.
+
 Parsea la cabecera de un NIF y expone lo que hace falta para medir miles de
 archivos: tabla de tipos de bloque, offsets, tabla de strings, jerarquia de
 nodos con posiciones de mundo, BSXFlags, conteo de triangulos y rutas de
@@ -47,7 +52,7 @@ y da basura: pesos-por-vertice = 1035 (el maximo real del motor es 4) y ese
 offset de arranque esta mal para SSE.
 
 No ajustes offsets hasta que salga el numero esperado: eso es ajustar ruido.
-Sacá el layout de nif.xml de NifSkope o de la libreria nifly, implementalo, y
+Saca el layout de nif.xml de NifSkope o de la libreria nifly, implementalo, y
 falsificalo contra este valor conocido:
 
   steamcenturion.nif (el de ref/, NO el de out/) = 6.007 triangulos en total
@@ -98,9 +103,9 @@ class Nif(object):
         n_bloques, = struct.unpack_from("<I", d, i); i += 4
         self.bs, = struct.unpack_from("<I", d, i); i += 4
 
-        for _ in range(3):                          # author/process/export
+        for _ in range(3):
             i += 1 + d[i]
-        if self.bs >= 130:                          # NO validado
+        if self.bs >= 130:
             i += 1 + d[i]
 
         n_tipos, = struct.unpack_from("<H", d, i); i += 2
@@ -112,7 +117,7 @@ class Nif(object):
         tam = struct.unpack_from("<%dI" % n_bloques, d, i); i += 4 * n_bloques
 
         n_str, = struct.unpack_from("<I", d, i); i += 4
-        i += 4                                      # max string length
+        i += 4
         self.strings = []
         for _ in range(n_str):
             n, = struct.unpack_from("<I", d, i); i += 4
@@ -123,8 +128,6 @@ class Nif(object):
         for b in range(n_bloques):
             self.bloques.append((tipos[idx[b]], o, tam[b]))
             o += tam[b]
-
-    # --- consultas -------------------------------------------------------
 
     def raiz(self):
         return self.bloques[0][0] if self.bloques else None
@@ -149,13 +152,12 @@ class Nif(object):
         return sorted(set(m.decode("cp1252", "replace") for m in vistas))
 
     def _saltar_niavobject(self, p):
-        """Avanza sobre NiObjectNET + NiAVObject. Devuelve (offset, nombre)."""
         nombre_i, = struct.unpack_from("<i", self.d, p); p += 4
         n_ed, = struct.unpack_from("<I", self.d, p); p += 4 + 4 * n_ed
-        p += 4                                      # controller
-        p += 4                                      # flags
-        p += 12 + 36 + 4                            # translation, rot, escala
-        p += 4                                      # collision object
+        p += 4
+        p += 4
+        p += 12 + 36 + 4
+        p += 4
         nombre = (self.strings[nombre_i]
                   if 0 <= nombre_i < len(self.strings) else "?")
         return p, nombre
@@ -165,24 +167,14 @@ class Nif(object):
         return ("BSDismemberSkinInstance" in c) or ("NiSkinInstance" in c)
 
     def trishapes(self):
-        """[(nombre, triangulos, vertices)] INLINE por BSTriShape.
-
-        Layout en SSE (BS 100), despues de NiObjectNET + NiAVObject:
-          boundingSphere(4f) skin(i32) shader(i32) alpha(i32)
-          vertexDesc(u64) numTriangulos(u16) numVertices(u16) dataSize(u32)
-
-        OJO: en mallas skinneadas estos tres campos son 0 y la geometria esta
-        en NiSkinPartition (ver PENDIENTE #1 en la cabecera del modulo). Un
-        cero aca no significa "sin poligonos", significa "no estan aca".
-        """
         fuera = []
         for o, _ in self.de_tipo("BSTriShape"):
             p, nombre = self._saltar_niavobject(o)
-            p += 16                                 # bounding sphere
-            if self.bs >= 151:                      # NO validado
+            p += 16
+            if self.bs >= 151:
                 p += 24
-            p += 4 + 4 + 4                          # skin, shader, alpha
-            p += 8                                  # vertex desc
+            p += 4 + 4 + 4
+            p += 8
             if self.bs < 130:
                 tri, = struct.unpack_from("<H", self.d, p); p += 2
             else:
@@ -199,11 +191,11 @@ class Nif(object):
             p = o
             nombre_i, = struct.unpack_from("<i", self.d, p); p += 4
             n_ed, = struct.unpack_from("<I", self.d, p); p += 4 + 4 * n_ed
-            p += 4 + 4                              # controller, flags
+            p += 4 + 4
             tr = struct.unpack_from("<3f", self.d, p); p += 12
             rot = struct.unpack_from("<9f", self.d, p); p += 36
             esc, = struct.unpack_from("<f", self.d, p); p += 4
-            p += 4                                  # collision object
+            p += 4
             n_h, = struct.unpack_from("<I", self.d, p); p += 4
             hijos = struct.unpack_from("<%di" % n_h, self.d, p) if n_h else ()
             n[b] = {"tipo": tipo,
@@ -214,7 +206,6 @@ class Nif(object):
         return n
 
     def mundo(self):
-        """{nombre: (x, y, z, escala)} acumulando transformadas desde la raiz."""
         nodos = self.nodos()
         hijos = set()
         for v in nodos.values():
@@ -242,7 +233,6 @@ class Nif(object):
         return fuera
 
     def fila(self, base=""):
-        """Una linea del censo."""
         tri = self.trishapes()
         return {
             "ruta": os.path.relpath(self.ruta, base) if base else self.ruta,
@@ -263,13 +253,7 @@ class Nif(object):
         }
 
 
-# --- suite de falsificacion -------------------------------------------------
-# Valores medidos con un parser independiente sobre archivos vanilla. Si el
-# parser de arriba no los reproduce, el bug esta en el parser, no en los datos.
-
 AUTOTEST = [
-    # Skinneado: 15 shapes, 0 triangulos inline, y UN texture set compartido
-    # por los 15. Ese 1 no es un error de conteo: el vanilla atlasea.
     ("actors/dwarvensteamcenturion/character assets/steamcenturion.nif",
      {"raiz": "NiNode", "n_bloques": 112, "bsxflags": None,
       "skinneado": True, "triangulos_inline": 0,
@@ -277,7 +261,6 @@ AUTOTEST = [
                   "BSDismemberSkinInstance": 15, "NiSkinData": 15,
                   "NiSkinPartition": 15, "BSLightingShaderProperty": 15,
                   "NiAlphaProperty": 15, "BSShaderTextureSet": 1}}),
-    # Estaticos: la geometria SI esta inline.
     ("actors/dwarvensteamcenturion/dwarvensteamcenturion.nif",
      {"raiz": "BSFadeNode", "n_bloques": 9, "bsxflags": 130,
       "skinneado": False, "triangulos_inline": 6154}),
@@ -295,13 +278,6 @@ AUTOTEST = [
 
 
 def _buscar(raiz, rel):
-    """Ruta unica que termina en `rel`. Si hay varias, falla en vez de elegir.
-
-    Existe porque la primera version agarraba el primer match del os.walk y en
-    un proyecto con copias (ref/ el vanilla, out/ el exportado) eso significo
-    comparar contra el archivo equivocado. El autotest lo detecto, pero solo
-    porque los valores esperados estaban fijados de antemano.
-    """
     cola = rel.replace("/", os.sep).lower()
     encontrados = []
     for base, _, archivos in os.walk(raiz):
@@ -312,7 +288,7 @@ def _buscar(raiz, rel):
     if len(encontrados) > 1:
         raise SystemExit(
             "AMBIGUO: %d archivos terminan en %s.\n%s\n"
-            "Apuntá --autotest a la carpeta donde BAE extrajo el vanilla, no "
+            "Apunta --autotest a la carpeta donde BAE extrajo el vanilla, no "
             "a un proyecto que tenga copias." % (
                 len(encontrados), rel, "\n".join("  " + e for e in encontrados)))
     return encontrados[0] if encontrados else None
@@ -357,7 +333,8 @@ def main():
         print(__doc__)
         return
     if a[0] == "--autotest":
-        autotest(a[1])
+        if not autotest(a[1]):
+            raise SystemExit(1)
         return
     if a[0] == "--censo":
         raiz = a[1]
@@ -372,7 +349,7 @@ def main():
                     try:
                         fila = Nif(ruta).fila(raiz)
                         n_ok += 1
-                    except Exception as e:          # nunca fallar en silencio
+                    except Exception as e:
                         fila = {"ruta": os.path.relpath(ruta, raiz),
                                 "error": "%s: %s" % (type(e).__name__, e)}
                         n_err += 1
