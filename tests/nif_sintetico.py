@@ -23,9 +23,24 @@ ESTRUCTURA DEL ARCHIVO QUE GENERA
     BSFadeNode "RaizDePrueba"      bloque 0, raiz, 1 hijo, 1 extra data
     +-- NiNode "HijoDePrueba"      bloque 1, trasladado a (10, 20, 30)
     BSXFlags  "BSX" = 203          bloque 2, referenciado como extra data
+    BSFurnitureMarkerNode          bloque 3, TRAMPA deliberada
 
 203 no es un numero al azar: es el valor real de `soulgemgreater01.nif`, y sus
 bits encendidos son 0+1+3+6+7.
+
+LA TRAMPA DEL BLOQUE 3
+
+`BSFurnitureMarkerNode` termina en "Node" pero hereda de `NiExtraData`, no de
+`NiAVObject`. Un parser que lo meta en su tabla de tipos-nodo lee su contenido
+con el layout de NiNode y saca un conteo de hijos absurdo. Medido sobre el
+corpus real: 30 de 76 archivos de `meshes/furniture/` revientan con
+"unpack_from requires a buffer of at least 4093659953 bytes".
+
+El bloque de aca esta armado para reproducir ese modo de falla exacto: donde el
+layout de NiNode espera `numChildren` hay un valor enorme. Un parser correcto
+lo ignora; uno que lo trate como nodo revienta.
+
+El sufijo del nombre no dice de que hereda.
 """
 import struct
 
@@ -37,6 +52,7 @@ BS = 100
 RAIZ_NOMBRE = "RaizDePrueba"
 HIJO_NOMBRE = "HijoDePrueba"
 BSX_NOMBRE = "BSX"
+MARCADOR_NOMBRE = "MarcadorMueble"
 BSX_VALOR = 203
 HIJO_TRASLACION = (10.0, 20.0, 30.0)
 
@@ -72,19 +88,35 @@ def _avobject(nombre_idx, extra_refs, traslacion, hijos):
     return p
 
 
+def _marcador_trampa(nombre_idx):
+    """BSFurnitureMarkerNode armado para romper a quien lo trate como NiNode.
+
+    Leido como NiExtraData --lo correcto-- es nombre + cantidad + datos.
+    Leido con el layout de NiNode, el cursor cae en el offset 76 buscando
+    `numChildren` y encuentra 0xFFFFFFF0: intenta leer 4.294.967.280 refs de
+    hijo y revienta, igual que en los archivos reales.
+    """
+    b = bytearray(80)
+    struct.pack_into("<i", b, 0, nombre_idx)         # name
+    struct.pack_into("<I", b, 4, 1)                  # numPositions
+    struct.pack_into("<I", b, 76, 0xFFFFFFF0)        # la mina
+    return bytes(b)
+
+
 def construir():
     """Devuelve (bytes_del_nif, esperado).
 
     `esperado` es la verdad declarada: lo que cualquier parser correcto tiene
     que recuperar de esos bytes.
     """
-    tipos = ["BSFadeNode", "NiNode", "BSXFlags"]
-    strings = [RAIZ_NOMBRE, HIJO_NOMBRE, BSX_NOMBRE]
+    tipos = ["BSFadeNode", "NiNode", "BSXFlags", "BSFurnitureMarkerNode"]
+    strings = [RAIZ_NOMBRE, HIJO_NOMBRE, BSX_NOMBRE, MARCADOR_NOMBRE]
 
     bloques = [
         _avobject(0, [2], (0.0, 0.0, 0.0), [1]),     # 0: raiz
         _avobject(1, [], HIJO_TRASLACION, []),       # 1: hijo
         struct.pack("<i", 2) + struct.pack("<i", BSX_VALOR),   # 2: BSXFlags
+        _marcador_trampa(3),                         # 3: la trampa
     ]
 
     h = bytearray(CABECERA)
@@ -117,12 +149,15 @@ def construir():
         "bs": BS,
         "n_bloques": len(bloques),
         "raiz": "BSFadeNode",
-        "cuenta_tipos": {"BSFadeNode": 1, "NiNode": 1, "BSXFlags": 1},
+        "cuenta_tipos": {"BSFadeNode": 1, "NiNode": 1, "BSXFlags": 1,
+                         "BSFurnitureMarkerNode": 1},
         "strings": list(strings),
         "tamanos": [len(b) for b in bloques],
         "bsxflags": BSX_VALOR,
         "bsxflags_bits": [0, 1, 3, 6, 7],
+        # El marcador NO aparece: no es un nodo, aunque se llame *Node.
         "nombres_nodo": {RAIZ_NOMBRE, HIJO_NOMBRE},
+        "nombre_marcador": MARCADOR_NOMBRE,
         "hijo_en_mundo": HIJO_TRASLACION,
         "cola_esperada": 0,
     }

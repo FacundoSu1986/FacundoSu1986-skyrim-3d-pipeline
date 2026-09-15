@@ -7,12 +7,19 @@ corrimiento de 4 bytes en la lectura de la cabecera de `census/parser_nif.py`
 --i += 8 en vez de i += 4 al saltear max-string-length-- los once tests
 previos seguian en verde y estos fallan.
 
+Cada guarda de aca viene con su propio test de que puede fallar
+(`test_el_detector_detecta`, `ElFixtureEsDetectorTests`). Un chequeo que no
+puede fallar no prueba nada, y esta suite existe justamente por haber
+encontrado uno.
+
 Que NO cubre: geometria, skin, particiones y colision. Esos layouts se validan
 solo contra archivos reales, con `python census/parser_nif.py --autotest`.
 """
+import gc
 import os
 import tempfile
 import unittest
+import warnings
 
 from _paths import preparar_path
 from nif_sintetico import construir
@@ -116,6 +123,71 @@ class ConcordanciaEntreParsersTests(BaseSintetico):
         self.assertEqual(a.bsxflags_info()[0], b.bsxflags())
         self.assertEqual([t for t, _, _ in a.bloques],
                          [t for t, _, _ in b.bloques])
+
+
+class FurnitureMarkerTests(BaseSintetico):
+    """El fixture trae un BSFurnitureMarkerNode minado.
+
+    Es una prueba de COMPORTAMIENTO, no de pertenencia a un set: parsea el
+    bloque de verdad. Un parser que lo trate como NiNode revienta leyendo
+    4.294.967.280 refs de hijo, igual que con los archivos reales de
+    meshes/furniture/ (30 de 76 fallaban).
+    """
+
+    def test_el_censo_lo_ignora(self):
+        nodos = parser_nif.Nif(self.ruta).nodos()
+        nombres = {v["nombre"] for v in nodos.values()}
+        self.assertNotIn(self.esperado["nombre_marcador"], nombres)
+
+    def test_la_semilla_lo_ignora(self):
+        nodos = censo_nif.Nif(self.ruta).nodos()
+        nombres = {v["nombre"] for v in nodos.values()}
+        self.assertNotIn(self.esperado["nombre_marcador"], nombres)
+
+    def test_el_sufijo_node_no_alcanza(self):
+        """Guarda explicita: ningun parser puede meterlo en su tabla."""
+        for mod in (parser_nif, censo_nif):
+            with self.subTest(modulo=mod.__name__):
+                self.assertNotIn("BSFurnitureMarkerNode", mod.TIPOS_NODO)
+
+
+class SinFugasDeDescriptorTests(BaseSintetico):
+    """Fugas de descriptor, comprobado de forma que PUEDA fallar.
+
+    `python -W error::ResourceWarning` NO sirve para esto y es una trampa: el
+    ResourceWarning lo emite el destructor del objeto archivo, y una excepcion
+    lanzada ahi queda "unraisable" -- se imprime un traceback pero el proceso
+    sale con codigo 0 y unittest reporta ok. Verificado en 3.11: un test con
+    `open(__file__, "rb").read()` imprime el aviso y sale 0.
+
+    Aca se fuerza la recoleccion con el filtro activo y se afirma sobre lo
+    capturado, que si es determinista y si falla.
+    """
+
+    def _fugas_al_parsear(self, constructor):
+        with warnings.catch_warnings(record=True) as capturadas:
+            warnings.simplefilter("always", ResourceWarning)
+            n = constructor(self.ruta)
+            del n
+            gc.collect()
+        return [w for w in capturadas
+                if issubclass(w.category, ResourceWarning)]
+
+    def test_el_censo_no_fuga(self):
+        self.assertEqual(self._fugas_al_parsear(parser_nif.Nif), [])
+
+    def test_la_semilla_no_fuga(self):
+        self.assertEqual(self._fugas_al_parsear(censo_nif.Nif), [])
+
+    def test_el_detector_detecta(self):
+        """Si este test no falla al fugar a proposito, los dos de arriba no
+        valen nada."""
+        def fuga(ruta):
+            open(ruta, "rb").read()          # sin close, deliberado
+            return object()
+
+        self.assertNotEqual(self._fugas_al_parsear(fuga), [],
+                            "el detector de fugas no detecta fugas")
 
 
 class ElFixtureEsDetectorTests(BaseSintetico):

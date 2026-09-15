@@ -89,6 +89,35 @@ que corrompe el fixture a propósito y confirma que el parser revienta. Un
 chequeo que no puede fallar no prueba nada; ese test existe para que, si el
 parser deja de validar, se entere alguien.
 
+### Dos correcciones que salieron de la review de Codex
+
+**1. `-W error::ResourceWarning` no detecta fugas de descriptor.** Se había
+agregado a CI diciendo que una fuga rompería el build. Es falso: el aviso lo
+emite el destructor del objeto archivo, y una excepción lanzada ahí queda
+*unraisable* — imprime un traceback y el proceso sale con código 0. Reproducido
+en 3.11 con un test que hace `open(__file__, "rb").read()`: imprime el aviso,
+`unittest` dice `ok`, exit 0.
+
+Era exactamente el defecto que este documento acusaba dos párrafos más arriba:
+una guarda que no puede fallar. El flag se sacó y las fugas se comprueban en
+`SinFugasDeDescriptorTests`, que fuerza la recolección con el filtro activo y
+afirma sobre lo capturado. Trae `test_el_detector_detecta`, que fuga a propósito
+y exige que el detector lo vea.
+
+**2. `BSFurnitureMarkerNode` seguía en `TIPOS_NODO` de la semilla.** Pese al
+sufijo, hereda de `NiExtraData`, no de `NiAVObject`. `census/parser_nif.py` ya
+lo excluía; `skills/.../censo_nif.py` no. Medido: **30 de 76** archivos de
+`meshes/furniture/` reventaban con `unpack_from requires a buffer of at least
+4093659953 bytes`. Corregido: 30 → 0.
+
+El fixture sintético ahora incluye un `BSFurnitureMarkerNode` minado que
+reproduce ese modo de falla exacto, así que la guarda es de **comportamiento**
+—se parsea el bloque— y no solo de pertenencia a un set.
+
+Esto también resuelve el solape entre este PR y #10: #10 asserta la invariante
+sobre las tres tablas pero no toca `censo_nif.py`, que es archivo de este PR. Se
+arregla acá, así los dos mergean verde sin pisarse.
+
 ## Los dos parsers: resuelto, se quedan los dos
 
 `skills/modelo-ia-a-skyrim/scripts/censo_nif.py` (semilla, #6) y

@@ -71,10 +71,17 @@ import re
 import struct
 import sys
 
+# Tipos que heredan de NiNode. BSFurnitureMarkerNode NO esta en la lista a
+# proposito: pese al sufijo "Node", hereda de NiExtraData, no de NiAVObject.
+# Incluirlo hace que se lea su contenido con el layout de NiNode y salga un
+# conteo de hijos absurdo. Medido: 30 de 76 archivos de meshes/furniture/
+# revientan con "unpack_from requires a buffer of at least 4093659953 bytes".
+#
+# El sufijo del nombre no dice de que hereda. Verificalo en nif.xml.
 TIPOS_NODO = {"NiNode", "BSFadeNode", "BSLeafAnimNode", "BSTreeNode",
               "BSOrderedNode", "BSValueNode", "BSMultiBoundNode",
               "BSBlastNode", "BSDamageStage", "NiBillboardNode",
-              "NiSwitchNode", "BSFurnitureMarkerNode"}
+              "NiSwitchNode"}
 
 
 class Nif(object):

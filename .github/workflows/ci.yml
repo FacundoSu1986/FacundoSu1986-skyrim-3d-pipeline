@@ -36,7 +36,15 @@ jobs:
       # maquina que tenga el juego extraido; y los scripts de Blender, que no se
       # pueden importar sin `bpy` (de ahi el compileall de arriba).
       #
-      # -W error::ResourceWarning: los tests abren y cierran archivos; una fuga
-      # de descriptor en el parser tiene que romper CI, no pasar de largo.
+      # NO se usa `-W error::ResourceWarning` para detectar fugas de
+      # descriptor: no funciona y da una sensacion falsa de seguridad. El aviso
+      # lo emite el destructor del objeto archivo, y una excepcion lanzada ahi
+      # queda "unraisable": imprime un traceback pero el proceso sale 0 y
+      # unittest reporta ok. Verificado en 3.11 con un test que hace
+      # `open(__file__, "rb").read()`.
+      #
+      # Las fugas se comprueban en SinFugasDeDescriptorTests, que fuerza la
+      # recoleccion con el filtro activo y afirma sobre lo capturado -- y trae
+      # su propio test de que el detector detecta.
       - name: Unit tests
-        run: python -W error::ResourceWarning -m unittest discover -s tests -v
+        run: python -m unittest discover -s tests -v
