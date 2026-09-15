@@ -266,16 +266,22 @@ distancia.
 
 Herramienta: `texconv.exe` (de DirectXTex).
 
-> **BC7 es lo que SE *admite*, no lo que Bethesda *usó*.** `[OBSERVED]` Sobre
-> una muestra de 4.605 DDS del juego base: DXT5 55,8 %, sin comprimir 31,5 %,
-> DXT1 12,7 %, **BC7 0 %**. Las texturas de SE son en su mayoría las de LE
-> recomprimidas. Usá BC7 para contenido nuevo porque es mejor, no porque sea
-> "el formato de SE" — y no te sorprendas si un asset vanilla que abrís viene
-> en DXT.
+> **BC7 es lo que SE *admite*, no lo que Bethesda *usó*.** `[OBSERVED]` Censo
+> completo de las **32.241** texturas del juego base: DXT5 55,2 %, sin comprimir
+> 32bpp 31,2 %, DXT1 13,0 %, **BC7 0 %**. Ni un solo archivo. Las texturas de
+> SE son en su mayoría las de LE recomprimidas. Usá BC7 para contenido nuevo
+> porque es mejor, no porque sea "el formato de SE" — y no te sorprendas si un
+> asset vanilla que abrís viene en DXT.
 >
-> `[OBSERVED]` Dos invariantes que la misma muestra confirma: **0 texturas que
-> no sean potencia de dos**, y las únicas 27 sin mipmaps son máscaras de tinte
-> (`tintmasks`), que no se ven a distancia.
+> **Los normales son DXT5, siempre.** `[OBSERVED]` 12.075 archivos `_n`, y
+> **0 excepciones**. Es el patrón más limpio del corpus. Si estás por guardar un
+> normal en BC5 "porque es lo correcto para normales", sepé que el juego entero
+> hace otra cosa.
+>
+> **Y lo que parece descuido no lo es.** El 31 % sin comprimir son terreno
+> (9.365 mapas de mezcla y LOD) y **normales en espacio de modelo** (`_msn`) de
+> cabezas, que necesitan precisión que un formato de bloques destruye. No los
+> comprimas por prolijidad.
 
 **Sufijos y para qué sirve cada uno:**
 
@@ -316,11 +322,32 @@ Cómo mitigarlo: levantar el rango bajo con una curva que no toque los medios, y
 bajar la saturación de las zonas más oscuras. No se recupera del todo; se
 atenúa. Si el generador ofrece salida **PBR con albedo sin luz**, pedila.
 
-**Resoluciones típicas:** 2048² para difuso y normal, 512² para máscaras. 4096²
-solo para un asset que se mira de muy cerca; cuesta VRAM en todas las celdas
-donde aparezca.
+**Resoluciones: el vanilla es mucho más chico de lo que la gente supone.**
+`[OBSERVED]` Sobre las 32.241 texturas del juego base:
 
-Las texturas deben ser **potencia de dos**.
+| Resolución | Archivos | % |
+|---|---|---|
+| 256² | 21.557 | 66,9 % |
+| 512² | 4.753 | 14,7 % |
+| 1024² | 2.305 | 7,1 % |
+| 2048² | 1.680 | 5,2 % |
+| ≥ 4096 en algún lado | **57** | **0,18 %** |
+
+Mediana del lado mayor por clase: `terrain` 256, `actors` **512**, `clutter`
+512, `architecture` 1024, `armor` 1024. El máximo de todo el juego es 8192, y
+hay uno solo.
+
+Dicho de otro modo: **la textura mediana de un actor de Skyrim es 512²**. Si
+generás a 2048 o 4096 estás muy por encima del vanilla — legítimo en 2026, pero
+que sea una decisión y no una suposición. El costo es VRAM en toda celda donde
+el asset aparezca.
+
+`[INVARIANT]` **Potencia de dos, sin excepción.** 0 de 32.241 texturas del
+corpus tienen un lado que no lo sea.
+
+`[OBSERVED]` **Las cadenas de mipmaps cortan en 2×2**, no en 1×1: 96,4 % del
+corpus. Y solo 192 archivos (0,6 %) no tienen mipmaps — 188 son máscaras de
+tinte y 4 son efectos de lente. Ninguna superficie que se vea a distancia.
 
 ## Una textura por SHAPE, no por hueso
 
