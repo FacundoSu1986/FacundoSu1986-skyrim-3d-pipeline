@@ -26,8 +26,17 @@ jobs:
       - name: Syntax check (compileall)
         run: python -m compileall -q census skills tests
 
-      # Tests de Python puro: import smoke + invariantes de tablas + funciones
-      # puras. No cubren --autotest del parser (necesita el corpus vanilla, que
-      # no se versiona) ni los scripts de Blender.
+      # Tests de Python puro: import smoke, invariantes de tablas, funciones
+      # puras, y la ida y vuelta contra un NIF sintetico construido byte a byte
+      # (tests/nif_sintetico.py) -- eso ultimo ejecuta el camino de parseo real
+      # sin necesitar el corpus vanilla.
+      #
+      # Sigue sin cubrirse: los layouts de geometria, skin y colision, que solo
+      # se validan con `python census/parser_nif.py --autotest <corpus>` en una
+      # maquina que tenga el juego extraido; y los scripts de Blender, que no se
+      # pueden importar sin `bpy` (de ahi el compileall de arriba).
+      #
+      # -W error::ResourceWarning: los tests abren y cierran archivos; una fuga
+      # de descriptor en el parser tiene que romper CI, no pasar de largo.
       - name: Unit tests
-        run: python -m unittest discover -s tests -v
+        run: python -W error::ResourceWarning -m unittest discover -s tests -v

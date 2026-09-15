@@ -65,11 +65,46 @@ Lo que CI **no** cubre y por qué: `--autotest` del parser necesita el corpus
 vanilla, que no se versiona (assets con copyright, ~54 MB derivados); los scripts
 de Blender no se pueden importar sin `bpy`.
 
-## Recomendación pendiente (no bloqueante)
+## Actualización: el hueco de cobertura era más grande de lo que decía
+
+La suite de arriba se falsificó a propósito, inyectando en `parser_nif.py` un
+corrimiento de 4 bytes al leer la cabecera (`i += 8` en vez de `i += 4` al
+saltear *max string length*). Ese bug destruye la tabla de strings y **todos**
+los offsets de bloque — es la misma familia de error que produjo el
+`pesos por vértice = 1035` documentado en `census/README.md`.
+
+**Los once tests siguieron en verde.** Ninguno ejecutaba el parser sobre bytes
+de un NIF: probaban formas de tablas y una constante de regresión.
+
+El arreglo es `tests/nif_sintetico.py`: construye un NIF válido byte a byte en
+memoria —cabecera, tabla de tipos, tabla de strings, tres bloques con tamaños
+exactos— y declara junto a los datos qué tiene que recuperar un parser correcto.
+Como los bytes se generan, no hay ni un byte de Bethesda y el fixture puede
+vivir en el repo.
+
+Con el mismo bug inyectado, la suite nueva da 4 errores.
+
+`tests/test_parser_nif_sintetico.py` incluye además `ElFixtureEsDetectorTests`,
+que corrompe el fixture a propósito y confirma que el parser revienta. Un
+chequeo que no puede fallar no prueba nada; ese test existe para que, si el
+parser deja de validar, se entere alguien.
+
+## Los dos parsers: resuelto, se quedan los dos
 
 `skills/modelo-ia-a-skyrim/scripts/censo_nif.py` (semilla, #6) y
-`census/parser_nif.py` (versión completa, #7) se solapan conceptualmente. Conviven
-en carpetas distintas y no chocan como archivo, pero conviene, en un PR futuro,
-dejar la skill apuntando al parser de `census/` o documentar explícitamente por
-qué se mantienen dos. Se deja fuera de la integración para no reescribir el
-parser de otro autor.
+`census/parser_nif.py` (versión completa, #7) se solapan, y la recomendación
+anterior era unificarlos o justificar la duplicación.
+
+**Se justifican, y ahora hay un test que lo sostiene.** Son dos
+implementaciones escritas por separado de la misma cabecera, y esa
+independencia es lo que da la validación cruzada: 400 archivos vanilla al azar
+con 400/400 de coincidencia. Un verificador que depende de la herramienta que
+verifica no verifica nada.
+
+`ConcordanciaEntreParsersTests` los fija a coincidir sobre los mismos bytes: si
+divergen, una de las dos está mal y CI lo dice. Unificarlos destruiría la
+propiedad que los hace útiles.
+
+La semilla se queda deliberadamente chica: enseña el método —autotest primero,
+ningún campo sin caso de falsificación— sin el peso de los layouts de skin,
+shader y colisión.

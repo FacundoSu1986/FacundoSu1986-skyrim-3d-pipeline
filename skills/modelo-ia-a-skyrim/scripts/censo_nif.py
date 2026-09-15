@@ -82,7 +82,8 @@ class Nif(object):
 
     def __init__(self, ruta):
         self.ruta = ruta
-        d = self.d = open(ruta, "rb").read()
+        with open(ruta, "rb") as fh:
+            d = self.d = fh.read()
         i = d.index(b"\n") + 1
         self.version, = struct.unpack_from("<I", d, i); i += 4
         i += 1                                             # endian
