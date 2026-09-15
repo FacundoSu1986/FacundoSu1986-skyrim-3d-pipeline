@@ -39,6 +39,15 @@ verificación que los atrapa.
 | [`scripts/medir_parte.py`](skills/modelo-ia-a-skyrim/scripts/medir_parte.py) | Mide un GLB/FBX/OBJ recién generado |
 | [`scripts/preparar_parte.py`](skills/modelo-ia-a-skyrim/scripts/preparar_parte.py) | Soldar, decimar, orientar |
 
+Y aparte, en [`census/`](census), las herramientas que producen los números:
+
+| Ruta | Qué es |
+|---|---|
+| [`census/parser_nif.py`](census/parser_nif.py) | Parser NIF completo: geometría, particiones, huesos, pesos, shaders, colisión Havok |
+| [`census/verificar.py`](census/verificar.py) | Auditoría estructural bloque por bloque |
+| [`census/agregados.py`](census/agregados.py) | Las consultas del censo |
+| [`census/hallazgos.md`](census/hallazgos.md) | 15 hallazgos medidos, con consulta y N cada uno |
+
 ## Uso
 
 **Como skill de Claude Code.** Copiá `skills/modelo-ia-a-skyrim/` a tu carpeta
@@ -79,10 +88,15 @@ Los presupuestos de polígonos, las distribuciones de flags de partición, los
 formatos de textura y los límites de vértices **están medidos**, no estimados:
 salen de un censo de las 22.394 mallas del juego base.
 
-Ese censo **no está en este repo** y no puede estarlo: se construye sobre
-assets extraídos de Skyrim, que son propiedad de Bethesda. Para reproducirlo
-hace falta tu propia copia legal del juego, un extractor de BSA, y el parser de
-`scripts/censo_nif.py`.
+El censo en sí **no está en este repo** y no puede estarlo: se construye sobre
+assets extraídos de Skyrim, que son propiedad de Bethesda. Lo que sí está son
+las **herramientas para regenerarlo** desde tu propia copia legal del juego —
+ver [`census/README.md`](census/README.md).
+
+El parser está validado contra una segunda implementación escrita por separado:
+400 archivos al azar, 400/400 de coincidencia. Y ningún campo entra al censo sin
+un caso en la suite de falsificación, por un motivo concreto que está contado
+ahí.
 
 ## Qué NO hay acá
 
