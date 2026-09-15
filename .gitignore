@@ -1,0 +1,54 @@
+# --- Assets de Bethesda: NUNCA ---------------------------------------------
+# Este repo no distribuye contenido del juego. Estas reglas existen para que no
+# entre por accidente al hacer `git add .` desde una carpeta de trabajo.
+*.bsa
+*.ba2
+*.nif
+*.dds
+*.hkx
+*.tri
+*.esp
+*.esm
+*.esl
+meshes/
+textures/
+sound/
+seq/
+scripts/*.pex
+interface/
+lodsettings/
+shadersfx/
+
+# Excepción: los scripts .py de la skill sí van (la regla de arriba solo
+# excluye .pex compilados de Papyrus).
+!skills/**/scripts/*.py
+
+# --- Artefactos generados ---------------------------------------------------
+# censo.jsonl y compañía se regeneran con censo_nif.py desde tu propia copia
+# del juego. No se versionan: son datos derivados, pesan decenas de MB, y
+# enumeran rutas de assets con copyright.
+censo.jsonl
+*.jsonl
+verif_resumen.json
+reports/
+out/
+*.skill
+
+# --- Binarios de terceros ---------------------------------------------------
+*.exe
+*.dll
+*.7z
+nif.xml
+
+# --- Blender / Python -------------------------------------------------------
+*.blend
+*.blend[0-9]
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Sistema ----------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
