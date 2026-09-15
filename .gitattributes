@@ -1,0 +1,13 @@
+# Normaliza finales de linea: LF en el repo, nativo en el working tree.
+* text=auto eol=lf
+
+*.md   text eol=lf
+*.py   text eol=lf
+*.json text eol=lf
+
+# Binarios, sin conversion.
+*.skill binary
+*.png   binary
+*.dds   binary
+*.nif   binary
+*.blend binary

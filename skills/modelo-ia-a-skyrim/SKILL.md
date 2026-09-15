@@ -1,0 +1,199 @@
+---
+name: modelo-ia-a-skyrim
+description: Convierte modelos 3D generados por IA (Tripo, Meshy, Hunyuan3D, Rodin, Trellis) en assets funcionales de Skyrim SE o LE con Blender y PyNifly — malla, rig, texturas DDS y NIF verificado. Usala siempre que aparezca un .glb/.fbx/.obj generado por IA que haya que meter en Skyrim, cuando haya que reemplazar una criatura, armadura o arma vanilla, cuando haya que escribir el prompt para pedirle el modelo a la IA 3D, o cuando se hable de presupuesto de polígonos, exportar NIF, convertir texturas a DDS, riggear a un esqueleto vanilla, o por qué un asset sale invisible, de espaldas o deformado en el juego. También cuando alguien pregunte si un modelo generado por IA "sirve" para un juego.
+---
+
+# Modelos 3D de IA → assets de Skyrim
+
+Los generadores de 3D por IA producen mallas con mucho detalle y texturas PBR
+decentes en minutos. Pero producen **mallas de escultura**, no assets de juego:
+cientos de miles de triángulos, cáscaras abiertas, vértices partidos, sin rig,
+orientadas al revés y sin ninguna noción de las restricciones del motor.
+
+El trabajo de esta skill es cerrar esa brecha, y su parte más valiosa no es el
+pipeline sino la **lista de fallos silenciosos**: casi todo lo que sale mal acá
+no tira ningún error. El asset se exporta "bien", se instala "bien", y recién
+aparece el problema mirando el archivo generado o probando en el juego.
+
+## Tres clases de afirmación, y por qué te importa
+
+Esta skill mezcla inevitablemente tres cosas que se parecen y no son lo mismo.
+Las referencias las etiquetan, y conviene que vos también lo hagas cuando le
+reportes algo a alguien:
+
+| Etiqueta | Qué es | Vida útil |
+|---|---|---|
+| `[INVARIANT]` | Propiedad del formato NIF o del motor | permanente |
+| `[PROVIDER]` | Cómo se comporta hoy un generador o PyNifly | caduca rápido |
+| `[OBSERVED]` | Algo medido una vez en el proyecto de origen | un caso, no una ley |
+
+**El error caro de este dominio es promover un `[OBSERVED]` a `[INVARIANT]`.**
+En el proyecto de origen pasó dos veces y las dos terminaron en un "esto no se
+puede hacer" que era falso. El control práctico: si una regla tuya te lleva a
+declarar un bloqueo, comprobala contra un archivo real de Bethesda antes de
+anunciarlo. Un bloqueo inventado cuesta más que un bug.
+
+## Antes de tocar nada: dos preguntas
+
+**1. ¿Es un replacer o un asset nuevo?**
+
+Un **replacer** (misma ruta, mismo nombre de archivo, mismos nombres de nodo
+que el vanilla) hereda gratis animaciones, behavior de Havok, ragdoll y
+killmoves. No necesita ESP ni Creation Kit. El precio es que **la silueta no se
+elige**: las animaciones llevan los huesos a posiciones fijas y la malla tiene
+que construirse alrededor de ellas.
+
+Un **asset nuevo** (arma, armadura, clutter) es más libre pero necesita registro
+en un plugin.
+
+Para criaturas, el replacer casi siempre gana. Reapuntar animaciones es un
+proyecto aparte.
+
+**2. ¿Cuánto mide y dónde van sus articulaciones?**
+
+Antes de pedirle nada a la IA 3D, medí el vanilla que vas a reemplazar. Esas
+medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
+(sección "Medir el vanilla primero").
+
+## El flujo
+
+1. **Medir el vanilla** — extraer del BSA la malla y el esqueleto, parsear las
+   posiciones de hueso del binario, anotar la caja de cada pieza.
+2. **Escribir el pedido a la IA 3D** — una parte por pedido, con proporciones.
+   Ver `references/pedir-a-la-ia-3d.md`.
+3. **Recibir y medir** — `scripts/medir_parte.py` dice qué llegó realmente:
+   triángulos, UV, texturas, proporción, si es sólido o cáscara, si vienen
+   varias figuras en el archivo.
+4. **Preparar** — soldar, decimar al presupuesto, orientar si hace falta.
+   `scripts/preparar_parte.py`.
+5. **Montar** — cortar cada parte en su tramo, escalar a su hueco, espejar. Dar
+   espesor **solo si la medición dice que es una cáscara abierta**: `Solidify`
+   duplica los triángulos y no siempre hace falta.
+6. **Riggear** — grupos de vértices por hueso, particiones de body-part.
+7. **Texturas** — PBR → convención de Skyrim, a DDS con mipmaps.
+8. **Exportar y verificar** — reimportar el archivo generado y compararlo
+   contra el vanilla.
+
+## Las tres cosas que hay que pedirle a la IA 3D
+
+Estas tres están en `references/pedir-a-la-ia-3d.md` con plantillas completas,
+pero si solo te acordás de tres cosas que sean estas, porque cada una costó una
+prueba en el juego:
+
+- **`solid closed volume, not flat sheets`** — los generadores tienden a
+  devolver cáscaras de una cara. Skyrim tiene backface culling por defecto: una
+  cáscara no se dibuja desde atrás y el asset sale con partes invisibles y
+  huecas. Que venga cerrado de origen te ahorra un `Solidify`, que cuesta el
+  doble de triángulos.
+- **`front facing`** — en Skyrim el frente es **+Y**, y varios generadores
+  devuelven el modelo mirando a −Y. Sirve sobre todo para que todas las partes
+  vengan orientadas **igual entre sí**. No garantiza nada: **medí la orientación
+  al recibir**, y girá solo si hace falta. Girar por costumbre un modelo que
+  vino bien produce el mismo síntoma que no girar el que vino mal.
+- **Una parte por pedido, una vista por ranura** — pegar frente/perfil/dorso en
+  **una sola imagen** hace que el generador devuelva **tres modelos separados**
+  parados uno al lado del otro. Si tu generador tiene entradas multivista
+  separadas (varios las tienen hoy), usalas: eso sí ayuda, y mucho, con la
+  profundidad.
+
+## Verificar sobre el archivo, no sobre la escena
+
+Esta es la disciplina que más veces salvó el proyecto de origen, así que vale
+explicar por qué.
+
+Entre la escena de Blender y el archivo que carga el juego hay un exportador, y
+ese exportador puede perder o deformar cosas sin avisar. Verificar la escena en
+memoria confirma lo que vos armaste, no lo que se va a cargar. **El último paso
+siempre reimporta el NIF generado** y lo compara contra el vanilla:
+
+- mismos tipos y cantidades de bloque, misma tabla de strings;
+- las posiciones de hueso contra el `skeleton.nif` — desvío esperado 0,0;
+- cada pieza con el mismo juego de huesos que su equivalente vanilla, más su
+  partición, su UV y su capa de color;
+- cada hueso dentro de la caja de la pieza que lo usa.
+
+Ese último control encontró un NIF completamente desarmado —las piezas
+desplazadas una por una— que visualmente ya se daba por bueno. Sin él se habría
+instalado.
+
+**Y un chequeo tiene que poder fallar.** Si un control pasa siempre, no prueba
+nada. Alimentalo a propósito con datos equivocados (por ejemplo, las posiciones
+de un esqueleto humano en vez del de la criatura) y confirmá que revienta. En
+el proyecto de origen esa falsificación dio 7 fallos de 16 huesos comparables —
+recién ahí el `[ok]` valió algo.
+
+## Enumerar en vez de recordar
+
+Cuando una criatura vanilla reparte una malla entre varios huesos, perder uno
+de esos huesos **no da error**: simplemente se pierde articulación. Sin el hueso
+del dedo el pie no rueda al caminar; sin los párpados la cara queda muerta.
+
+No confíes en revisar las piezas que te acordás que tenían varios huesos.
+Compará **las de todas**: para cada pieza, el juego de huesos de la nueva contra
+el de la vanilla, y fallá si falta alguno. Así el control también atrapa la
+pieza que mañana pierda una atadura.
+
+## Archivos de referencia
+
+- **`references/pedir-a-la-ia-3d.md`** — cómo escribir el pedido: plantillas por
+  tipo de asset, negative prompts, qué formato descargar, cómo expresar
+  proporciones. Leelo antes de escribir cualquier prompt para Tripo/Meshy.
+- **`references/limites-skyrim.md`** — presupuestos de polígonos reales, formatos
+  de textura, estructura del NIF, escala y ejes, límites de huesos y
+  particiones. Leelo antes de decidir presupuestos o tocar el export.
+- **`references/trampas.md`** — veintitrés fallos que no tiran error, con el
+  síntoma y el arreglo, más un índice por síntoma al principio. **Leelo entero
+  antes de empezar**, no cuando algo falle: la mitad de estas trampas se
+  descubren recién probando en el juego, y para entonces ya perdiste la
+  iteración. Cuando algo falle, volvé al índice por síntoma.
+
+## Scripts
+
+- **`scripts/nif_nodos.py`** — parser binario de la jerarquía `NiNode`. Da las
+  posiciones de hueso **del archivo**, sin intermediarios.
+
+  Hace falta porque PyNifly, al importar, puede sustituir un esqueleto de
+  referencia y devolver posiciones que no son las del archivo, sin avisar. La
+  vía soportada para evitarlo es pasarle el esqueleto correcto al importar
+  (`reference_skel`, o la opción equivalente de tu versión) — hacelo. Pero
+  seguí usando este parser como **verificador independiente**: un verificador
+  que depende de la misma herramienta que estás verificando no verifica nada.
+- **`scripts/censo_nif.py`** — parser de cabecera NIF en Python puro, para medir
+  el corpus vanilla entero en vez de dos o tres archivos. Trae su propia suite
+  de falsificación (`--autotest`) con valores medidos de antemano: si no los
+  reproduce, avisa que no está listo para censar.
+
+  Documenta un hallazgo que cambia cualquier censo: **en SSE un `BSTriShape`
+  skinneado tiene `numTriangles = 0`** — la geometría está en el
+  `NiSkinPartition`. Contar triángulos de la forma obvia da cero para toda
+  criatura y toda armadura.
+- **`scripts/medir_parte.py`** — mide un GLB/FBX/OBJ recién llegado: triángulos,
+  UV, texturas, proporción, aristas de borde (canonicalizadas por posición),
+  cuántos cuerpos sueltos trae. Correlo **siempre** antes de trabajar con un
+  modelo nuevo, y **decidí con sus números**, no con lo que esperabas.
+- **`scripts/preparar_parte.py`** — soldar, decimar a un presupuesto y, si se lo
+  pedís con `--girar-180`, orientar. No gira por defecto a propósito: una
+  rotación es destructiva y no debe dispararse por una heurística.
+
+## Cómo conviene trabajar
+
+**Por partes, no el cuerpo entero.** Pedir un cuerpo completo y después
+recortarlo en piezas obliga a inventar reglas de región ("todo lo que esté a más
+de X y por encima de Z es el brazo"), y esas reglas fallan en silencio: dejan
+piezas invadiendo a la vecina, o descartan geometría entera. Pedir una parte por
+archivo convierte el problema en un plano de corte, que es exacto.
+
+**Mostrá renders, no describas.** Después de cada paso que cambie la geometría,
+renderizá y mirá. Muchas de las trampas de la lista son invisibles en los
+números y evidentes en una imagen — y al revés: el modelo que "se veía bien"
+tenía las piezas desplazadas.
+
+**Numerá los pasos y dejá un reporte JSON por paso.** Cada script tiene que
+poder reejecutarse solo. Cuando algo sale mal tres pasos más adelante, querés
+poder rehacer solo ese paso.
+
+**Antes de decir "esto no se puede", comprobalo contra un archivo real.** Es la
+regla que más plata habría ahorrado en el proyecto de origen. Un bloqueo
+anunciado manda a la otra persona a rediseñar, a gastar créditos o a abandonar;
+si el bloqueo no existe, todo ese costo fue por una creencia tuya. Abrí el NIF
+vanilla, contá los bloques, mirá los huesos, y recién ahí hablá.
