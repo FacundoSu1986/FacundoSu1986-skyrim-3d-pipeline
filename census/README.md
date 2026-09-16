@@ -18,7 +18,9 @@ Las tres son falsas, y las tres se refutan contando.
 | `verificar.py` | Auditoría estructural: comprueba que cada bloque leído termine exactamente en `offset + size` declarado por la cabecera. |
 | `agregados.py` | Las consultas del censo, `a` a `j`. Cada una reproducible. |
 | `generar_reporte.py` | Produce el reporte a partir del censo. |
-| `hallazgos.md` | 15 hallazgos medidos, en formato fijo. |
+| `hallazgos.md` | 15 hallazgos medidos sobre las mallas, en formato fijo. |
+| `parser_dds.py` | Lee encabezados DDS. Su autotest predice el tamaño exacto de los 32.241 archivos del corpus. |
+| `hallazgos_texturas.md` | 10 hallazgos medidos sobre las texturas. |
 
 ## El censo no está en este repo
 
@@ -57,7 +59,29 @@ python parser_nif.py --censo meshes --salida censo.jsonl
 # 5. Las consultas.
 python agregados.py            # todas
 python agregados.py d e f      # solo algunas
+
+# 6. Y lo mismo para las texturas.
+python parser_dds.py --autotest textures
+#    -> 32.241 con el tamano exacto que predice el encabezado
+python parser_dds.py --censo textures --salida censo_dds.jsonl
 ```
+
+### La suite de falsificacion de DDS es mas fuerte que la de mallas
+
+Con los NIF hubo que fijar valores esperados archivo por archivo. Con DDS el
+formato impone una relacion:
+
+    bytes = cabecera + suma( ceil(w/4) * ceil(h/4) * bytes_por_bloque )
+                       * caras * profundidad
+
+Si el parser leyo mal cualquier campo, la cuenta no da. Eso convierte cada
+archivo del corpus en su propio caso de prueba, sin que nadie los escriba.
+
+Encontro dos huecos reales del parser: los cubemaps guardan **6 caras** (59
+archivos fallaban por un factor de 6 exacto) y existe **una** textura de
+volumen que guarda una pila de slices. Los dos cerraron **al byte** despues de
+corregir, no por aproximacion. Cuando una correccion cuadra exacto, es la
+explicacion correcta; cuando cuadra "casi", es un parche.
 
 ## La disciplina
 
