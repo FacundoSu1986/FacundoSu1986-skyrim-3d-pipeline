@@ -100,11 +100,15 @@ def _chequear(ruta):
             ev.append(("shape_tail_exc", "%s: %s" % (type(e).__name__, e)))
 
     # 5b) trailer de archivo: los ultimos 8 bytes tras el ultimo bloque
-    cola = d[n.bloques[-1][1] + n.bloques[-1][2]:]
-    if cola == b"\x01\x00\x00\x00\x00\x00\x00\x00":
-        ev.append(("trailer", "estandar_01_00"))
+    if n.bloques:
+        cola = d[n.bloques[-1][1] + n.bloques[-1][2]:]
+        if cola == b"\x01\x00\x00\x00\x00\x00\x00\x00":
+            ev.append(("trailer", "estandar_01_00"))
+        else:
+            ev.append(("trailer", "otro:" + cola.hex()[:24]))
     else:
-        ev.append(("trailer", "otro:" + cola.hex()[:24]))
+        # numBlocks = 0: antes IndexError crudo y se perdia toda la corrida.
+        ev.append(("trailer", "sin_bloques"))
 
     # 5c) BSXFlags: bloque de 8 bytes exactos, name idx valido
     for idx, o, s in n.de_tipo("BSXFlags"):
@@ -184,12 +188,15 @@ def _chequear(ruta):
     return ruta, ev
 
 
-def _merge(destino, ruta, ev):
-    for cat, det in ev:
-        destino[cat][det] += 1
-        if len(destino[cat]) <= 64 and det not in destino.setdefault("_ejemplos", {}).get(cat, {}):
-            pass
-    return destino
+def _chequear_seguro(ruta):
+    # Red por archivo: una excepcion cruda en una seccion sin guarda propia
+    # (la 8 lee offsets sin cota, por ejemplo) antes mataba la corrida entera
+    # del Pool por UN NIF degenerado. El lote sigue y el fallo queda contado
+    # como evento, igual que header_exc.
+    try:
+        return _chequear(ruta)
+    except Exception as e:
+        return ruta, [("chequeo_exc", "%s: %s" % (type(e).__name__, e))]
 
 
 def main():
@@ -205,7 +212,7 @@ def main():
     ejemplos = defaultdict(dict)      # cat -> detalle -> ruta (primer caso)
     n_ok = 0
     with Pool(max(1, cpu_count() - 1)) as pool:
-        for i, (ruta, ev) in enumerate(pool.imap_unordered(_chequear, archivos, 50), 1):
+        for i, (ruta, ev) in enumerate(pool.imap_unordered(_chequear_seguro, archivos, 50), 1):
             if not ev:
                 n_ok += 1
             for cat, det in ev:
