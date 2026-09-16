@@ -1,4 +1,4 @@
-# Trampas: veintitrés fallos que no tiran error
+# Trampas: veintisiete fallos que no tiran error
 
 Todas estas se pagaron en el proyecto de origen (`Centurion_Marfil_SE_v01`,
 reemplazo del Dwarven Steam Centurion). **Ninguna tira excepción.** El pipeline
@@ -15,6 +15,7 @@ ya está en la lista.
 |---|---|
 | **Orientación y posición** | |
 | El bicho pelea de espaldas | [2](#2), [19](#19) |
+| La vista "de frente" muestra la espalda | [19](#19), [27](#27) |
 | El modelo entra acostado | [3](#3) |
 | El modelo sale desarmado, cada pieza para su lado | [5](#5) |
 | Después de agregar un giro, el reparto se desarma | [4](#4) |
@@ -28,6 +29,9 @@ ya está en la lista.
 | Una pieza invade a la vecina | [20](#20) |
 | Una pieza pierde geometría de golpe, sin error | [4](#4) |
 | El conteo de aristas de borde es absurdamente alto | [22](#22) |
+| El render sale como una lámina gris que tapa todo | [24](#24), [25](#25) |
+| Filtraste algo y sigue apareciendo | [25](#25) |
+| La criatura entra con las piezas desparramadas | [26](#26), [5](#5) |
 | **Rig** | |
 | Falta articulación (pie plano, cara muerta) | [12](#12) |
 | Una pieza no se dibuja o no sigue al hueso | [13](#13) |
@@ -431,6 +435,85 @@ En dos se dibuja dos veces (z-fighting); en ninguna no se dibuja.
 **Arreglo:** copiar las flags del vanilla en vez de elegirlas. Si partís un
 shape en dos, repartí los triángulos —no los dupliques— y dejá
 `PF_START_NET_BONESET` encendida solo en la primera partición de cada conjunto.
+
+### 24. PyNifly importa la colisión como una malla más {#24}
+
+**Síntoma:** el render sale como una **lámina gris** del tamaño del modelo, que
+lo tapa entero. Parece un problema de materiales, de iluminación o de encuadre.
+No tira ningún error.
+
+**Por qué pasa:** un `bhkBoxShape` son 8 vértices que forman una caja del
+tamaño del asset. PyNifly la importa como objeto de malla igual que la
+geometría visible.
+
+**Cómo confirmarlo:** listá los objetos tras importar. `[OBSERVED]` En
+`dwarvensteamcenturion.nif` aparecen dos mallas: `bhkBoxShape` con 8 vértices y
+`SteamCenturion:0` con 5.630.
+
+**Arreglo:** descartar los objetos cuyo nombre empiece con `bhk`. Es como
+PyNifly nombra las formas de colisión (`bhkBoxShape`,
+`bhkConvexVerticesShape`, `bhkCompressedMeshShape`, `bhkCapsuleShape`…).
+
+### 25. Filtrar una lista de Python no saca nada del render {#25}
+
+**Síntoma:** filtraste el objeto molesto, el script informa que lo descartó, y
+**sigue apareciendo en la imagen**.
+
+**Por qué pasa:** Blender renderiza lo que está **en la escena**, no lo que
+quedó en tu variable. Excluirlo de una lista lo saca de tus cálculos —caja
+envolvente, asignación de materiales— pero no del render.
+
+```python
+mallas = [o for o in todas if not o.name.startswith("bhk")]   # NO alcanza
+for o in colision:
+    bpy.data.objects.remove(o, do_unlink=True)                # esto sí
+```
+
+**Por qué merece entrada propia:** el síntoma es idéntico al de la trampa
+[24](#24), así que parece que el filtro no funcionó. `[OBSERVED]` Costó tres
+diagnósticos equivocados seguidos —material, planos de recorte de cámara,
+encuadre— antes de mirar qué había realmente en la escena.
+
+**La lección general:** cuando un arreglo "no tiene efecto", comprobá que se
+haya aplicado sobre el mismo objeto que el sistema está usando. Casi siempre
+hay dos: el tuyo y el de él.
+
+### 26. Una malla skinneada no se ensambla sola al importarla {#26}
+
+**Síntoma:** el NIF de una criatura entra con las piezas **desparramadas**, cada
+una por su lado, aunque las matrices de objeto parezcan correctas.
+
+**Por qué pasa:** en un NIF skinneado los vértices viven en espacio de skin, y
+ensamblarlos necesita las transformadas de bind de cada hueso. `[OBSERVED]` En
+`steamcenturion.nif`, `matrix_world` deja las piezas en rangos de Z sensatos
+(torso 147–305, pie −0,4–31) y aun así el render sale desarmado: la caja
+envolvente se calcula con `matrix_world @ v.co`, que **ignora modificadores**,
+mientras que el render sí los aplica.
+
+**Arreglo para renderizar:** usá el **NIF estático** del mismo bicho si existe
+(`<bicho>.nif` en la carpeta padre): es un solo `BSTriShape` con la geometría
+inline, sin skin y sin ambigüedad. Mismo modelo visual.
+
+**Arreglo para trabajar de verdad:** pasale a PyNifly el esqueleto correcto al
+importar y verificá las posiciones contra el binario (trampa [1](#1)).
+
+### 27. Los props estáticos no miran para donde miran los actores {#27}
+
+**Síntoma:** renderizás con la convención de actor y la vista etiquetada
+"frente" muestra la espalda.
+
+**Por qué pasa:** en Skyrim el frente de un **actor** es +Y, pero eso es una
+convención del sistema de actores. `[OBSERVED]` El estático
+`dwarvensteamcenturion.nif` mira a **−Y**: su vista de frente es azimut 0, no
+180.
+
+**Arreglo:** no lo deduzcas del tipo de archivo. Renderizá las dos y mirá cuál
+tiene la cara. Por eso `scripts/render_referencia.py` toma `--frente-az` en vez
+de traer la convención cableada, y avisa en pantalla cómo invertirla.
+
+Es la misma familia que la trampa [19](#19): allá el error estaba en la cámara,
+acá en el archivo. El síntoma es el mismo y la consecuencia también — juzgar un
+modelo sobre un render mal etiquetado.
 
 ## Proceso
 

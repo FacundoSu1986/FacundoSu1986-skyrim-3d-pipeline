@@ -171,6 +171,13 @@ pieza que mañana pierda una atadura.
   UV, texturas, proporción, aristas de borde (canonicalizadas por posición),
   cuántos cuerpos sueltos trae. Correlo **siempre** antes de trabajar con un
   modelo nuevo, y **decidí con sus números**, no con lo que esperabas.
+- **`scripts/render_referencia.py`** — renderiza un asset vanilla como
+  referencia limpia para ControlNet: profundidad, arcilla y silueta, con
+  encuadre compartido entre vistas. Es el primer paso de la técnica de "meter el
+  estilo dentro de la imagen antes del 3D" (ver `pedir-a-la-ia-3d.md`).
+
+  A diferencia de un render de comparación, no dibuja nada encima: una regla de
+  proporciones arruina un ControlNet.
 - **`scripts/preparar_parte.py`** — soldar, decimar a un presupuesto y, si se lo
   pedís con `--girar-180`, orientar. No gira por defecto a propósito: una
   rotación es destructiva y no debe dispararse por una heurística.
