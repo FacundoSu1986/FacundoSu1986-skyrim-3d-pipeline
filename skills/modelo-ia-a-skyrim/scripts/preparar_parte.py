@@ -35,7 +35,7 @@ import sys
 
 import bmesh
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Matrix
 
 # Fraccion del alto del modelo que se usa como distancia de soldadura. Lo
 # bastante chica para no fusionar detalle real, lo bastante grande para cerrar
@@ -63,7 +63,11 @@ def importar(ruta):
     mallas = [o for o in bpy.data.objects if o.type == 'MESH']
     if not mallas:
         raise SystemExit("%s no trae mallas" % ruta)
+    # Ver medir_parte.importar(): dos objetos que comparten datablock se
+    # transforman dos veces y la caja sale bien formada y equivocada.
     for o in mallas:
+        if o.data.users > 1:
+            o.data = o.data.copy()
         o.data.transform(o.matrix_world)
         o.matrix_world = Matrix.Identity(4)
     return mallas
@@ -128,6 +132,16 @@ def main():
     entrada, salida, presupuesto = args[0], args[1], int(args[2])
     girar = "--girar-180" in args
 
+    # Comprobar ANTES de trabajar. Estaba al final: la segunda corrida
+    # importaba, soldaba y decimaba --lo caro-- y recien entonces avisaba que
+    # el destino ya existia.
+    destino = os.path.abspath(salida)
+    if os.path.exists(destino) and "--force" not in args:
+        raise SystemExit(
+            "%s ya existe. Preparar una parte es caro y sobrescribir sin avisar "
+            "puede perder trabajo: usa --force si de verdad queres pisarlo."
+            % destino)
+
     limpiar()
     nombre = os.path.splitext(os.path.basename(salida))[0]
     obj = unir(importar(entrada), nombre)
@@ -153,13 +167,7 @@ def main():
     else:
         prop_txt = "alto ~ 0 (pieza plana); proporcion no aplica"
 
-    destino = os.path.abspath(salida)
-    if os.path.exists(destino) and "--force" not in args:
-        raise SystemExit(
-            "%s ya existe. Preparar una parte es caro y sobrescribir sin avisar "
-            "puede perder trabajo: usa --force si de verdad queres pisarlo."
-            % destino)
-    os.makedirs(os.path.dirname(destino), exist_ok=True)
+    os.makedirs(os.path.dirname(destino) or ".", exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=destino)
 
     print("[%s] %d -soldado-> %d -decimado-> %d tris (ratio %.4f)%s"

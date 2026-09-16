@@ -27,6 +27,7 @@ from nif_sintetico import construir
 preparar_path()
 
 import censo_nif  # noqa: E402  (la semilla, en skills/.../scripts)
+import nif_nodos  # noqa: E402  (el verificador independiente que manda SKILL.md)
 import parser_nif  # noqa: E402  (el parser del censo, en census/)
 
 
@@ -112,9 +113,19 @@ class SemillaDeLaSkillTests(BaseSintetico):
 
 
 class ConcordanciaEntreParsersTests(BaseSintetico):
-    """Dos implementaciones escritas por separado sobre los mismos bytes."""
+    """LOS TRES parsers del repo, sobre los mismos bytes.
 
-    def test_coinciden(self):
+    `nif_nodos.py` estaba fuera de esta concordancia, y es justamente el que
+    SKILL.md presenta como verificador independiente: "un verificador que
+    depende de la misma herramienta que estas verificando no verifica nada".
+    Quedaba sin verificar el verificador.
+
+    Comprobado con la tecnica del propio repo: inyectandole a nif_nodos la
+    misma deriva de 4 bytes que documenta DECISIONS.md, la suite seguia en
+    verde con 25 ok mientras `leer()` reventaba pidiendo un buffer de 2 GB.
+    """
+
+    def test_censo_y_semilla_coinciden(self):
         a = parser_nif.Nif(self.ruta)
         b = censo_nif.Nif(self.ruta)
         self.assertEqual(a.raiz(), b.raiz())
@@ -123,6 +134,28 @@ class ConcordanciaEntreParsersTests(BaseSintetico):
         self.assertEqual(a.bsxflags_info()[0], b.bsxflags())
         self.assertEqual([t for t, _, _ in a.bloques],
                          [t for t, _, _ in b.bloques])
+
+    def test_nif_nodos_tambien_coincide(self):
+        c = nif_nodos.leer(self.ruta)
+        self.assertEqual(c["n_bloques"], self.esperado["n_bloques"])
+        self.assertEqual(c["bs"], self.esperado["bs"])
+        nombres = {v["nombre"] for v in c["nodos"].values()}
+        self.assertEqual(nombres, self.esperado["nombres_nodo"])
+
+    def test_nif_nodos_ubica_el_hijo_donde_los_otros(self):
+        c = nif_nodos.leer(self.ruta)
+        pos, _ = nif_nodos.mundo(c)
+        self.assertEqual(tuple(pos["HijoDePrueba"][:3]),
+                         self.esperado["hijo_en_mundo"])
+        # Y contra la semilla, que calcula lo mismo por su cuenta.
+        suyo = censo_nif.Nif(self.ruta).mundo()["HijoDePrueba"]
+        self.assertEqual(tuple(pos["HijoDePrueba"][:3]), tuple(suyo[:3]))
+
+    def test_nif_nodos_tampoco_toma_el_marcador_por_nodo(self):
+        c = nif_nodos.leer(self.ruta)
+        nombres = {v["nombre"] for v in c["nodos"].values()}
+        self.assertNotIn(self.esperado["nombre_marcador"], nombres)
+        self.assertNotIn("BSFurnitureMarkerNode", nif_nodos.TIPOS_NODO)
 
 
 class FurnitureMarkerTests(BaseSintetico):

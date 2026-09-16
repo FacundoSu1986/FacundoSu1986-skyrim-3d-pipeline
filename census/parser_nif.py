@@ -908,7 +908,13 @@ def autotest(raiz):
     print("")
     print("  %d comprobaciones ok, %d fallidas, %d archivos no encontrados"
           % (ok, fallo, falta))
-    if fallo:
+    if ok == 0:
+        # Cero comprobaciones no es exito. Apuntar --autotest a una carpeta
+        # vacia o equivocada devolvia 0 y el README promete que "avisa si no
+        # esta listo para censar": con cero reproducciones no avisaba nada.
+        print("  NO se comprobo NADA. Revisa la ruta del corpus.")
+        return False
+    if fallo or falta:
         print("  El parser NO esta listo para censar.")
     elif falta:
         print("  Ok hasta donde se pudo comprobar, pero faltan archivos.")
@@ -973,7 +979,11 @@ def main():
         print("     python parser_nif.py <archivo.nif> [...]")
         return
     if a[0] == "--autotest":
-        autotest(a[1])
+        # El valor de retorno TIENE que mover el exit code. Estaba descartado:
+        # el parser que produce el censo era el unico que no podia romper un
+        # build, mientras la semilla si lo hacia. Orden de severidad invertido.
+        if not autotest(a[1]):
+            raise SystemExit(1)
         return
     if a[0] == "--censo":
         raiz = a[1]
