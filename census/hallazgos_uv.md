@@ -24,6 +24,15 @@ el cruce contra Blender.
 float32 es exacto). 1.998 shapes de `armor/` leídos sin violar ninguna
 identidad de tamaño, 0 errores.
 
+> **Los números de arriba se midieron; el exit code no los respaldaba.**
+> Los dos casos de la suite que dependen del corpus no podían fallar: el
+> del cruce analítico calculaba "peor desvío" sobre cero shapes y 0,0 < 0,02
+> imprimía `ok`; el de la identidad de tamaño acumulaba los errores en un
+> contador y le sumaba al total **otro** contador que nunca se incrementaba.
+> Apuntada a una carpeta sin un solo NIF, la suite decía "Sin fallas" y
+> devolvía 0. Corregido, y con un test que enumera la propiedad —no el
+> caso— para que un caso futuro escrito con el mismo reflejo caiga ahí.
+
 ### 2. Dos defectos que la suite atrapó ANTES de censar nada
 
 **AFIRMACIÓN**: (a) Sin regla de relleno, dos triángulos que comparten una
