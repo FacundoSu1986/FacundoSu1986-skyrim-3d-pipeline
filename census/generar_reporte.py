@@ -1,6 +1,7 @@
 import json
-import math
 from collections import Counter, defaultdict
+
+from agregados import mediana, p90
 
 def compute_all():
     with open("censo.jsonl", "r", encoding="utf-8") as f:
@@ -146,24 +147,18 @@ def compute_all():
         top = e["ruta_relativa"].replace("\\", "/").split("/")[0]
         tris_by_class[top].append(e.get("triangulos_totales", 0))
 
-    def percentile(arr, p):
-        if not arr: return 0
-        arr_s = sorted(arr)
-        k = (len(arr_s) - 1) * p
-        f = math.floor(k)
-        c = math.ceil(k)
-        if f == c:
-            return arr_s[int(k)]
-        return arr_s[f] * (c - k) + arr_s[c] * (k - f)
-
+    # Mediana y p90 son las de agregados.py (percentil por rango mas
+    # cercano, con tests). La copia local interpolaba: mismos datos, mismo
+    # nombre de metrica, OTROS numeros (90.1 vs 90 para 1..100). Una sola
+    # definicion: la que CI puede romper.
     print(f"{'Clase':<20} | {'N':>6} | {'Mediana':>10} | {'P90':>10} | {'Máximo':>10}")
     print("-" * 65)
     for fld in sorted(tris_by_class.keys()):
         arr = tris_by_class[fld]
-        med = percentile(arr, 0.50)
-        p90 = percentile(arr, 0.90)
+        med = mediana(arr)
+        p90v = p90(arr)
         mx = max(arr) if arr else 0
-        print(f"{fld:<20} | {len(arr):>6} | {med:>10.1f} | {p90:>10.1f} | {mx:>10d}")
+        print(f"{fld:<20} | {len(arr):>6} | {med:>10.1f} | {p90v:>10.1f} | {mx:>10d}")
 
     # -------------------------------------------------------------
     # e. vertices_por_shape: máximo global, cerca de 65.535?
