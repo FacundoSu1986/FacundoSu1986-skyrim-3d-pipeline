@@ -285,22 +285,34 @@ def rasterizar(tris_uv, res=GRID):
         gx1 = max(0, min(res - 1, int(max(x0, x1, x2) * res)))
         gy0 = max(0, min(res - 1, int(min(y0, y1, y2) * res)))
         gy1 = max(0, min(res - 1, int(max(y0, y1, y2) * res)))
+        # Funciones de arista INCREMENTALES. Son lineales en (px, py), asi que
+        # avanzar una celda es sumar una constante en vez de recalcular tres
+        # productos. El perfil decia que el 94 % del censo se iba aca; sin
+        # esto, la muestra tardaba 2,4 s por archivo.
+        a0, b0 = -(y1 - y0), (x1 - x0)
+        a1, b1 = -(y2 - y1), (x2 - x1)
+        a2, b2 = -(y0 - y2), (x0 - x2)
+        px0 = (gx0 + 0.5) * paso
+        py0 = (gy0 + 0.5) * paso
+        f0 = a0 * (px0 - x0) + b0 * (py0 - y0)
+        f1 = a1 * (px0 - x1) + b1 * (py0 - y1)
+        f2 = a2 * (px0 - x2) + b2 * (py0 - y2)
+        dx0, dx1, dx2 = a0 * paso, a1 * paso, a2 * paso
+        dy0, dy1, dy2 = b0 * paso, b1 * paso, b2 * paso
+        tl0, tl1, tl2 = tl
         for gy in range(gy0, gy1 + 1):
-            py = (gy + 0.5) * paso
+            e0, e1, e2 = f0, f1, f2
             for gx in range(gx0, gx1 + 1):
-                px = (gx + 0.5) * paso
-                e0 = (x1 - x0) * (py - y0) - (y1 - y0) * (px - x0)
-                e1 = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
-                e2 = (x0 - x2) * (py - y2) - (y0 - y2) * (px - x2)
-                dentro = True
-                for e, es_tl in ((e0, tl[0]), (e1, tl[1]), (e2, tl[2])):
-                    if e > eps:
-                        continue
-                    if e < -eps or not es_tl:
-                        dentro = False
-                        break
-                if dentro:
+                if ((e0 > eps or (e0 > -eps and tl0)) and
+                        (e1 > eps or (e1 > -eps and tl1)) and
+                        (e2 > eps or (e2 > -eps and tl2))):
                     g[(gx, gy)] += 1
+                e0 += dx0
+                e1 += dx1
+                e2 += dx2
+            f0 += dy0
+            f1 += dy1
+            f2 += dy2
     return g
 
 
@@ -318,14 +330,39 @@ def metricas_uv(uv, tris, pos, res=GRID):
     pasadas = sum(g.values())
     exceso = sum(v - 1 for v in g.values() if v >= 2)
 
-    dens = []
+    # Densidad de texel = area 3D / area UV. Dos cuidados que NO son cosmeticos:
+    #
+    #  * Un umbral absoluto (au > 1e-12) deja pasar triangulos degenerados: con
+    #    area UV 1e-11 y area 3D 100 sale una densidad de 1e13. Medido: 111 de
+    #    7.751 shapes daban ratios sobre 1e6, con casos de 1e36.
+    #  * Peor: los no finitos ENVENENAN EL ORDEN. NaN compara falso contra todo,
+    #    asi que sorted() devuelve una lista que no esta ordenada y los
+    #    percentiles salen incoherentes -- se vio un p10 (4,2) MAYOR que la
+    #    mediana (1,5), que es aritmeticamente imposible y delata el problema.
+    #
+    # El umbral es relativo al area UV tipica del shape, no absoluto.
+    crudas = []
     for (a, b, c) in tris:
         if max(a, b, c) >= len(uv) or max(a, b, c) >= len(pos):
             continue
         au = area2(uv[a], uv[b], uv[c])
         a3 = area3(pos[a], pos[b], pos[c])
-        if au > 1e-12:
-            dens.append(a3 / au)
+        crudas.append((au, a3))
+    if crudas:
+        aus = sorted(x[0] for x in crudas)
+        mediana_au = aus[len(aus) // 2]
+        piso = max(1e-12, mediana_au * 1e-4)
+    else:
+        piso = 1e-12
+    dens = []
+    n_degenerados = 0
+    for au, a3 in crudas:
+        if au <= piso:
+            n_degenerados += 1
+            continue
+        d = a3 / au
+        if d == d and d not in (float("inf"), float("-inf")):
+            dens.append(d)
     dens.sort()
 
     def q(p):
@@ -349,6 +386,7 @@ def metricas_uv(uv, tris, pos, res=GRID):
         "densidad_p50": round(q(0.50), 4) if dens else None,
         "densidad_p90": round(q(0.90), 4) if dens else None,
         "tris_fuera_01": fuera,
+        "tris_uv_degenerados": n_degenerados,
         "uv_rango": [round(min(us), 4), round(max(us), 4),
                      round(min(vs), 4), round(max(vs), 4)],
     }
@@ -524,6 +562,27 @@ def autotest(raiz=None):
 
 # --- cli --------------------------------------------------------------------
 
+def _texset_de(nif, shader_idx):
+    """Indice del BSShaderTextureSet que usa ese shader, o -1."""
+    if not nif._ref_valida(shader_idx):
+        return -1
+    tipo, o, s = nif.bloques[shader_idx]
+    if tipo != "BSLightingShaderProperty":
+        return -1
+    try:
+        _st, = struct.unpack_from("<I", nif.d, o)
+        _n, num_ed = struct.unpack_from("<iI", nif.d, o + 4)
+        q = o + 16 + 4 * num_ed
+        if q + 28 > o + s:
+            return -1
+        tex_ref, = struct.unpack_from("<i", nif.d, q + 24)
+        if nif._ref_valida(tex_ref) and                 nif.bloques[tex_ref][0] == "BSShaderTextureSet":
+            return tex_ref
+    except Exception:
+        pass
+    return -1
+
+
 def fila(ruta, base):
     nif = Nif(ruta)
     rel = os.path.relpath(ruta, base).replace(os.sep, "/")
@@ -541,12 +600,18 @@ def fila(ruta, base):
             e.update(m)
         shapes.append(e)
         if sh.get("con_uv") and sh["tris"]:
-            por_texset[sh["shader_idx"]].append(sh)
+            # Por TEXTURE SET, no por indice de bloque de shader: cada shape
+            # tiene su propia BSLightingShaderProperty, asi que agrupar por
+            # shader_idx no agrupa nunca nada. Se comprobo: archivos con 7
+            # shapes daban 0 grupos. Lo que se comparte de verdad es el
+            # BSShaderTextureSet -- el Steam Centurion tiene 15 shapes y UN
+            # solo texture set.
+            por_texset[_texset_de(nif, sh["shader_idx"])].append(sh)
 
     # la pregunta central: shapes que comparten shader, se pisan entre si?
     compartidos = []
     for sidx, grupo in por_texset.items():
-        if len(grupo) < 2:
+        if sidx < 0 or len(grupo) < 2:
             continue
         todos = []
         for sh in grupo:
@@ -557,7 +622,7 @@ def fila(ruta, base):
         cub = len(g)
         sol = sum(1 for v in g.values() if v >= 2)
         compartidos.append({
-            "shader_idx": sidx, "n_shapes": len(grupo),
+            "texset_idx": sidx, "n_shapes": len(grupo),
             "nombres": [s["nombre"] for s in grupo][:8],
             "solape_huella": round(sol / float(cub), 6) if cub else 0.0,
         })
