@@ -6,7 +6,7 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 ### 1. Suite de falsificación del parser
 **AFIRMACIÓN**: El parser reproduce exactamente los seis archivos de referencia, incluidos los 6.007 triángulos de `steamcenturion.nif` (geometría en `NiSkinPartition`), los BSXFlags 130/194/203/523, los conteos de bloques (112/9/10/20) y la raíz de cada archivo. Total: 75 comprobaciones, 0 fallas.
-**CONSULTA QUE LA PRODUJO**: `python censo_nif.py --autotest meshes`
+**CONSULTA QUE LA PRODUJO**: `python parser_nif.py --autotest meshes`
 **N**: 6 archivos mandatados (21 valores exactos) + 54 comprobaciones adicionales de campos nuevos
 **EXCEPCIONES ENCONTRADAS**: 0 de 75 fallas. Durante el desarrollo se detectó y corrigió un caso que rompía el parseo: `BSFurnitureMarkerNode` no hereda de NiNode (hereda de BSFurnitureMarker ← NiExtraData); incluirlo hacía fallar 123 archivos de muebles, hoy 0.
 

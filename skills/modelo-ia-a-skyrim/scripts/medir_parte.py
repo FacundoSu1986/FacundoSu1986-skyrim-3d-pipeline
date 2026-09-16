@@ -26,7 +26,6 @@ Uso:
 """
 
 import json
-import math
 import os
 import sys
 
@@ -60,6 +59,15 @@ def importar(ruta):
     # vertices: medir en mundo y transformar en local mezcla dos espacios.
     for o in bpy.data.objects:
         if o.type == 'MESH':
+            # Si dos objetos comparten el mismo datablock de malla --el
+            # importador de glTF lo hace con geometria instanciada-- hornear la
+            # matriz lo transforma DOS veces. Reproducido: dos cubos, uno en
+            # X=0 y otro en X=5, terminan los dos en X 4.5..5.5.
+            #
+            # Es un fallo silencioso de manual: la caja envolvente sale bien
+            # formada y equivocada. Hay que volverlos single-user primero.
+            if o.data.users > 1:
+                o.data = o.data.copy()
             o.data.transform(o.matrix_world)
             o.matrix_world = Matrix.Identity(4)
     return [o for o in bpy.data.objects if o.type == 'MESH']

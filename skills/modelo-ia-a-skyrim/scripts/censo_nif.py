@@ -41,25 +41,31 @@ armadura -- justo las clases que mas interesan. Por eso trishapes() reporta
 "geometria_inline": sin esa marca, un censo de 40.000 archivos dice que la
 mitad del juego no tiene poligonos y nadie se entera.
 
-PENDIENTE #1 (el mas importante): triangulos de mallas skinneadas
+TRIANGULOS DE MALLAS SKINNEADAS: resuelto, pero no aca
 
-No esta resuelto. Se intento leer NiSkinPartition asumiendo el layout
-  numParticiones(u32) y luego por particion
-  numVertices(u16) numTriangles(u16) numBones(u16) numStrips(u16)
-  numWeightsPerVertex(u16)
-y da basura: pesos-por-vertice = 1035 (el maximo real del motor es 4) y ese
-1035 resulta ser un pedazo del vertexDesc del bloque anterior. O sea, el
-offset de arranque esta mal para SSE.
+Esta semilla NO los cuenta. La implementacion completa esta en
+census/parser_nif.py (_parse_skin_partition), con el layout fijado contra un
+valor conocido de antemano: steamcenturion.nif = 6.007 triangulos. Si
+necesitas el conteo, usa ese parser; esta semilla se queda chica a proposito.
 
-No ajustes offsets hasta que salga el numero esperado: eso es ajustar ruido.
-Saca el layout de nif.xml de NifSkope o de la libreria nifly, implementalo, y
-falsificalo contra este valor conocido:
+Como se llego ahi, porque el metodo importa mas que el dato: un primer intento
+escrito de memoria devolvia enteros perfectamente formados que eran basura
+--pesos por vertice = 1035, cuando el maximo del motor es 4-- porque leia desde
+un offset corrido, y ese 1035 era un pedazo del vertexDesc del bloque anterior.
+No tiro ninguna excepcion. Lo unico que lo delato fue tener un valor esperado
+de antemano y una cota de sanidad.
 
-  steamcenturion.nif (el de ref/, NO el de out/) = 6.007 triangulos en total
+Cota que SI vale: pesos por vertice <= 4. Medido: 42.243 de 42.243, sin
+excepciones.
 
-Y contra estas dos cotas de sanidad, que atrapan el error de offset que tuve:
-  - pesos por vertice <= 4 SIEMPRE
-  - huesos por particion <= la cantidad de NiNode del archivo
+Cota que NO vale, aunque suene razonable: "huesos por particion <= cantidad de
+NiNode del archivo". La recomendaba una version anterior de este comentario y
+el censo la refuto: falla en 1.095 de 42.243 particiones porque el array Bones[]
+viene con padding (4 ranuras tipicas sobre instancias de 1-3 huesos). Ver
+census/hallazgos.md, entrada 2.
+
+Es el mismo error que esta skill entera existe para evitar, cometido dentro de
+una advertencia contra cometerlo.
 
 Solo se valido con BS version 100 (Skyrim SE). Para Fallout 4 (BS >= 130) la
 cabecera lleva un campo extra y BSTriShape cambia de layout: hay que volver a
@@ -318,7 +324,13 @@ def autotest(raiz):
     print("")
     print("  %d comprobaciones ok, %d fallidas, %d archivos no encontrados"
           % (ok, fallo, falta))
-    if fallo:
+    if ok == 0:
+        # Cero comprobaciones no es exito. Apuntar --autotest a una carpeta
+        # vacia o equivocada devolvia 0 y el README promete que "avisa si no
+        # esta listo para censar": con cero reproducciones no avisaba nada.
+        print("  NO se comprobo NADA. Revisa la ruta del corpus.")
+        return False
+    if fallo or falta:
         print("  El parser NO esta listo para censar.")
     elif falta:
         print("  Ok hasta donde se pudo comprobar, pero faltan archivos.")
