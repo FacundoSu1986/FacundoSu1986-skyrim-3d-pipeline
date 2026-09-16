@@ -24,7 +24,7 @@ jobs:
       # preparar_parte): compileall no ejecuta los imports, así que valida su
       # sintaxis aunque `bpy` no exista en el runner.
       - name: Syntax check (compileall)
-        run: python -m compileall -q census skills tests
+        run: python -m compileall -q census skills tests pipeline
 
       # Tests de Python puro: import smoke, invariantes de tablas, funciones
       # puras, y la ida y vuelta contra un NIF sintetico construido byte a byte

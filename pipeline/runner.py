@@ -1,0 +1,251 @@
+# -*- coding: utf-8 -*-
+"""PipelineRunner: máquina de estados explícita + ejecución de fases.
+
+Modelo deliberadamente mínimo: un enum de estados, una lista ordenada de
+fases y un bucle. No hay framework de state machines: no hace falta.
+
+Estados (uno por fase completada, más PENDING/FAILED):
+
+    PENDING → INGESTED → INSPECTED → PREPARED → TEXTURES_READY
+    → NIF_EXPORTED → READ_BACK_OK → VALIDATED → PACKAGED → PUBLISHED
+
+Cualquier excepción en cualquier fase:
+
+    * → FAILED (con diagnósticos preservados en el workspace)
+
+Garantías:
+  - las fases se ejecutan en orden; no hay API para saltar estados;
+  - si una fase falla, las siguientes no corren (en particular, PUBLISH
+    nunca corre tras un fallo: el destino final queda intacto);
+  - cada fase produce un reporte JSON en reports/ (qué entró, qué salió);
+  - el manifest se valida ANTES de crear cualquier directorio.
+
+Fases por defecto de esta slice: INGEST (copia con hash, no mueve el
+original) y PUBLISH (fail-closed: si el destino existe, error; copia del
+árbol package/ completo a un temp vecino y os.replace). El resto son
+no-ops que registran reporte vacío: son los puntos de enganche donde las
+slices siguientes conectarán los verificadores existentes (parser_nif,
+parser_dds, scripts Blender) mediante adaptadores inyectables.
+
+Publicación: os.replace de directorio es atómico dentro del mismo volumen
+en NTFS/Linux; si la plataforma no lo garantiza, queda documentado aquí
+como mejor esfuerzo fail-closed (nunca sobrescribe un destino existente).
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from typing import Callable, Mapping
+
+from .errors import PipelineError, PublishError
+from .manifest import JobManifest
+from .staging import JobWorkspace
+
+
+class Phase(Enum):
+    INGEST = "ingest"
+    INSPECT = "inspect"
+    PREPARE = "prepare"
+    PROCESS_TEXTURES = "process_textures"
+    EXPORT_NIF = "export_nif"
+    READ_BACK = "read_back"
+    VALIDATE = "validate"
+    PACKAGE = "package"
+    PUBLISH = "publish"
+
+
+class State(Enum):
+    PENDING = 0
+    INGESTED = 1
+    INSPECTED = 2
+    PREPARED = 3
+    TEXTURES_READY = 4
+    NIF_EXPORTED = 5
+    READ_BACK_OK = 6
+    VALIDATED = 7
+    PACKAGED = 8
+    PUBLISHED = 9
+    FAILED = -1
+
+
+_FASE_A_ESTADO = {
+    Phase.INGEST: State.INGESTED,
+    Phase.INSPECT: State.INSPECTED,
+    Phase.PREPARE: State.PREPARED,
+    Phase.PROCESS_TEXTURES: State.TEXTURES_READY,
+    Phase.EXPORT_NIF: State.NIF_EXPORTED,
+    Phase.READ_BACK: State.READ_BACK_OK,
+    Phase.VALIDATE: State.VALIDATED,
+    Phase.PACKAGE: State.PACKAGED,
+    Phase.PUBLISH: State.PUBLISHED,
+}
+
+ORDEN_FASES = tuple(_FASE_A_ESTADO)
+
+# Un adaptador de fase devuelve un dict con campos JSON-serializables.
+Adapter = Callable[[JobManifest, JobWorkspace], dict]
+
+
+def _fase_noop(mani: JobManifest, ws: JobWorkspace) -> dict:
+    """Placeholdo explícito: la fase no está conectada a herramientas reales.
+    Registra que corrió para que el reporte final diga la verdad."""
+    return {"ejecutada": True, "herramienta": None, "nota": "fase stub (slice 1)"}
+
+
+def _sha256(ruta: Path) -> str:
+    h = hashlib.sha256()
+    with open(ruta, "rb") as f:
+        for bloque in iter(lambda: f.read(1 << 20), b""):
+            h.update(bloque)
+    return h.hexdigest()
+
+
+def _fase_ingest(mani: JobManifest, ws: JobWorkspace) -> dict:
+    """Copia la entrada al staging. Nunca modifica ni mueve el original."""
+    fuente = Path(mani.source_mesh)
+    destino = ws.ruta_segura(Path(fuente.name), subdir="input")
+    shutil.copyfile(fuente, destino)
+    return {
+        "ejecutada": True,
+        "herramienta": "shutil.copyfile",
+        "entrada": str(fuente),
+        "salida": destino.name,
+        "sha256": _sha256(destino),
+    }
+
+
+def _fase_publish(mani: JobManifest, ws: JobWorkspace) -> dict:
+    """Publica package/ al destino final con política fail-closed.
+
+    - destino existente -> PublishError (nunca sobrescribe en silencio);
+    - se construye el árbol en un temp vecino al destino y se renombra con
+      os.replace (atómico en el mismo volumen NTFS/POSIX; si no lo es, el
+      peor caso es un destino ausente, jamás un destino mezclado).
+    """
+    origen = ws.subdir("package")
+    if not any(origen.iterdir()):
+        raise PublishError(
+            "package/ vacío: no hay nada que publicar (falló una fase previa)"
+        )
+    destino = (Path(mani.raiz_salida) / mani.job_id).resolve()
+    if destino.exists():
+        raise PublishError(
+            f"destino ya existe, no se sobrescribe (fail-closed): {destino}"
+        )
+    tmp = destino.with_name(destino.name + ".part")
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    try:
+        shutil.copytree(origen, tmp)
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(tmp, destino)
+    except PipelineError:
+        raise
+    except OSError as e:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise PublishError(f"falló la publicación a {destino}: {e}") from e
+    return {
+        "ejecutada": True,
+        "herramienta": "copytree+os.replace",
+        "destino": str(destino),
+        "archivos": sorted(p.name for p in destino.rglob("*") if p.is_file()),
+    }
+
+
+FASES_POR_DEFECTO: Mapping[Phase, Adapter] = {
+    Phase.INGEST: _fase_ingest,
+    Phase.INSPECT: _fase_noop,
+    Phase.PREPARE: _fase_noop,
+    Phase.PROCESS_TEXTURES: _fase_noop,
+    Phase.EXPORT_NIF: _fase_noop,
+    Phase.READ_BACK: _fase_noop,
+    Phase.VALIDATE: _fase_noop,
+    Phase.PACKAGE: _fase_noop,
+    Phase.PUBLISH: _fase_publish,
+}
+
+
+@dataclass
+class RunResult:
+    """Resultado estructurado de una corrida. evidencia, no narración."""
+
+    estado: State
+    reports: dict[str, dict]
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.estado is State.PUBLISHED
+
+
+class PipelineRunner:
+    """Ejecuta las fases en orden sobre un JobManifest validado."""
+
+    def __init__(
+        self,
+        manifest: JobManifest,
+        fases: Mapping[Phase, Adapter] | None = None,
+    ) -> None:
+        self.manifest = manifest
+        self.fases = dict(FASES_POR_DEFECTO)
+        if fases:
+            self.fases.update(fases)
+        self._validar_fases()
+
+    def _validar_fases(self) -> None:
+        desconocidas = set(self.fases) - set(ORDEN_FASES)
+        if desconocidas:
+            raise PipelineError(f"fases desconocidas: {desconocidas}")
+        faltantes = set(ORDEN_FASES) - set(self.fases)
+        if faltantes:
+            raise PipelineError(f"fases sin adaptador: {faltantes}")
+
+    def run(self) -> RunResult:
+        """Ejecuta el pipeline. Devuelve RunResult; nunca lanza por fallo de
+        fase (el fallo queda en result.error y estado=FAILED). Sí lanza por
+        manifest inválido: ese error es previo a cualquier ejecución."""
+        self.manifest.validar()
+        ws = JobWorkspace(self.manifest.workspace_raiz, self.manifest.job_id)
+        ws.crear()
+
+        reports: dict[str, dict] = {}
+        estado = State.PENDING
+        for fase in ORDEN_FASES:
+            try:
+                reports[fase.value] = self.fases[fase](self.manifest, ws)
+            except Exception as e:
+                reports[fase.value] = {
+                    "ejecutada": False,
+                    "error": f"{type(e).__name__}: {e}",
+                }
+                estado = State.FAILED
+                self._escribir_final(ws, estado, reports, str(e))
+                return RunResult(estado=estado, reports=reports, error=str(e))
+            estado = _FASE_A_ESTADO[fase]
+        self._escribir_final(ws, estado, reports, None)
+        return RunResult(estado=estado, reports=reports)
+
+    @staticmethod
+    def _escribir_final(
+        ws: JobWorkspace,
+        estado: State,
+        reports: dict[str, dict],
+        error: str | None,
+    ) -> None:
+        """Persiste evidencia estructurada. Si ni siquiera el reporte se puede
+        escribir, se intenta best-effort y se avisa en el error de vuelta."""
+        final = {
+            "estado": estado.name,
+            "error": error,
+            "fases": reports,
+        }
+        ruta = ws.subdir("reports") / "final.json"
+        ruta.write_text(
+            json.dumps(final, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
