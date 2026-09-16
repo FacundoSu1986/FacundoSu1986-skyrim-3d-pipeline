@@ -207,6 +207,12 @@ def autotest(raiz):
     print("  %d ilegibles" % ilegible)
     for r, m in ejemplos:
         print("    %s\n      %s" % (r, m))
+    if ok == 0:
+        # Cero comprobaciones no es exito: misma guarda que parser_nif, que
+        # aca no se propago. Una carpeta vacia o equivocada devolvia True
+        # ("validado sobre 0 archivos") y exit 0.
+        print("  NO se comprobo NADA. Revisa la ruta del corpus.")
+        return False
     if malo or ilegible:
         print("  El parser NO esta validado. Arreglar antes de censar.")
         return False
@@ -220,8 +226,14 @@ def main():
         print(__doc__)
         return
     if a[0] == "--autotest":
+        if len(a) < 2:
+            print("Uso: --autotest <carpeta de texturas>")
+            raise SystemExit(2)
         sys.exit(0 if autotest(a[1]) else 1)
     if a[0] == "--censo":
+        if len(a) < 2 or (a[-1] == "--salida"):
+            print("Uso: --censo <carpeta> [--salida censo_dds.jsonl]")
+            raise SystemExit(2)
         raiz = a[1]
         salida = a[a.index("--salida") + 1] if "--salida" in a else "censo_dds.jsonl"
         n_ok = n_err = 0

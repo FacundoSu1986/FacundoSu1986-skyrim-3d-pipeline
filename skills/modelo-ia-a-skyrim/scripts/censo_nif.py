@@ -149,7 +149,10 @@ class Nif(object):
 
     def bsxflags(self):
         for o, _ in self.de_tipo("BSXFlags"):
-            _, valor = struct.unpack_from("<Ii", self.d, o)
+            # El valor es uint32, como lo lee census/parser_nif.py. Leerlo
+            # con signo divergia solo para flags con el bit 31 encendido;
+            # el fixture y el corpus usan valores bajos y no lo delataban.
+            _, valor = struct.unpack_from("<II", self.d, o)
             return valor
         return None
 
@@ -330,13 +333,16 @@ def autotest(raiz):
         # esta listo para censar": con cero reproducciones no avisaba nada.
         print("  NO se comprobo NADA. Revisa la ruta del corpus.")
         return False
-    if fallo or falta:
+    if fallo:
         print("  El parser NO esta listo para censar.")
     elif falta:
         print("  Ok hasta donde se pudo comprobar, pero faltan archivos.")
     else:
         print("  Parser validado. Ahora si, censar.")
-    return fallo == 0
+    # Corpus incompleto no es validacion: antes con falta>0 y fallo==0 se
+    # imprimia "El parser NO esta listo" y sin embargo se devolvia True
+    # (exit 0). Mensaje y exit code tienen que decir lo mismo.
+    return fallo == 0 and falta == 0
 
 
 def main():
@@ -345,10 +351,16 @@ def main():
         print(__doc__)
         return
     if a[0] == "--autotest":
+        if len(a) < 2:
+            print("Uso: --autotest <carpeta del corpus>")
+            raise SystemExit(2)
         if not autotest(a[1]):
             raise SystemExit(1)
         return
     if a[0] == "--censo":
+        if len(a) < 2 or (a[-1] == "--salida"):
+            print("Uso: --censo <carpeta> [--salida censo.jsonl]")
+            raise SystemExit(2)
         raiz = a[1]
         salida = a[a.index("--salida") + 1] if "--salida" in a else "censo.jsonl"
         n_ok = n_err = 0

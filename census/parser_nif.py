@@ -914,13 +914,16 @@ def autotest(raiz):
         # esta listo para censar": con cero reproducciones no avisaba nada.
         print("  NO se comprobo NADA. Revisa la ruta del corpus.")
         return False
-    if fallo or falta:
+    if fallo:
         print("  El parser NO esta listo para censar.")
     elif falta:
         print("  Ok hasta donde se pudo comprobar, pero faltan archivos.")
     else:
         print("  Parser validado. Ahora si, censar.")
-    return fallo == 0
+    # Corpus incompleto no es validacion: antes con falta>0 y fallo==0 se
+    # imprimia "El parser NO esta listo" y sin embargo se devolvia True
+    # (exit 0). Mensaje y exit code tienen que decir lo mismo.
+    return fallo == 0 and falta == 0
 
 
 # --- censo -------------------------------------------------------------------
@@ -955,7 +958,9 @@ def ejecutar_censo(raiz, salida):
         with Pool(processes=workers) as pool:
             for idx, line in enumerate(pool.imap_unordered(censar_archivo, tareas, 50), 1):
                 fh.write(line + "\n")
-                if '"error":' in line:
+                # Contar por la clave, no por la subcadena: un contenido con
+                # el literal '"error":' dentro falsearia el contador.
+                if "error" in json.loads(line):
                     n_err += 1
                 else:
                     n_ok += 1
@@ -979,6 +984,9 @@ def main():
         print("     python parser_nif.py <archivo.nif> [...]")
         return
     if a[0] == "--autotest":
+        if len(a) < 2:
+            print("Uso: --autotest <carpeta del corpus>")
+            raise SystemExit(2)
         # El valor de retorno TIENE que mover el exit code. Estaba descartado:
         # el parser que produce el censo era el unico que no podia romper un
         # build, mientras la semilla si lo hacia. Orden de severidad invertido.
@@ -986,6 +994,9 @@ def main():
             raise SystemExit(1)
         return
     if a[0] == "--censo":
+        if len(a) < 2 or (a[-1] == "--salida"):
+            print("Uso: --censo <carpeta> [--salida censo.jsonl]")
+            raise SystemExit(2)
         raiz = a[1]
         salida = a[a.index("--salida") + 1] if "--salida" in a else "censo.jsonl"
         ejecutar_censo(raiz, salida)
