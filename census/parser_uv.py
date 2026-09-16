@@ -574,22 +574,41 @@ def main():
     if a[0] == "--censo":
         raiz = a[1]
         salida = a[a.index("--salida") + 1] if "--salida" in a else "censo_uv.jsonl"
-        n_ok = n_err = 0
-        with open(salida, "w", encoding="utf-8") as fh:
+        # Reanudable, y cada fila se vuelca en el momento. El censo tarda horas
+        # y un corte a mitad de camino no tiene por que costar todo lo hecho:
+        # la primera corrida se murio a los 4.401 archivos y sin esto habria
+        # que rehacerlos.
+        hechos = set()
+        if "--continuar" in a and os.path.exists(salida):
+            with open(salida, encoding="utf-8") as fh:
+                for linea in fh:
+                    try:
+                        hechos.add(json.loads(linea)["archivo"])
+                    except Exception:
+                        pass
+            print("reanudando: %d archivos ya estaban" % len(hechos))
+        n_ok = n_err = n_salt = 0
+        with open(salida, "a" if hechos else "w", encoding="utf-8") as fh:
             for base, _, archivos in os.walk(raiz):
                 for f in archivos:
                     if not f.lower().endswith(".nif"):
                         continue
                     ruta = os.path.join(base, f)
+                    rel = os.path.relpath(ruta, raiz).replace(os.sep, "/")
+                    if rel in hechos:
+                        n_salt += 1
+                        continue
                     try:
                         r = fila(ruta, raiz)
                         n_ok += 1
                     except Exception as e:
-                        r = {"archivo": os.path.relpath(ruta, raiz).replace(os.sep, "/"),
+                        r = {"archivo": rel,
                              "error": "%s: %s" % (type(e).__name__, e)}
                         n_err += 1
                     fh.write(json.dumps(r, ensure_ascii=False) + "\n")
-        print("%s -> %d archivos, %d con error" % (salida, n_ok, n_err))
+                    fh.flush()
+        print("%s -> %d nuevos, %d con error, %d ya estaban"
+              % (salida, n_ok, n_err, n_salt))
         return
     for ruta in a:
         print(json.dumps(fila(ruta, os.path.dirname(ruta) or "."),
