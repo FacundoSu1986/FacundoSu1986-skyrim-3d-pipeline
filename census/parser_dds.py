@@ -207,6 +207,12 @@ def autotest(raiz):
     print("  %d ilegibles" % ilegible)
     for r, m in ejemplos:
         print("    %s\n      %s" % (r, m))
+    if ok == 0:
+        # Cero comprobaciones no es exito: misma guarda que parser_nif, que
+        # aca no se propago. Una carpeta vacia o equivocada devolvia True
+        # ("validado sobre 0 archivos") y exit 0.
+        print("  NO se comprobo NADA. Revisa la ruta del corpus.")
+        return False
     if malo or ilegible:
         print("  El parser NO esta validado. Arreglar antes de censar.")
         return False

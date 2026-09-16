@@ -914,13 +914,16 @@ def autotest(raiz):
         # esta listo para censar": con cero reproducciones no avisaba nada.
         print("  NO se comprobo NADA. Revisa la ruta del corpus.")
         return False
-    if fallo or falta:
+    if fallo:
         print("  El parser NO esta listo para censar.")
     elif falta:
         print("  Ok hasta donde se pudo comprobar, pero faltan archivos.")
     else:
         print("  Parser validado. Ahora si, censar.")
-    return fallo == 0
+    # Corpus incompleto no es validacion: antes con falta>0 y fallo==0 se
+    # imprimia "El parser NO esta listo" y sin embargo se devolvia True
+    # (exit 0). Mensaje y exit code tienen que decir lo mismo.
+    return fallo == 0 and falta == 0
 
 
 # --- censo -------------------------------------------------------------------
