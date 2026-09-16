@@ -17,7 +17,7 @@ Garantías:
   - las fases se ejecutan en orden; no hay API para saltar estados;
   - si una fase falla, las siguientes no corren (en particular, PUBLISH
     nunca corre tras un fallo: el destino final queda intacto);
-  - cada fase produce un reporte JSON en reports/ (qué entró, qué salió);
+  - cada fase produce un reporte JSON en reports/ (qué entrió, qué salió);
   - el manifest se valida ANTES de crear cualquier directorio.
 
 Fases por defecto de esta slice: INGEST (copia con hash, no mueve el
@@ -42,7 +42,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Mapping
 
-from .errors import PipelineError, PublishError
+from .errors import ArtifactValidationError, PipelineError, PublishError
 from .manifest import JobManifest
 from .staging import JobWorkspace
 
