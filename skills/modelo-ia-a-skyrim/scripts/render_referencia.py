@@ -17,10 +17,12 @@ del 3D:
 Asi se deja de pelear contra una forma que nunca fue pensada para ese
 esqueleto: la silueta la impone el vanilla y el prompt solo decide materiales.
 
-QUE LO DIFERENCIA DE util_render.py
+QUE LO DIFERENCIA DE UN RENDER DE COMPARACION
 
-Aquel dibuja una regla de proporciones encima, que sirve para COMPARAR a ojo y
-arruina un ControlNet. Este produce imagenes limpias.
+En el proyecto de origen habia otro script (util_render.py, quedo fuera de
+este repo) que dibujaba una regla de proporciones encima: eso sirve para
+COMPARAR a ojo, y arruina un ControlNet. Este produce imagenes limpias, sin
+nada dibujado encima.
 
 TRES PASADAS, PARA TRES USOS DISTINTOS
   profundidad  -- ControlNet depth. La mejor para conservar la forma 3D.

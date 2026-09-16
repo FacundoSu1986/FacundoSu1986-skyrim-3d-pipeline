@@ -351,10 +351,16 @@ def main():
         print(__doc__)
         return
     if a[0] == "--autotest":
+        if len(a) < 2:
+            print("Uso: --autotest <carpeta del corpus>")
+            raise SystemExit(2)
         if not autotest(a[1]):
             raise SystemExit(1)
         return
     if a[0] == "--censo":
+        if len(a) < 2 or (a[-1] == "--salida"):
+            print("Uso: --censo <carpeta> [--salida censo.jsonl]")
+            raise SystemExit(2)
         raiz = a[1]
         salida = a[a.index("--salida") + 1] if "--salida" in a else "censo.jsonl"
         n_ok = n_err = 0

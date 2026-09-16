@@ -200,6 +200,9 @@ def _chequear_seguro(ruta):
 
 
 def main():
+    if len(sys.argv) < 2:
+        print("Uso: python verificar.py <carpeta raiz> [--json salida.json]")
+        raise SystemExit(2)
     raiz = sys.argv[1]
     archivos = []
     for base, _, files in os.walk(raiz):
@@ -235,6 +238,9 @@ def main():
         print()
 
     if "--json" in sys.argv:
+        if sys.argv[-1] == "--json":
+            print("Falta el valor de --json")
+            raise SystemExit(2)
         out = sys.argv[sys.argv.index("--json") + 1]
         datos = {"sin_eventos": n_ok, "total": len(archivos),
                  "categorias": {c: {"total": sum(d.values()),

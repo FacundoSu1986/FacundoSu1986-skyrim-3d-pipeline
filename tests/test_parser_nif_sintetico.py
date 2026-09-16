@@ -238,11 +238,11 @@ class ElFixtureEsDetectorTests(BaseSintetico):
 
     def test_bloques_que_exceden_el_archivo_revientan(self):
         datos = bytearray(self.datos)
-        # Al ultimo bloque le sobreescribimos el tamano con algo enorme.
-        # Queda declarado un fin de bloques mas alla del fin de archivo.
+        # Le amputamos los ultimos 4 bytes al archivo: el ultimo bloque queda
+        # declarado con un fin mas alla del fin real del archivo.
         pos = datos.find(b"RaizDePrueba")
         self.assertGreater(pos, 0, "el fixture cambio: revisar este test")
-        datos_rotos = bytes(datos[:-4])          # amputa el ultimo bloque
+        datos_rotos = bytes(datos[:-4])
         fd, ruta = tempfile.mkstemp(suffix=".nif", prefix="roto_")
         try:
             with os.fdopen(fd, "wb") as fh:
