@@ -520,14 +520,19 @@ def autotest(raiz=None):
                     n_h += 1
                     if n_h >= 12:
                         break
-        ok = peor < 0.02
+        # n_h >= 1 es parte del criterio: con la ruta equivocada el bucle no
+        # entra nunca, peor queda en 0.0 y "0.0 < 0.02" imprimia "ok". Cero
+        # comprobaciones no es exito; es la misma guarda que census/parser_dds.
+        ok = n_h >= 1 and peor < 0.02
         fallos += 0 if ok else 1
         print("     %d shapes, peor desvio %.3f%%  %s"
               % (n_h, 100 * peor, "ok" if ok else "FALLA"))
+        if n_h == 0:
+            print("     NO se comprobo NADA contra el corpus. Revisa la ruta.")
 
     # g. identidad de tamano por shape, sobre el corpus
     if raiz:
-        n_ok = n_mal = n_err = 0
+        n_ok = n_err = 0
         malos_ej = []
         for base, _, archivos in os.walk(raiz):
             for f in archivos:
@@ -549,7 +554,13 @@ def autotest(raiz=None):
         print("     shapes con error: %d" % n_err)
         for f, m in malos_ej:
             print("       %s  %s" % (f, m))
-        fallos += n_mal
+        # n_mal se inicializaba en 0 y NUNCA se incrementaba: "fallos += n_mal"
+        # era sumar cero. El caso g imprimia los errores y no podia fallar --
+        # la cuarta vez en este repo que escribo una garantia inofensiva.
+        fallos += n_err
+        if n_ok == 0:
+            print("     NO se leyo NINGUN shape. Revisa la ruta del corpus.")
+            fallos += 1
 
     print("")
     if fallos:
