@@ -17,9 +17,10 @@ preparar_path()
 
 MODULOS_PUROS = [
     "parser_nif",      # census/
+    "parser_dds",      # census/
     "verificar",       # census/  (importa parser_nif)
     "agregados",       # census/
-    "generar_reporte",  # census/
+    "generar_reporte",  # census/  (importa agregados)
     "censo_nif",       # skills/modelo-ia-a-skyrim/scripts/
     "nif_nodos",       # skills/modelo-ia-a-skyrim/scripts/
 ]
