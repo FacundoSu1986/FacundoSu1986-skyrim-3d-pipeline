@@ -117,6 +117,75 @@ class JobManifestRechazoTests(unittest.TestCase):
             self.assertIn("job_id", msg)
             self.assertIn("asset_category", msg)
             self.assertIn("no-existe.glb", msg)
+    def test_job_id_con_salto_de_linea_final_rechazado(self):
+        # Regresión review: r"...$" + match() aceptaba "job-1\n".
+        self._assert_rechaza(job_id="job-1\n")
+
+    def test_job_id_no_string_rechazado(self):
+        self._assert_rechaza(job_id=123)
+
+    def test_source_mesh_none_da_configuration_error(self):
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            mani = _manifest(raiz, mesh, source_mesh=None)
+            with self.assertRaises(ConfigurationError) as ctx:
+                mani.validar()
+            self.assertIn("source_mesh", str(ctx.exception))
+
+    def test_rutas_none_dan_configuration_error(self):
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            mani = _manifest(
+                raiz, mesh, workspace_raiz=None, raiz_salida=None,
+            )
+            with self.assertRaises(ConfigurationError) as ctx:
+                mani.validar()
+            msg = str(ctx.exception)
+            self.assertIn("workspace_raiz", msg)
+            self.assertIn("raiz_salida", msg)
+
+    def test_string_vacio_rechazado(self):
+        # "" no se convierte silenciosamente a Path(".") (cwd): se reporta.
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            mani = _manifest(raiz, mesh, source_mesh="")
+            with self.assertRaises(ConfigurationError) as ctx:
+                mani.validar()
+            self.assertIn("inválido o vacío", str(ctx.exception))
+
+    def test_reference_asset_string_invalido_no_se_traga(self):
+        # Antes: "if self.reference_asset" trataba "" como ausente.
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            mani = _manifest(raiz, mesh, reference_asset="")
+            with self.assertRaises(ConfigurationError) as ctx:
+                mani.validar()
+            self.assertIn("reference_asset", str(ctx.exception))
+
+    def test_acepta_rutas_como_strings(self):
+        # Configuración declarativa: el JSON trae strings, no Paths.
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            mani = JobManifest(
+                job_id="job-str",
+                source_mesh=str(mesh),
+                raiz_proyecto=str(raiz),
+                workspace_raiz=str(raiz / "workspace"),
+                raiz_salida=str(raiz / "salida"),
+                texture_inputs=str(raiz / "albedo.png"),
+            )
+            (raiz / "albedo.png").write_bytes(b"\x89PNG")
+            mani.validar()
+            self.assertIsInstance(mani.source_mesh, Path)
+            self.assertEqual(len(mani.texture_inputs), 1)
+
+    def test_texture_inputs_tipo_invalido_rechazado(self):
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            mani = _manifest(raiz, mesh, texture_inputs=42)
+            with self.assertRaises(ConfigurationError) as ctx:
+                mani.validar()
+            self.assertIn("texture_inputs", str(ctx.exception))
 
 
 if __name__ == "__main__":

@@ -165,6 +165,33 @@ class RunnerFallasTests(unittest.TestCase):
             # no queda temp .part
             self.assertFalse((raiz / "salida" / "job-test.part").exists())
 
+    def test_reintento_sin_workspace_limpio_no_publica_restos(self):
+        # Regresión de review: una corrida que dejó package/ poblado NO puede
+        # ser seguida por otra que publique esos restos por casualidad.
+        tmp, raiz, mesh, manifest = _entorno()
+        with tmp:
+            # Arrange: primera corrida — PACKAGE escribe y luego falla
+            def parcial_y_falla(mani, ws):
+                (ws.subdir("package") / "parcial.nif").write_bytes(b"restos")
+                raise RuntimeError("fallo tras escribir")
+
+            res1 = PipelineRunner(
+                manifest, {Phase.PACKAGE: parcial_y_falla}
+            ).run()
+            self.assertIs(res1.estado, State.FAILED)
+            self.assertTrue(
+                (raiz / "workspace" / "job-test" / "package"
+                 / "parcial.nif").exists()
+            )
+            # Act: segunda corrida con PACKAGE "que no genera nada" —
+            # antes habría publicado parcial.nif; ahora el runner rechaza
+            # arrancar sobre un workspace sucio.
+            from pipeline.errors import ConfigurationError
+            with self.assertRaises(ConfigurationError):
+                PipelineRunner(manifest).run()
+            # Assert: el destino sigue sin existir
+            self.assertFalse((raiz / "salida" / "job-test").exists())
+
     def test_no_hay_api_para_saltar_a_published(self):
         # Assert estático: el runner no expone set_state; el estado solo
         # avanza ejecutando fases en orden.
