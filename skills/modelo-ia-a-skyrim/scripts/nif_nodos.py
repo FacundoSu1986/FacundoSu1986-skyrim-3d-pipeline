@@ -40,7 +40,8 @@ def _short(datos, i):
 
 
 def leer(ruta):
-    datos = open(ruta, "rb").read()
+    with open(ruta, "rb") as fh:
+        datos = fh.read()
     i = datos.index(b"\n") + 1
     version, = struct.unpack_from("<I", datos, i); i += 4
     i += 1                                              # endian

@@ -149,7 +149,10 @@ class Nif(object):
 
     def bsxflags(self):
         for o, _ in self.de_tipo("BSXFlags"):
-            _, valor = struct.unpack_from("<Ii", self.d, o)
+            # El valor es uint32, como lo lee census/parser_nif.py. Leerlo
+            # con signo divergia solo para flags con el bit 31 encendido;
+            # el fixture y el corpus usan valores bajos y no lo delataban.
+            _, valor = struct.unpack_from("<II", self.d, o)
             return valor
         return None
 

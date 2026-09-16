@@ -212,8 +212,13 @@ class SinFugasDeDescriptorTests(BaseSintetico):
     def test_la_semilla_no_fuga(self):
         self.assertEqual(self._fugas_al_parsear(censo_nif.Nif), [])
 
+    def test_nif_nodos_no_fuga(self):
+        # Era el unico lector que abria sin with; la guarda miraba a los dos
+        # que ya cerraban bien y no a el.
+        self.assertEqual(self._fugas_al_parsear(nif_nodos.leer), [])
+
     def test_el_detector_detecta(self):
-        """Si este test no falla al fugar a proposito, los dos de arriba no
+        """Si este test no falla al fugar a proposito, los tres de arriba no
         valen nada."""
         def fuga(ruta):
             open(ruta, "rb").read()          # sin close, deliberado
