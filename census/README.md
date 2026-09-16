@@ -21,6 +21,8 @@ Las tres son falsas, y las tres se refutan contando.
 | `hallazgos.md` | 15 hallazgos medidos sobre las mallas, en formato fijo. |
 | `parser_dds.py` | Lee encabezados DDS. Su autotest predice el tamaño exacto de los 32.241 archivos del corpus. |
 | `hallazgos_texturas.md` | 10 hallazgos medidos sobre las texturas. |
+| `parser_uv.py` | Extrae UV y triangulos del NIF y mide solape, densidad de texel e islas. Sin Blender. |
+| `hallazgos_uv.md` | 6 hallazgos sobre UV, incluido uno que **refuta** la hipotesis que motivo el censo. |
 
 ## El censo no está en este repo
 
@@ -64,6 +66,10 @@ python agregados.py d e f      # solo algunas
 python parser_dds.py --autotest textures
 #    -> 32.241 con el tamano exacto que predice el encabezado
 python parser_dds.py --censo textures --salida censo_dds.jsonl
+
+# 7. Y las UV. --continuar reanuda si se corta: tarda una hora larga.
+python parser_uv.py --autotest meshes
+python parser_uv.py --censo meshes --salida censo_uv.jsonl --continuar
 ```
 
 ### La suite de falsificacion de DDS es mas fuerte que la de mallas
