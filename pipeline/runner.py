@@ -91,6 +91,19 @@ ORDEN_FASES = tuple(_FASE_A_ESTADO)
 Adapter = Callable[[JobManifest, JobWorkspace], dict]
 
 
+def _fase_inspect(mani: JobManifest, ws: JobWorkspace) -> dict:
+    """Inspección veraz read-only (issue #4): corre sobre la copia en
+    input/, nunca sobre el source_mesh original. Formatos sin inspector se
+    reportan honestamente (inspeccionado=False), no se fingen."""
+    from .inspection import inspeccionar_malla
+
+    entradas = sorted(ws.subdir("input").iterdir())
+    if not entradas:
+        raise ArtifactValidationError("fase INSPECT sin entrada en input/")
+    # Slice 2: un solo archivo fuente por job (el MVP es un asset por job).
+    return inspeccionar_malla(entradas[0])
+
+
 def _fase_noop(mani: JobManifest, ws: JobWorkspace) -> dict:
     """Placeholdo explícito: la fase no está conectada a herramientas reales.
     Registra que corrió para que el reporte final diga la verdad."""
@@ -159,7 +172,7 @@ def _fase_publish(mani: JobManifest, ws: JobWorkspace) -> dict:
 
 FASES_POR_DEFECTO: Mapping[Phase, Adapter] = {
     Phase.INGEST: _fase_ingest,
-    Phase.INSPECT: _fase_noop,
+    Phase.INSPECT: _fase_inspect,
     Phase.PREPARE: _fase_noop,
     Phase.PROCESS_TEXTURES: _fase_noop,
     Phase.EXPORT_NIF: _fase_noop,

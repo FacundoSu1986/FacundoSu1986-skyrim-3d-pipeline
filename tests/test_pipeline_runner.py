@@ -23,16 +23,18 @@ from pipeline.errors import PublishError
 from pipeline.manifest import JobManifest
 from pipeline.runner import Phase, PipelineRunner, State
 from pipeline.staging import JobWorkspace
+from glb_sintetico import construir
 
 
 def _entorno():
-    """Crea proyecto temporario: raiz, workspace, salida y un source mesh."""
+    """Crea proyecto temporario: raiz, workspace, salida y un source mesh
+    GLB válido (desde la slice 2, INSPECT parsea el contenido de verdad)."""
     tmp = tempfile.TemporaryDirectory()
     raiz = Path(tmp.name)
     (raiz / "workspace").mkdir()
     (raiz / "salida").mkdir()
     mesh = raiz / "entrada.glb"
-    mesh.write_bytes(b"mesh-sintetico-determinista")
+    mesh.write_bytes(construir())
     manifest = JobManifest(
         job_id="job-test",
         source_mesh=mesh,
@@ -191,6 +193,26 @@ class RunnerFallasTests(unittest.TestCase):
                 PipelineRunner(manifest).run()
             # Assert: el destino sigue sin existir
             self.assertFalse((raiz / "salida" / "job-test").exists())
+
+    def test_glb_invalido_detiene_en_inspect(self):
+        # Arrange: el source es .glb por extensión pero con contenido roto
+        tmp, raiz, mesh, manifest = _entorno()
+        with tmp:
+            mesh.write_bytes(b"no-soy-un-glb")
+            # Act
+            res = PipelineRunner(
+                manifest, {Phase.PACKAGE: _fase_package_real}
+            ).run()
+            # Assert: falló en INSPECT y el destino quedó intacto
+            self.assertIs(res.estado, State.FAILED)
+            self.assertIn("no es GLB", res.error)
+            self.assertFalse((raiz / "salida" / "job-test").exists())
+            # y el reporte de inspect dejó evidencia del fallo
+            final = json.loads(
+                (raiz / "workspace" / "job-test" / "reports" / "final.json")
+                .read_text(encoding="utf-8")
+            )
+            self.assertEqual(final["estado"], "FAILED")
 
     def test_no_hay_api_para_saltar_a_published(self):
         # Assert estático: el runner no expone set_state; el estado solo
