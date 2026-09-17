@@ -33,10 +33,13 @@ import struct
 import sys
 
 _AQUI = os.path.dirname(os.path.abspath(__file__))
+if _AQUI not in sys.path:
+    sys.path.insert(0, _AQUI)
 sys.path.insert(0, os.path.join(_AQUI, "..", "census"))
 
 import parser_nif  # noqa: E402
 import parser_uv  # noqa: E402
+import registrar  # noqa: E402
 
 REFERENCIA = os.path.join(_AQUI, "roadsignwhiterun01.json")
 
@@ -47,48 +50,6 @@ CAMPOS_IDENTIDAD = (
     "tiene_skin", "bsxflags", "n_shapes", "triangulos_totales", "shapes",
     "geometria", "colision", "texturas_referenciadas",
 )
-
-UNIDADES_POR_METRO = 70.0
-
-
-def _caja(posiciones):
-    """AABB en unidades de Skyrim. None si el shape no trae posiciones."""
-    if not posiciones:
-        return None
-    ejes = []
-    for i in range(3):
-        vals = [p[i] for p in posiciones]
-        ejes.append((min(vals), max(vals)))
-    return {
-        "min": [round(a, 4) for a, _ in ejes],
-        "max": [round(b, 4) for _, b in ejes],
-        "tamano_unidades": [round(b - a, 4) for a, b in ejes],
-        "tamano_metros": [round((b - a) / UNIDADES_POR_METRO, 4) for a, b in ejes],
-    }
-
-
-def _geometria_resumen(nif):
-    """Construye el mismo resumen que registrar.medir() para --identico.
-
-    Si un shape no es legible, se guarda el error en vez de inventar numeros.
-    Asi --identico detecta regresiones de geometria y --contrato puede
-    reprobar geometria rota.
-    """
-    geo = []
-    for sh in parser_uv.geometria(nif):
-        if "error" in sh:
-            geo.append({"nombre": sh.get("nombre"), "error": sh["error"]})
-            continue
-        geo.append({
-            "nombre": sh["nombre"],
-            "tipo_bloque": sh["tipo"],
-            "skin": sh["skin"],
-            "con_uv": sh["con_uv"],
-            "vertices": len(sh["pos"]),
-            "triangulos": len(sh["tris"]),
-            "caja": _caja(sh["pos"]),
-        })
-    return geo
 
 
 def _rutas_textura(nif, fila):
@@ -141,35 +102,17 @@ def reglas(ruta):
         "463 de 22.394 archivos vanilla no tienen shapes, pero son nodos "
         "auxiliares, no assets entregables"))
 
-    # P1 FIX: geometria legible — antes un shape con data_size inconsistente
-    # (inline) o con particion que no cierra pasaba tiene_geometria pero no era
-    # decodificable. parser_uv.geometria() devuelve {"error": ...} en esos casos.
-    try:
-        geos = parser_uv.geometria(nif)
-        errores_geo = [g for g in geos if "error" in g]
-    except Exception as e:
-        # Si el recorrido mismo revienta, se trata como error de geometria
-        errores_geo = [{"error": "%s: %s" % (type(e).__name__, e)}]
-        geos = []
-
-    # Detalle corto para el log, sin volcar bytes
-    if errores_geo:
-        ejemplos = ", ".join(
-            "%s: %s" % (g.get("nombre", "?"), g.get("error", "")[:60])
-            for g in errores_geo[:2]
-        )
-        detalle_geo = "%d de %d shapes con error: %s" % (
-            len(errores_geo), len(geos) if geos else fila["n_shapes"], ejemplos)
-    else:
-        detalle_geo = "%d shapes legibles" % len(geos)
-
+    geos = parser_uv.geometria(nif)
+    malos_geo = [g for g in geos if "error" in g]
     salida.append((
-        not errores_geo,
+        not malos_geo,
         "geometria_legible",
-        detalle_geo,
+        "%d de %d shapes con geometria ilegible%s"
+        % (len(malos_geo), len(geos),
+           (": " + ", ".join(str(g.get("error", "error"))[:60] for g in malos_geo[:3]))
+           if malos_geo else ""),
         "82.694 de 82.694 shapes del censo tienen geometria legible "
-        "(0 violaciones de identidad data_size == n_ver*stride + n_tri*6 y "
-        "cierre de particiones, hallazgo 3)"))
+        "(0 violaciones de identidad de bloque, hallazgo 3)"))
 
     rutas = _rutas_textura(nif, fila)
     malas_ext = [r for r in rutas if not r.lower().endswith(".dds")]
@@ -232,17 +175,11 @@ def observaciones(ruta):
         "NO es regla: 3.641 de 18.526 archivos con raiz BSFadeNode (19,65 %) "
         "tienen skin; la raiz no decide"))
 
-    # P1 FIX (parte 2): antes se hacia `if "error" in sh: continue` y se
-    # perdia el conteo. Ahora se cuentan los errores y se informan, pero no
-    # reprueban aca — reprueban en la regla geometria_legible.
-    sin_uv = fuera_01 = total = errores_geo = 0
-    ejemplos_error = []
+    sin_uv = fuera_01 = total = 0
+    errores_geo = 0
     for sh in parser_uv.geometria(nif):
         if "error" in sh:
             errores_geo += 1
-            if len(ejemplos_error) < 2:
-                ejemplos_error.append("%s: %s" % (
-                    sh.get("nombre", "?"), sh.get("error", "")[:60]))
             continue
         total += 1
         if not sh.get("con_uv"):
@@ -250,22 +187,11 @@ def observaciones(ruta):
         elif sh.get("uv") and any(not (0.0 <= u <= 1.0) or not (0.0 <= v <= 1.0)
                                   for u, v in sh["uv"]):
             fuera_01 += 1
-
-    if errores_geo:
-        fuera.append((
-            "geometria_errores",
-            "%d de %d shapes con error de geometria%s" % (
-                errores_geo, errores_geo + total,
-                (": " + ", ".join(ejemplos_error)) if ejemplos_error else ""),
-            "informativo: 0 de 82.694 shapes vanilla tienen error de geometria "
-            "(hallazgo 3); si hay errores, la regla geometria_legible reprueba"))
-
     fuera.append((
         "uv",
-        "%d de %d shapes sin UV; %d con UV fuera de [0,1]%s" % (
-            sin_uv, total, fuera_01,
-            ("; %d con error de geometria (ver geometria_errores)" % errores_geo)
-            if errores_geo else ""),
+        "%d de %d shapes sin UV; %d con UV fuera de [0,1]%s"
+        % (sin_uv, total, fuera_01,
+           (" (%d no legibles descartados)" % errores_geo) if errores_geo else ""),
         "salir de [0,1] NO es defecto: es tiling, y pasa en el 49,2 % de los "
         "shapes vanilla medidos"))
 
@@ -319,9 +245,6 @@ def modo_identico(ruta):
     fila = nif.fila_censo()
     with open(ruta, "rb") as fh:
         crudo = fh.read()
-
-    # P2 FIX: antes geometria no se recalculaba y se saltaba con
-    # `if campo not in ahora: continue`, asi que nunca se comparaba.
     ahora = {
         "sha256": hashlib.sha256(crudo).hexdigest(),
         "bytes": len(crudo),
@@ -337,7 +260,7 @@ def modo_identico(ruta):
         "n_shapes": fila["n_shapes"],
         "triangulos_totales": fila["triangulos_totales"],
         "shapes": fila["shapes"],
-        "geometria": _geometria_resumen(nif),
+        "geometria": registrar.resumen_geometria(nif),
         "colision": fila["colision"],
         "texturas_referenciadas": nif.texturas(),
     }
@@ -346,19 +269,17 @@ def modo_identico(ruta):
     print("")
     difs = []
     for campo in CAMPOS_IDENTIDAD:
-        # Todos los campos de identidad deben estar en ahora despues del fix.
-        # Si falta alguno, es un bug del comparador, no un skip silencioso.
         if campo not in ahora:
-            print("  [??] %s no calculado por el comparador (bug)" % campo)
             difs.append(campo)
+            print("  [NO] %s (campo ausente en medicion)" % campo)
             continue
-        if ref.get(campo) != ahora.get(campo):
+        if ref.get(campo) != ahora[campo]:
             difs.append(campo)
             print("  [NO] %s" % campo)
             print("       referencia: %s"
-                  % json.dumps(ref.get(campo), ensure_ascii=False)[:200])
+                  % json.dumps(ref.get(campo), ensure_ascii=False)[:160])
             print("       archivo   : %s"
-                  % json.dumps(ahora.get(campo), ensure_ascii=False)[:200])
+                  % json.dumps(ahora[campo], ensure_ascii=False)[:160])
         else:
             print("  [ok] %s" % campo)
     print("")

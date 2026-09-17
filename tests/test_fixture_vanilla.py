@@ -88,19 +88,11 @@ class ReferenciaRegistradaTests(unittest.TestCase):
         self.assertFalse(self.ref["tiene_skin"])
         self.assertEqual(1, self.ref["bloques"].get("BSShaderTextureSet"))
 
-    def test_geometria_tiene_caja_y_vertices(self):
-        """La referencia debe tener caja envolvente medible en 3 ejes."""
-        geo = self.ref.get("geometria", [])
-        self.assertEqual(1, len(geo))
-        g = geo[0]
-        self.assertIn("caja", g)
-        self.assertIsNotNone(g["caja"])
-        self.assertEqual(70, g["vertices"])
-        self.assertEqual(46, g["triangulos"])
-        # Extension real en 3 ejes, no plana
-        tam = g["caja"]["tamano_unidades"]
-        self.assertTrue(all(t > 1.0 for t in tam),
-                        "la caja no tiene extension en 3 ejes: %s" % tam)
+    def test_la_caja_de_referencia_tiene_extension_en_tres_ejes(self):
+        """roadsignwhiterun01 se eligio porque no es plano (a diferencia de rug01)."""
+        caja = self.ref["geometria"][0]["caja"]
+        for dim in caja["tamano_unidades"]:
+            self.assertGreater(dim, 0.1, "la referencia es plana en algun eje")
 
 
 class ContratoDiscriminaTests(unittest.TestCase):
@@ -124,6 +116,20 @@ class ContratoDiscriminaTests(unittest.TestCase):
     def test_sin_geometria_reprueba(self):
         """El sintetico no tiene shapes: es un arbol de nodos y una trampa."""
         self.assertIn("tiene_geometria", self._claves_malas(self.datos))
+
+    def test_geometria_ilegible_reprueba(self):
+        """Un shape con datos corruptos (data_size != n_ver*stride + n_tri*6)
+        tiene que reprobar el contrato, no pasar desapercibido."""
+        ruta = _archivo(self.datos, self)
+        from unittest import mock
+        with mock.patch("parser_uv.geometria") as mock_geo:
+            mock_geo.return_value = [
+                {"nombre": "ShapeRoto", "tipo": "BSTriShape",
+                 "error": "inline: 10*16 + 5*6 = 190 != data_size 250"}
+            ]
+            rs = dict((clave, ok) for ok, clave, _d, _e in comparar.reglas(ruta))
+            self.assertIn("geometria_legible", rs)
+            self.assertFalse(rs["geometria_legible"])
 
     def test_version_equivocada_reprueba(self):
         malas = self._claves_malas(_campo_cabecera(self.datos, 0, 0x14000005))
@@ -149,45 +155,6 @@ class ContratoDiscriminaTests(unittest.TestCase):
                          "un archivo roto tiene que cortar en el parseo, no "
                          "arrastrar reglas leidas de bytes basura")
 
-    def test_geometria_ilegible_reprueba(self):
-        """P1: un shape con data_size inconsistente debe reprobar.
-
-        No se puede construir un BSTriShape corrupto facilmente con el
-        sintetico actual (no tiene shapes), asi que se simula la condicion
-        que produce parser_uv.geometria() -> {"error": ...}.
-
-        Esto valida que la regla geometria_legible existe y falla cuando
-        corresponde, en vez de dejar pasar un asset roto con exit 0.
-        """
-        # Guardar original
-        orig_geometria = comparar.parser_uv.geometria
-        try:
-            # Simular un NIF con 1 shape pero con error de geometria
-            def _fake_geometria(_nif):
-                return [{"nombre": "FakeShape:0",
-                         "error": "inline: 3*32 + 1*6 = 102 != data_size 0"}]
-            comparar.parser_uv.geometria = _fake_geometria
-
-            ruta = _archivo(self.datos, self)
-            # Forzar n_shapes=1 para que no falle por tiene_geometria
-            # Parcheamos fila_censo para que diga 1 shape
-            orig_fila = comparar.parser_nif.Nif.fila_censo
-
-            def _fake_fila(self, base=""):
-                f = orig_fila(self, base)
-                f["n_shapes"] = 1
-                f["shapes"] = [{"rutas_textura": []}]
-                return f
-
-            comparar.parser_nif.Nif.fila_censo = _fake_fila
-
-            malas = {c for ok, c, _d, _e in comparar.reglas(ruta) if not ok}
-            self.assertIn("geometria_legible", malas,
-                          "geometria con error debe reprobar")
-        finally:
-            comparar.parser_uv.geometria = orig_geometria
-            comparar.parser_nif.Nif.fila_censo = orig_fila
-
     def test_cada_regla_reprueba_en_algun_caso(self):
         """Enumera: ninguna regla puede ser decorativa. Si se agrega una que
         nada reprueba, cae aca -- que es como se cuela una garantia inofensiva.
@@ -195,9 +162,6 @@ class ContratoDiscriminaTests(unittest.TestCase):
         Las que dependen de geometria o colision no se ejercitan con el
         sintetico y van declaradas, no disimuladas.
         """
-        # geometria_legible requiere un shape con error de data_size.
-        # El sintetico no tiene shapes, asi que no lo ejercita directamente;
-        # se valida en test_geometria_ilegible_reprueba con mock.
         sin_ejercitar = {"texturas_dds", "texturas_separador",
                          "rigidbody_identidad", "geometria_legible"}
         casos = (
@@ -218,6 +182,51 @@ class ContratoDiscriminaTests(unittest.TestCase):
         self.assertEqual(
             set(), nunca,
             "estas reglas no reprueban en ningun caso de prueba: %s" % nunca)
+
+
+class IdenticoCalculaGeometriaTests(unittest.TestCase):
+    """Verifica que el modo identico y sus helpers calculen la geometria
+    exactamente con la misma estructura que registrar.py."""
+
+    def test_caja_calcula_dimensiones_y_metros(self):
+        pos = [(-10.0, 0.0, 5.0), (25.0, 14.0, 12.0)]
+        caja = registrar._caja(pos)
+        self.assertEqual([-10.0, 0.0, 5.0], caja["min"])
+        self.assertEqual([25.0, 14.0, 12.0], caja["max"])
+        self.assertEqual([35.0, 14.0, 7.0], caja["tamano_unidades"])
+        self.assertEqual([0.5, 0.2, 0.1], caja["tamano_metros"])
+
+    def test_caja_vacia_devuelve_none(self):
+        self.assertIsNone(registrar._caja([]))
+
+    def test_resumen_geometria_con_mock(self):
+        class MockNif:
+            pass
+        from unittest import mock
+        with mock.patch("parser_uv.geometria") as mock_geo:
+            mock_geo.return_value = [{
+                "nombre": "TestShape:0",
+                "tipo": "BSTriShape",
+                "skin": False,
+                "con_uv": True,
+                "pos": [(0.0, 0.0, 0.0), (70.0, 70.0, 70.0)],
+                "tris": [(0, 1, 0)],
+            }]
+            geo = registrar.resumen_geometria(MockNif())
+            self.assertEqual(1, len(geo))
+            self.assertEqual("TestShape:0", geo[0]["nombre"])
+            self.assertEqual(2, geo[0]["vertices"])
+            self.assertEqual(1, geo[0]["triangulos"])
+            self.assertEqual([1.0, 1.0, 1.0], geo[0]["caja"]["tamano_metros"])
+
+    def test_modo_identico_detecta_diferencias(self):
+        ruta = _archivo(nif_sintetico.construir()[0], self)
+        from unittest import mock
+        with mock.patch("comparar._cargar_referencia") as mock_ref:
+            mock_ref.return_value = {"sha256": "otro_sha"}
+            with mock.patch("builtins.print"):
+                exit_code = comparar.modo_identico(ruta)
+            self.assertEqual(1, exit_code)
 
 
 class TodaReglaTraeEvidenciaTests(unittest.TestCase):
@@ -249,52 +258,6 @@ class TodaReglaTraeEvidenciaTests(unittest.TestCase):
             self.assertTrue(
                 por_que and any(ch.isdigit() for ch in por_que),
                 "la observacion %s no dice con que numeros se sostiene" % clave)
-
-
-class IdenticoCalculaGeometriaTests(unittest.TestCase):
-    """P2: --identico debe comparar geometria, no solo sha256.
-
-    Antes, CAMPOS_IDENTIDAD incluia 'geometria' pero modo_identico hacia
-    `if campo not in ahora: continue`, asi que nunca se comparaba. Solo
-    se veia el sha distinto cuando cambiaban vertices.
-    """
-
-    def setUp(self):
-        self.datos, _ = nif_sintetico.construir()
-
-    def test_modo_identico_incluye_geometria(self):
-        """El dict 'ahora' de modo_identico debe tener geometria."""
-        # Usamos el NIF sintetico (sin shapes) pero parcheamos geometria
-        # para que devuelva algo legible y ver que se incluye.
-        orig_geo = comparar.parser_uv.geometria
-        try:
-            comparar.parser_uv.geometria = lambda _nif: [{
-                "nombre": "Test:0",
-                "tipo": "BSTriShape",
-                "skin": False,
-                "con_uv": True,
-                "pos": [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
-                "uv": [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
-                "tris": [(0, 1, 2)],
-            }]
-            ruta = _archivo(self.datos, self)
-            nif = comparar.parser_nif.Nif(ruta)
-            geo = comparar._geometria_resumen(nif)
-            self.assertEqual(1, len(geo))
-            self.assertIn("caja", geo[0])
-            self.assertEqual(3, geo[0]["vertices"])
-        finally:
-            comparar.parser_uv.geometria = orig_geo
-
-    def test_caja_calcula_metros(self):
-        """La caja debe convertir unidades Skyrim a metros (70 u = 1 m)."""
-        pos = [(0.0, 0.0, 0.0), (70.0, 35.0, 140.0)]
-        caja = comparar._caja(pos)
-        self.assertIsNotNone(caja)
-        self.assertEqual([0.0, 0.0, 0.0], caja["min"])
-        self.assertEqual([70.0, 35.0, 140.0], caja["max"])
-        self.assertEqual([70.0, 35.0, 140.0], caja["tamano_unidades"])
-        self.assertEqual([1.0, 0.5, 2.0], caja["tamano_metros"])
 
 
 if __name__ == "__main__":

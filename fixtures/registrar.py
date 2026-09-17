@@ -61,20 +61,8 @@ def _caja(posiciones):
     }
 
 
-def medir(raiz_meshes):
-    ruta = os.path.join(raiz_meshes, RUTA_RELATIVA.replace("/", os.sep))
-    if not os.path.exists(ruta):
-        raise SystemExit(
-            "no esta el archivo de referencia:\n  %s\n"
-            "Ver fixtures/README.md para saber de que BSA sale." % ruta)
-
-    with open(ruta, "rb") as fh:
-        crudo = fh.read()
-    sha = hashlib.sha256(crudo).hexdigest()
-
-    nif = parser_nif.Nif(ruta)
-    fila = nif.fila_censo(raiz_meshes)
-
+def resumen_geometria(nif):
+    """Extrae la lista de formas con vertices, triangulos y caja AABB."""
     geo = []
     for sh in parser_uv.geometria(nif):
         if "error" in sh:
@@ -89,6 +77,22 @@ def medir(raiz_meshes):
             "triangulos": len(sh["tris"]),
             "caja": _caja(sh["pos"]),
         })
+    return geo
+
+
+def medir(raiz_meshes):
+    ruta = os.path.join(raiz_meshes, RUTA_RELATIVA.replace("/", os.sep))
+    if not os.path.exists(ruta):
+        raise SystemExit(
+            "no esta el archivo de referencia:\n  %s\n"
+            "Ver fixtures/README.md para saber de que BSA sale." % ruta)
+
+    with open(ruta, "rb") as fh:
+        crudo = fh.read()
+    sha = hashlib.sha256(crudo).hexdigest()
+
+    nif = parser_nif.Nif(ruta)
+    fila = nif.fila_censo(raiz_meshes)
 
     return {
         "_que_es_esto": (
@@ -112,7 +116,7 @@ def medir(raiz_meshes):
         "n_shapes": fila["n_shapes"],
         "triangulos_totales": fila["triangulos_totales"],
         "shapes": fila["shapes"],
-        "geometria": geo,
+        "geometria": resumen_geometria(nif),
         "colision": fila["colision"],
         "texturas_referenciadas": nif.texturas(),
     }
@@ -123,7 +127,12 @@ def main():
     if not a:
         print(__doc__)
         raise SystemExit(2)
-    raiz = a[0]
+    flags = [x for x in a if x.startswith("--")]
+    args = [x for x in a if not x.startswith("--")]
+    if not args:
+        print(__doc__)
+        raise SystemExit(2)
+    raiz = args[0]
     datos = medir(raiz)
 
     if datos["sha256"] != SHA256:
@@ -133,7 +142,7 @@ def main():
         print("  Tu copia no es la misma que produjo fixtures/*.json. Puede ser")
         print("  otra edicion del juego o un archivo parcheado por un mod.")
 
-    if "--verificar" in a:
+    if "--verificar" in flags:
         if not os.path.exists(SALIDA):
             print("no hay JSON registrado en %s" % SALIDA)
             raise SystemExit(1)
