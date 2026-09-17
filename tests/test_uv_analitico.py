@@ -16,6 +16,9 @@ Estos casos ya atraparon dos defectos reales:
 
 No necesitan el corpus, asi que corren en CI.
 """
+import contextlib
+import io
+import tempfile
 import unittest
 
 from _paths import preparar_path
@@ -118,6 +121,43 @@ class AreaTests(unittest.TestCase):
         a = parser_uv.area3((0, 0, 0), (3, 0, 0), (0, 4, 0))
         b = parser_uv.area3((0, 0, 0), (0, 3, 0), (0, 0, 4))
         self.assertAlmostEqual(a, b, places=9)
+
+
+class SuiteSobreCorpusTests(unittest.TestCase):
+    """Los casos del autotest que dependen del corpus tienen que poder fallar.
+
+    No podian. El caso h calculaba "peor desvio" sobre cero shapes, dejaba
+    peor=0.0 e imprimia "ok" porque 0.0 < 0.02; el caso g acumulaba los
+    errores en n_err pero le sumaba a fallos un n_mal que nunca se
+    incrementaba. Con la ruta equivocada, la suite imprimia "Sin fallas" y
+    devolvia exit 0 habiendo comprobado nada.
+
+    Este test no verifica una linea: verifica la propiedad que las dos
+    dependian de cumplir. Si manana se agrega un caso i) sobre el corpus y se
+    escribe con el mismo reflejo, cae aca tambien.
+    """
+
+    def _autotest_callado(self, raiz):
+        with contextlib.redirect_stdout(io.StringIO()) as salida:
+            ok = parser_uv.autotest(raiz)
+        return ok, salida.getvalue()
+
+    def test_carpeta_sin_nif_no_cuenta_como_validacion(self):
+        with tempfile.TemporaryDirectory() as d:
+            ok, texto = self._autotest_callado(d)
+        self.assertFalse(
+            ok,
+            "autotest devolvio True sobre una carpeta sin un solo NIF: "
+            "cero comprobaciones no es exito. Salida: " + texto)
+
+    def test_sin_corpus_los_casos_analiticos_igual_corren(self):
+        """El corpus falta, pero a..f no dependen de el y tienen que pasar:
+        el test de arriba no debe poder aprobarse rompiendo la suite entera."""
+        ok, texto = self._autotest_callado(None)
+        self.assertTrue(ok, texto)
+        for caso in ("a.", "b.", "c.", "d.", "e.", "f."):
+            self.assertIn("  " + caso, texto)
+        self.assertNotIn("FALLA", texto)
 
 
 if __name__ == "__main__":
