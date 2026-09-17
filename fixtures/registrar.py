@@ -137,22 +137,6 @@ def medir(raiz_meshes, raiz_texturas):
 
     nif = parser_nif.Nif(ruta)
     fila = nif.fila_censo(raiz_meshes)
-    return geo
-
-
-def medir(raiz_meshes):
-    ruta = os.path.join(raiz_meshes, RUTA_RELATIVA.replace("/", os.sep))
-    if not os.path.exists(ruta):
-        raise SystemExit(
-            "no esta el archivo de referencia:\n  %s\n"
-            "Ver fixtures/README.md para saber de que BSA sale." % ruta)
-
-    with open(ruta, "rb") as fh:
-        crudo = fh.read()
-    sha = hashlib.sha256(crudo).hexdigest()
-
-    nif = parser_nif.Nif(ruta)
-    fila = nif.fila_censo(raiz_meshes)
 
     return {
         "_que_es_esto": (
