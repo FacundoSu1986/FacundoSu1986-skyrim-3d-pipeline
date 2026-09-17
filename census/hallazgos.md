@@ -94,3 +94,22 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **CONSULTA QUE LA PRODUJO**: `python agregados.py j` + bloques de `censo.jsonl`
 **N**: 22.394
 **EXCEPCIONES ENCONTRADAS**: 0 de 22.394 archivos fuera del censo (ningún archivo fue salteado en silencio).
+
+### 16. (#19) Reparto de los tipos de shape, y el 17 % que la semilla no veía
+**AFIRMACIÓN**: De los 82.694 shapes del corpus, **60.737 son `BSTriShape`** y **21.957 `BSDynamicTriShape`**; `BSSubIndexTriShape` **no aparece** (0 bloques). Y el reparto por archivo es excluyente: **18.128 archivos tienen solo `BSTriShape`, 3.803 solo `BSDynamicTriShape`, y ninguno los dos**. Los 3.803 son el **17 %** del corpus y son los que `censo_nif.py` reportaba con `n_shapes = 0` sin avisar, porque iteraba únicamente `BSTriShape`.
+**CONSULTA QUE LA PRODUJO**: recuento de `cuenta_tipos()` sobre los 22.394 archivos; comparación semilla vs parser completo sobre una muestra al azar de 1.500.
+**N**: 22.394 archivos / 82.694 shapes (coincide con §15); 1.500 archivos en la comparación.
+**EXCEPCIONES ENCONTRADAS**: 0 desacuerdos entre los dos parsers después del arreglo; 250 de esos 1.500 (16,7 %) daban 0 shapes antes. Que ningún archivo mezcle los dos tipos es lo que hacía el síntoma **total y silencioso**: no "faltan algunos shapes" sino "no hay ninguno".
+
+### 17. (#20) `bhkRigidBody`: la identidad de tamaño se cumple entera
+**AFIRMACIÓN**: `size == 250 + 4 * numConstraints` (con `numConstraints` leído en el offset +244) se cumple en **14.586 de 14.586 bloques**. Los tamaños observados son exactamente cuatro: 250 (c=0) ×12.939, 254 (c=1) ×1.645, 262 (c=3) ×1, 266 (c=4) ×1. **No existe ningún bloque entre 246 y 249 bytes.**
+**CONSULTA QUE LA PRODUJO**: recorrido de todos los bloques `bhkRigidBody`/`bhkRigidBodyT` del corpus comprobando la identidad.
+**N**: 14.586 bloques.
+**EXCEPCIONES ENCONTRADAS**: 0 violaciones. El umbral `s >= 246` que usaba `parser_nif.colision_info` no lo justificaba ningún archivo: dejaba leer campos de un bloque que `verificar.py` marcaba como corto. Queda alineado en 250, que es el piso que el corpus valida.
+
+### 18. (#18) BS version: lo que el corpus puede validar, y lo que no
+**AFIRMACIÓN**: **22.393 archivos con BS version 100** y **1 con BS 83** (`creationclub/_shared/dungeons/ayleidruins/interior/triggers/artrigpressureplate01.nif`). **Cero con BS ≥ 130.** Los 22.394 comparten `version 335675399 / user 12`.
+**CONSULTA QUE LA PRODUJO**: lectura de la cabecera de los 22.394 archivos.
+**N**: 22.394.
+**EXCEPCIONES ENCONTRADAS**: los tres parsers del repo traían **dos lecturas distintas e incompatibles** del campo extra de cabecera para BS ≥ 130 —`nif_nodos.py` un SizedString en medio de los tres shorts, los del censo un cuarto ShortString después— y **ningún archivo del corpus ejercita ninguna de las dos**. No se eligió una: las tres ahora rechazan BS ≥ 130 explícitamente. Adivinar el largo de un campo de cabecera corre *todos* los offsets de bloque, que es la familia exacta del bug que produjo el `pesos por vértice = 1035` de `census/README.md`.
+
