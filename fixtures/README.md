@@ -88,21 +88,24 @@ caja          80,13 × 8,01 × 22,40 unidades  =  1,145 × 0,114 × 0,320 m
 **Regenerar la medición** desde tu copia:
 
 ```bash
-python fixtures/registrar.py "<ruta a meshes>"
+python fixtures/registrar.py "<ruta a meshes>" "<ruta a textures>"
 ```
 
 **Comprobar que es reproducible** — vuelve a medir y compara contra el JSON
 registrado, sin escribir nada:
 
 ```bash
-python fixtures/registrar.py "<ruta a meshes>" --verificar
+python fixtures/registrar.py "<ruta a meshes>" "<ruta a textures>" --verificar
 ```
 
 **Comparar un NIF exportado** contra el contrato que esta referencia demuestra:
 
 ```bash
-python fixtures/comparar.py --contrato mi_asset.nif
+python fixtures/comparar.py --contrato mi_asset.nif "<ruta a textures>"
 ```
+
+Sin la segunda ruta comprueba solo la malla, y lo dice: **un NIF que apunta a
+texturas que no existen pasa todas sus reglas de NIF.**
 
 **Comparar contra la referencia misma**, campo por campo (regresión):
 
@@ -154,4 +157,84 @@ Ninguno es una sorpresa y ninguno es un falso positivo silencioso.
 > sacó justamente porque incluirlo rompía 123 archivos de muebles. No lo
 > resolví acá: se decide midiendo si agregarlo mantiene verdes las identidades
 > de tamaño, y eso es un cambio al parser, no al fixture.
+
+---
+
+# El contrato de texturas
+
+Un static no es solo su malla. El NIF declara rutas; si la textura no está, o
+está y no cumple, el asset no sirve — y el NIF por sí solo pasa todas sus
+reglas igual. Por eso el contrato tiene dos mitades.
+
+## Resolver la ruta: cuatro formas, medidas
+
+De las **10.116** rutas distintas que referencia el corpus, resuelven
+**9.856 (97,43 %)**:
+
+| Forma | Ejemplo |
+|---|---|
+| con prefijo (87,8 %) | `textures\clutter\signage\cartel.dds` |
+| relativa sin prefijo (12,2 %) | `Actors\Character\Male\MaleHead.dds` |
+| con la carpeta del juego | `data\textures\...` |
+| **del árbol de build de Bethesda** | `skyrimhd\build\pc\data\textures\architecture\farmhouse\Ivy01.dds` |
+
+La cuarta no la habría escrito de memoria. Apareció al mirar **qué** eran las
+393 rutas que no resolvían: no son basura, son rutas internas del build de
+Bethesda que quedaron en los archivos publicados. Cortar en el último `/data/`
+rescata **133** de esas 393.
+
+Las **260** que siguen sin resolver no son un fallo del resolver: son `ERR` y
+`NOR` (placeholders), contenido de Creation Club que este corpus no tiene
+extraído, y un par de rutas de trabajo `.tga`.
+
+## Reglas de DDS
+
+| Regla | Evidencia |
+|---|---|
+| el encabezado predice el tamaño exacto | 32.241 de 32.241 |
+| ambos lados son potencia de dos | **0 excepciones** en 32.241 |
+| un `_n` es DXT5 | 12.075 de 12.075, sin una sola excepción |
+
+## Lo que NO es regla, y por qué
+
+- **Mipmaps.** 192 de 32.241 no tienen, y son máscaras de tinte y lens flares.
+  Y la cadena corta en 2×2 en el 96,4 %, no en 1×1: medir contra 1×1 marcaba
+  **31.940 texturas correctas como rotas**.
+- **BC7.** Son **0 de 32.241** en vanilla. Pero eso es lo que Bethesda *usó*,
+  no lo que SE *admite*. Convertir ese cero en prohibición sería confundir las
+  dos cosas.
+- **Resolución.** El 66,9 % es 256×256 y solo 57 archivos llegan a 4096. Es una
+  distribución, no un límite.
+
+---
+
+# Matriz del toolchain
+
+Lo que este repo puede demostrar, y lo que no.
+
+## Verificado contra el corpus
+
+| Qué | Valor | Evidencia |
+|---|---|---|
+| Versión NIF | `20.2.0.7` | 22.394 de 22.394 |
+| User version | `12` | 22.394 de 22.394 |
+| BS version | `100` | 22.393 de 22.394 (la otra es BS 83) |
+| Formatos DDS presentes | DXT1, DXT3, DXT5, sin comprimir | 32.241 medidos; BC7 = 0 |
+| Sintaxis de rutas | las cuatro formas de arriba | 9.856 de 10.116 resuelven |
+
+## No verificado
+
+| Qué | Estado |
+|---|---|
+| Blender 4.4.1 + PyNifly 27.2.0, `target_game=SKYRIMSE` | **medido** sobre 1.857 estáticos — ver [`pynifly.md`](pynifly.md). Posiciones y UV vuelven exactas; el 6 % de los assets queda **rotado** y el 9 % de las colisiones se mueve. Sirve para geometría, no se le puede confiar la transformación sin verificar. |
+| Otras combinaciones de Blender × PyNifly | **no verificado.** El procedimiento para agregar una fila está abajo. |
+| Qué acepta el motor vs. qué usó Bethesda | **parcialmente.** Todo lo medido acá es lo segundo. Que SE admita BC7 sale de la documentación de Bethesda, no de una medición nuestra. |
+
+Cómo se agrega una fila: importar y reexportar los estáticos de referencia con
+esa combinación, y comparar **en espacio de mundo**, no por bytes. Eso último no
+es un detalle — el contrato de `comparar.py` da verde en 1.856 de 1.857 de los
+archivos que PyNifly devolvió, incluidos aquellos cuya colisión se movió diez
+metros. Un archivo puede estar bien formado y estar en otro lado.
+
+Ninguna combinación se anota antes de correrla.
 

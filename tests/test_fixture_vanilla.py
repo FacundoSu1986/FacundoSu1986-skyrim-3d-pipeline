@@ -80,6 +80,24 @@ class ReferenciaRegistradaTests(unittest.TestCase):
     def test_el_sha_registrado_es_el_del_modulo(self):
         self.assertEqual(registrar.SHA256, self.ref["sha256"])
 
+    def test_la_referencia_incluye_las_texturas_medidas(self):
+        """Un static no es solo su malla. Si la referencia no registra las DDS
+        que el NIF apunta, el contrato de texturas no tiene contra que
+        comparar."""
+        medidas = self.ref.get("texturas_medidas")
+        self.assertTrue(medidas, "la referencia no mide ninguna textura")
+        self.assertEqual(len(self.ref["texturas_referenciadas"]), len(medidas))
+        for t in medidas:
+            self.assertNotIn("error", t,
+                             "textura sin resolver en la referencia: %s" % t)
+            self.assertTrue(t["potencia_de_dos"])
+            self.assertTrue(t["tamano_cuadra"])
+        normales = [t for t in medidas
+                    if t["declarada"].lower().endswith("_n.dds")]
+        self.assertTrue(normales, "la referencia deberia traer un normal map")
+        for t in normales:
+            self.assertEqual("DXT5", t["formato"])
+
     def test_la_referencia_es_un_estatico_de_un_solo_shape(self):
         """Lo que la hace util como fixture. Si alguien la cambia por un
         archivo con dos shapes, cualquier discrepancia futura pasa a tener dos
@@ -227,6 +245,17 @@ class IdenticoCalculaGeometriaTests(unittest.TestCase):
             with mock.patch("builtins.print"):
                 exit_code = comparar.modo_identico(ruta)
             self.assertEqual(1, exit_code)
+
+    def test_medir_firma_acepta_dos_rutas(self):
+        """registrar.medir debe recibir raiz_meshes y raiz_texturas sin colisiones de nombre."""
+        import inspect
+        sig = inspect.signature(registrar.medir)
+        params = list(sig.parameters.keys())
+        self.assertEqual(["raiz_meshes", "raiz_texturas"], params)
+
+    def test_medir_valida_directorios_inexistentes(self):
+        with self.assertRaises(SystemExit):
+            registrar.medir("/ruta/inexistente/meshes", "/ruta/inexistente/textures")
 
 
 class TodaReglaTraeEvidenciaTests(unittest.TestCase):
