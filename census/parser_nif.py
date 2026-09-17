@@ -41,7 +41,7 @@ import struct
 import sys
 from collections import Counter
 
-_RE_DDS = re.compile(rb"[ -~]{4,160}\.dds")
+_RE_DDS = re.compile(rb"[ -~]{4,160}\.dds", re.IGNORECASE)
 
 # Tipos que heredan de NiNode (nif.xml). OJO: BSFurnitureMarkerNode NO es un
 # nodo (hereda de BSFurnitureMarker <- NiExtraData): tratarlo como NiNode

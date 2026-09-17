@@ -92,6 +92,38 @@
    "tipo_bloque": "BSTriShape"
   }
  ],
+ "texturas_medidas": [
+  {
+   "alto": 512,
+   "ancho": 1024,
+   "bytes": 699184,
+   "declarada": "textures\\clutter\\signage\\roadsigns\\RoadSignsCities01.dds",
+   "formato": "DXT5",
+   "mip_mas_chico": [
+    4,
+    2
+   ],
+   "mipmaps": 9,
+   "potencia_de_dos": true,
+   "sha256": "07fe4fe0d6a4d5108ffc6ae367912064216c84cb72d87aca48c22262c1c73a72",
+   "tamano_cuadra": true
+  },
+  {
+   "alto": 512,
+   "ancho": 1024,
+   "bytes": 699184,
+   "declarada": "textures\\clutter\\signage\\roadsigns\\RoadSignsCities01_n.dds",
+   "formato": "DXT5",
+   "mip_mas_chico": [
+    4,
+    2
+   ],
+   "mipmaps": 9,
+   "potencia_de_dos": true,
+   "sha256": "90db95446f19825519d0670a740ae2fc35119d408be6d4cdff4f7ffe273c2107",
+   "tamano_cuadra": true
+  }
+ ],
  "texturas_referenciadas": [
   "textures\\clutter\\signage\\roadsigns\\RoadSignsCities01.dds",
   "textures\\clutter\\signage\\roadsigns\\RoadSignsCities01_n.dds"

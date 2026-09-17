@@ -78,6 +78,8 @@ def _ceil4(v):
 
 
 def _mip_final(ancho, alto, mips):
+    if ancho <= 0 or alto <= 0:
+        return [max(0, ancho), max(0, alto)]
     w, h = ancho, alto
     for _ in range(mips - 1):
         w = max(1, w // 2)
@@ -132,22 +134,23 @@ def leer(ruta):
     # --- la identidad que falsifica el parseo ---
     esperado = None
     bpb = BLOQUE.get(fmt)
-    if bpb:
-        total, w, h, d = 0, ancho, alto, prof0
-        for _ in range(mips):
-            total += _ceil4(w) * _ceil4(h) * bpb * d
-            w = max(1, w // 2)
-            h = max(1, h // 2)
-            d = max(1, d // 2)
-        esperado = cabecera_bytes + total * caras
-    elif fmt.startswith("sin_comprimir") and bits:
-        total, w, h, d = 0, ancho, alto, prof0
-        for _ in range(mips):
-            total += w * h * d * (bits // 8)
-            w = max(1, w // 2)
-            h = max(1, h // 2)
-            d = max(1, d // 2)
-        esperado = cabecera_bytes + total * caras
+    if ancho > 0 and alto > 0:
+        if bpb:
+            total, w, h, d = 0, ancho, alto, prof0
+            for _ in range(mips):
+                total += _ceil4(w) * _ceil4(h) * bpb * d
+                w = max(1, w // 2)
+                h = max(1, h // 2)
+                d = max(1, d // 2)
+            esperado = cabecera_bytes + total * caras
+        elif fmt.startswith("sin_comprimir") and bits:
+            total, w, h, d = 0, ancho, alto, prof0
+            for _ in range(mips):
+                total += w * h * d * (bits // 8)
+                w = max(1, w // 2)
+                h = max(1, h // 2)
+                d = max(1, d // 2)
+            esperado = cabecera_bytes + total * caras
 
     return {
         "ancho": ancho, "alto": alto, "mipmaps": mips,
@@ -159,8 +162,8 @@ def leer(ruta):
                                                     "BC7", "DXGI_98", "DXGI_99"),
         "bytes": tam_archivo,
         "bytes_esperados": esperado,
-        "tamano_cuadra": (esperado is None) or (esperado == tam_archivo),
-        "potencia_de_dos": (ancho & (ancho - 1)) == 0 and (alto & (alto - 1)) == 0,
+        "tamano_cuadra": (esperado is not None) and (esperado == tam_archivo),
+        "potencia_de_dos": ancho > 0 and alto > 0 and (ancho & (ancho - 1)) == 0 and (alto & (alto - 1)) == 0,
         # Nivel mas chico de la cadena. NO se reporta "cadena completa" contra
         # 1x1: medido sobre el corpus, el 96,4% de las texturas de Skyrim corta
         # en 2x2, que es la convencion, no un defecto. Una metrica que marca

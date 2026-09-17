@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Registra los metadatos del static de referencia. NO copia el asset.
 
-    python fixtures/registrar.py <carpeta meshes/>
-    python fixtures/registrar.py <carpeta meshes/> --verificar
+    python fixtures/registrar.py <carpeta meshes/> <carpeta textures/>
+    python fixtures/registrar.py <carpeta meshes/> <carpeta textures/> --verificar
 
 El archivo de referencia es de Bethesda y no se versiona. Lo que se versiona es
 la MEDICION: arbol de bloques, shader, rutas de textura, colision, caja
@@ -35,6 +35,7 @@ import sys
 _AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_AQUI, "..", "census"))
 
+import parser_dds  # noqa: E402
 import parser_nif  # noqa: E402
 import parser_uv  # noqa: E402
 
@@ -80,6 +81,65 @@ def resumen_geometria(nif):
     return geo
 
 
+def _medir_texturas(nif, raiz_texturas):
+    """Las DDS que el NIF referencia, medidas. Un static no es solo su malla:
+    si la textura no esta o no cumple el contrato, el asset no sirve."""
+    import comparar
+    fuera = []
+    try:
+        fila = nif.fila_censo()
+        declaradas = sorted(set(nif.texturas()) | set(comparar._rutas_textura(nif, fila)))
+    except Exception:
+        declaradas = sorted(set(nif.texturas()))
+
+    for declarada in declaradas:
+        ruta = comparar.resolver_textura(declarada, raiz_texturas)
+        if ruta is None:
+            fuera.append({"declarada": declarada, "resuelta": None,
+                          "error": "no se encontro bajo la raiz de texturas"})
+            continue
+        try:
+            d = parser_dds.leer(ruta)
+        except Exception as e:
+            fuera.append({"declarada": declarada,
+                          "error": "%s: %s" % (type(e).__name__, e)})
+            continue
+        with open(ruta, "rb") as fh:
+            sha = hashlib.sha256(fh.read()).hexdigest()
+        fuera.append({
+            "declarada": declarada,
+            "sha256": sha,
+            "ancho": d["ancho"], "alto": d["alto"],
+            "formato": d["formato"], "mipmaps": d["mipmaps"],
+            "mip_mas_chico": d["mip_mas_chico"],
+            "potencia_de_dos": d["ancho"] > 0 and d["alto"] > 0 and d["potencia_de_dos"],
+            "tamano_cuadra": d["tamano_cuadra"] and (d["bytes_esperados"] is not None),
+            "bytes": d["bytes"],
+        })
+    return fuera
+
+
+def medir(raiz_meshes, raiz_texturas):
+    if not os.path.isdir(raiz_meshes):
+        raise SystemExit("no es una carpeta de meshes: %s" % raiz_meshes)
+    if not os.path.isdir(raiz_texturas):
+        raise SystemExit("no es una carpeta de texturas: %s" % raiz_texturas)
+
+    ruta = os.path.join(raiz_meshes, RUTA_RELATIVA.replace("/", os.sep))
+    if not os.path.exists(ruta):
+        raise SystemExit(
+            "no esta el archivo de referencia:\n  %s\n"
+            "Ver fixtures/README.md para saber de que BSA sale." % ruta)
+
+    with open(ruta, "rb") as fh:
+        crudo = fh.read()
+    sha = hashlib.sha256(crudo).hexdigest()
+
+    nif = parser_nif.Nif(ruta)
+    fila = nif.fila_censo(raiz_meshes)
+    return geo
+
+
 def medir(raiz_meshes):
     ruta = os.path.join(raiz_meshes, RUTA_RELATIVA.replace("/", os.sep))
     if not os.path.exists(ruta):
@@ -119,21 +179,23 @@ def medir(raiz_meshes):
         "geometria": resumen_geometria(nif),
         "colision": fila["colision"],
         "texturas_referenciadas": nif.texturas(),
+        "texturas_medidas": _medir_texturas(nif, raiz_texturas),
     }
 
 
 def main():
     a = sys.argv[1:]
-    if not a:
+    if not a or "-h" in a or "--help" in a:
         print(__doc__)
+        raise SystemExit(0 if a else 2)
+    posicionales = [x for x in a if not x.startswith("--")]
+    flags = {x for x in a if x.startswith("--")}
+    if len(posicionales) < 2:
+        print("Faltan las dos rutas: <carpeta meshes/> <carpeta textures/>")
+        print("La referencia incluye las DDS que el NIF apunta; sin la segunda")
+        print("ruta el JSON saldria distinto segun como se invoque.")
         raise SystemExit(2)
-    flags = [x for x in a if x.startswith("--")]
-    args = [x for x in a if not x.startswith("--")]
-    if not args:
-        print(__doc__)
-        raise SystemExit(2)
-    raiz = args[0]
-    datos = medir(raiz)
+    datos = medir(posicionales[0], posicionales[1])
 
     if datos["sha256"] != SHA256:
         print("AVISO: el sha256 no coincide con el registrado.")

@@ -167,7 +167,7 @@ class Nif(object):
         return None
 
     def texturas(self):
-        vistas = re.findall(rb"[ -~]{4,160}\.dds", self.d)
+        vistas = re.findall(rb"[ -~]{4,160}\.dds", self.d, re.IGNORECASE)
         return sorted(set(m.decode("cp1252", "replace") for m in vistas))
 
     def _saltar_niavobject(self, p):
