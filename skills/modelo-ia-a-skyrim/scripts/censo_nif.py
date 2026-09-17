@@ -89,6 +89,11 @@ import sys
 # revientan con "unpack_from requires a buffer of at least 4093659953 bytes".
 #
 # El sufijo del nombre no dice de que hereda. Verificalo en nif.xml.
+TIPOS_SHAPE = ("BSTriShape", "BSDynamicTriShape", "BSSubIndexTriShape")
+# Los mismos tres que census/parser_nif.py. BSSubIndexTriShape no aparece
+# en este corpus (0 bloques en 22.394 archivos); va igual para que las dos
+# listas no vuelvan a separarse.
+
 TIPOS_NODO = {"NiNode", "BSFadeNode", "BSLeafAnimNode", "BSTreeNode",
               "BSOrderedNode", "BSValueNode", "BSMultiBoundNode",
               "BSBlastNode", "BSDamageStage", "NiBillboardNode",
@@ -112,7 +117,12 @@ class Nif(object):
         for _ in range(3):
             i += 1 + d[i]
         if self.bs >= 130:
-            i += 1 + d[i]
+            # Sin validar contra un solo archivo: el corpus tiene 22.393 con
+            # BS=100, uno con BS=83 y CERO con BS>=130. Adivinar este campo
+            # corre todos los offsets de bloque.
+            raise ValueError(
+                "header: BS version %d (>=130) no esta validada contra ningun "
+                "archivo del corpus" % self.bs)
 
         n_tipos, = struct.unpack_from("<H", d, i); i += 2
         tipos = []
@@ -176,8 +186,20 @@ class Nif(object):
         return ("BSDismemberSkinInstance" in c) or ("NiSkinInstance" in c)
 
     def trishapes(self):
+        """Los TRES tipos de shape, no solo BSTriShape.
+
+        Iterar solo BSTriShape hacia que 3.803 archivos del corpus -- el 17 % --
+        reportaran n_shapes = 0 sin avisar: son los que traen BSDynamicTriShape
+        y ningun BSTriShape (cabezas, barbas, todo lo que anima vertices).
+        En el corpus no hay un solo archivo que mezcle los dos tipos, asi que el
+        sintoma era silencioso y total: 0 shapes, no "faltan algunos".
+
+        El layout de cabecera es el mismo para los tres -- BSDynamicTriShape
+        extiende BSTriShape agregando campos al final -- que es por lo que
+        census/parser_nif.py los lee con estos mismos offsets.
+        """
         fuera = []
-        for o, _ in self.de_tipo("BSTriShape"):
+        for o, _ in self.de_tipo(*TIPOS_SHAPE):
             p, nombre = self._saltar_niavobject(o)
             p += 16
             if self.bs >= 151:

@@ -48,8 +48,17 @@ def leer(ruta):
     user, = struct.unpack_from("<I", datos, i); i += 4
     n_bloques, = struct.unpack_from("<I", datos, i); i += 4
     bs, = struct.unpack_from("<I", datos, i); i += 4
+    if bs >= 130:
+        # Este script leia el campo de proceso como SizedString EN EL MEDIO de
+        # los tres shorts; los parsers del censo leian un cuarto ShortString
+        # DESPUES. Las dos lecturas no pueden ser ambas correctas y ninguna esta
+        # validada: el corpus tiene 22.393 archivos con BS=100, uno con BS=83 y
+        # CERO con BS>=130. Elegir una a ojo corre todos los offsets de bloque.
+        raise ValueError(
+            "BS version %d (>=130, Fallout 4/76): la cabecera no esta validada "
+            "contra ningun archivo del corpus" % bs)
     _a, i = _short(datos, i)
-    _p, i = (_sized(datos, i) if bs >= 130 else _short(datos, i))
+    _p, i = _short(datos, i)
     _e, i = _short(datos, i)
 
     n_tipos, = struct.unpack_from("<H", datos, i); i += 2

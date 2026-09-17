@@ -172,8 +172,16 @@ class Nif(object):
 
         for _ in range(3):                          # author/process/export
             i += 1 + d[i]
-        if self.bs >= 130:                          # NO validado en este corpus
-            i += 1 + d[i]
+        if self.bs >= 130:
+            # Ninguna de las dos lecturas que conviven en el repo esta validada:
+            # el corpus tiene 22.393 archivos con BS=100 y uno con BS=83, y CERO
+            # con BS>=130. Adivinar el largo de un campo de cabecera corre TODOS
+            # los offsets de bloque -- la misma familia del bug que produjo
+            # "pesos por vertice = 1035". Preferimos no leer a leer basura.
+            raise Violacion(
+                "header: BS version %d (>=130, Fallout 4/76) no esta validada "
+                "contra ningun archivo del corpus; el campo extra de cabecera "
+                "es una suposicion y correria todos los offsets" % self.bs)
 
         n_tipos, = struct.unpack_from("<H", d, i); i += 2
         tipos = []
@@ -657,7 +665,17 @@ class Nif(object):
         rbs = self.de_tipo("bhkRigidBody", "bhkRigidBodyT")
         if rbs:
             _, o, s = rbs[0]
-            if s >= 246:
+            # La identidad ENTERA, no un piso. verificar.py exige
+            # s == 250 + 4*numConstraints y eso se cumple en 14.586 de 14.586
+            # bloques del corpus (250 x12939, 254 x1645, 262 x1, 266 x1;
+            # c = 0,1,3,4). Un piso deja pasar el desacuerdo: con s=251 y
+            # c=0 el parser leia layer/masa/motion y el verificador marcaba el
+            # mismo bloque como roto. Un tamano que no cumple la identidad no
+            # garantiza el layout, asi que estos offsets no significan nada.
+            # numConstraints vive en +244, dentro de los 250 minimos.
+            n_constraints = (struct.unpack_from("<I", d, o + 244)[0]
+                             if s >= 250 else None)
+            if n_constraints is not None and s == 250 + 4 * n_constraints:
                 layer_b = d[o + 4]
                 info["layer_id"] = layer_b
                 info["layer"] = SKYRIM_LAYERS.get(layer_b, "LAYER_%d" % layer_b)
