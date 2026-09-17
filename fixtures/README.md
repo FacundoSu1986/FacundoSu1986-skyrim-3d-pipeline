@@ -226,11 +226,15 @@ Lo que este repo puede demostrar, y lo que no.
 
 | Qué | Estado |
 |---|---|
-| Versión de Blender ↔ versión de PyNifly | **no verificado.** Requiere correr el addon y comparar el NIF exportado contra esta referencia. No se puede hacer sin una instalación concreta, y una matriz copiada de un foro sería exactamente lo que las reglas del issue #3 prohíben. |
+| Blender 4.4.1 + PyNifly 27.2.0, `target_game=SKYRIMSE` | **medido** sobre 1.857 estáticos — ver [`pynifly.md`](pynifly.md). Posiciones y UV vuelven exactas; el 6 % de los assets queda **rotado** y el 9 % de las colisiones se mueve. Sirve para geometría, no se le puede confiar la transformación sin verificar. |
+| Otras combinaciones de Blender × PyNifly | **no verificado.** El procedimiento para agregar una fila está abajo. |
 | Qué acepta el motor vs. qué usó Bethesda | **parcialmente.** Todo lo medido acá es lo segundo. Que SE admita BC7 sale de la documentación de Bethesda, no de una medición nuestra. |
 
-La forma de cerrar la primera fila existe y está construida: exportar el mismo
-static con una combinación concreta de Blender + PyNifly y correr
-`comparar.py --contrato` sobre el resultado. Cada combinación que pase es una
-fila con evidencia; ninguna se anota antes de correrla.
+Cómo se agrega una fila: importar y reexportar los estáticos de referencia con
+esa combinación, y comparar **en espacio de mundo**, no por bytes. Eso último no
+es un detalle — el contrato de `comparar.py` da verde en 1.856 de 1.857 de los
+archivos que PyNifly devolvió, incluidos aquellos cuya colisión se movió diez
+metros. Un archivo puede estar bien formado y estar en otro lado.
+
+Ninguna combinación se anota antes de correrla.
 
