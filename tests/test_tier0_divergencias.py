@@ -17,6 +17,7 @@ from _paths import preparar_path
 preparar_path()
 
 import censo_nif  # noqa: E402
+import verificar  # noqa: E402
 import nif_nodos  # noqa: E402
 import parser_nif  # noqa: E402
 import nif_sintetico  # noqa: E402
@@ -105,21 +106,98 @@ class VersionBsNoValidadaTests(unittest.TestCase):
                     % (nombre, bs, cm.exception))
 
 
-class UmbralDeRigidBodyTests(unittest.TestCase):
-    """#20: el parser leia campos con s >= 246 y el verificador exige
-    s == 250 + 4*numConstraints. La identidad se cumple en 14.586 de 14.586
-    bloques del corpus y no existe ninguno entre 246 y 249: el 246 era
-    permisivo sin que ningun archivo lo justificara."""
+def _nif_con_rigidbody(tam, n_constraints):
+    """NIF minimo con un solo bhkRigidBody del tamano pedido.
 
-    def test_el_parser_no_es_mas_permisivo_que_el_verificador(self):
-        ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "..", "census", "parser_nif.py")
-        with open(ruta, encoding="utf-8") as fh:
-            fuente = fh.read()
-        self.assertNotIn(
-            "if s >= 246:", fuente,
-            "parser_nif vuelve a leer bloques que verificar marca como cortos")
-        self.assertIn("if s >= 250:", fuente)
+    Bytes construidos a mano, cero material con copyright: la misma tecnica de
+    tests/nif_sintetico.py y tests/test_parser_dds.py.
+    """
+    tipos = ["BSFadeNode", "bhkRigidBody"]
+    raiz = nif_sintetico._avobject(0, [], (0.0, 0.0, 0.0), [])
+    rb = bytearray(tam)
+    struct.pack_into("<i", rb, 0, -1)             # sin shape asociado
+    rb[4] = 1                                     # layer
+    struct.pack_into("<f", rb, 180, 5.0)          # masa
+    rb[224] = 1                                   # motion system
+    if tam >= 248:
+        struct.pack_into("<I", rb, 244, n_constraints)
+    bloques = [raiz, bytes(rb)]
+
+    h = bytearray(nif_sintetico.CABECERA)
+    h += struct.pack("<I", nif_sintetico.VERSION) + struct.pack("<B", 1)
+    h += struct.pack("<I", nif_sintetico.USER)
+    h += struct.pack("<I", len(bloques))
+    h += struct.pack("<I", nif_sintetico.BS)
+    h += bytes(3)                                 # author/process/export vacios
+    h += struct.pack("<H", len(tipos))
+    for t in tipos:
+        h += struct.pack("<I", len(t)) + t.encode("cp1252")
+    h += struct.pack("<2H", 0, 1)
+    h += struct.pack("<2I", len(bloques[0]), len(bloques[1]))
+    nombre = nif_sintetico.RAIZ_NOMBRE
+    h += struct.pack("<I", 1) + struct.pack("<I", len(nombre))
+    h += struct.pack("<I", len(nombre)) + nombre.encode("cp1252")
+    h += struct.pack("<I", 0)                     # sin grupos
+    return bytes(h) + bloques[0] + bloques[1]
+
+
+class UmbralDeRigidBodyTests(unittest.TestCase):
+    """#20: dos lecturas del tamano de bhkRigidBody que no coincidian.
+
+    El parser leia campos con s >= 246 y el verificador exige la identidad
+    s == 250 + 4*numConstraints. Subir el piso a 250 cerro la franja 246..249
+    pero NO el desacuerdo: con s=251 y c=0 el parser seguia publicando
+    layer/masa/motion de un bloque que el verificador marcaba como roto.
+
+    Una version anterior de este test leia el codigo fuente buscando la cadena
+    "if s >= 250:". Pasaba en verde con el desacuerdo adentro, porque comprobaba
+    que el arreglo estuviera ESCRITO y no que funcionara. Este ejecuta los dos
+    lados sobre los mismos bytes.
+    """
+
+    def _rutas(self, datos):
+        fd, ruta = tempfile.mkstemp(suffix=".nif")
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(datos)
+        self.addCleanup(lambda: os.path.exists(ruta) and os.unlink(ruta))
+        return ruta
+
+    def _lee_y_acepta(self, tam, c):
+        ruta = self._rutas(_nif_con_rigidbody(tam, c))
+        lee = parser_nif.Nif(ruta).colision_info()["layer"] is not None
+        _, ev = verificar._chequear(ruta)
+        acepta = not any(cat == "rigidbody_size" for cat, _ in ev)
+        return lee, acepta
+
+    def test_parser_y_verificador_coinciden_en_todo_el_rango(self):
+        """Enumera la familia entera en vez del caso que encontro Codex.
+        Un arreglo que tape s=251 y deje s=255 cae aca igual."""
+        desacuerdos = []
+        for c in range(0, 6):
+            for tam in range(246, 278):
+                lee, acepta = self._lee_y_acepta(tam, c)
+                if lee != acepta:
+                    desacuerdos.append((tam, c, lee, acepta))
+        self.assertEqual(
+            [], desacuerdos,
+            "parser y verificador discrepan en %d de 192 combinaciones: %s"
+            % (len(desacuerdos), desacuerdos[:6]))
+
+    def test_el_tamano_valido_si_se_lee(self):
+        """El par del test de arriba: si el parser rechazara todo, coincidirian
+        los dos en 'no' y el test pasaria sin probar nada."""
+        for tam, c in ((250, 0), (254, 1), (262, 3), (266, 4)):
+            lee, acepta = self._lee_y_acepta(tam, c)
+            self.assertTrue(lee, "tam=%d c=%d deberia leerse" % (tam, c))
+            self.assertTrue(acepta, "tam=%d c=%d deberia aceptarse" % (tam, c))
+
+    def test_el_caso_exacto_del_review(self):
+        """s=251 con c=0: declarado >= 250 pero fuera de la identidad."""
+        lee, acepta = self._lee_y_acepta(251, 0)
+        self.assertFalse(acepta)
+        self.assertFalse(
+            lee, "el parser publica colision de un bloque que el verificador "
+                 "rechaza: el tamano no garantiza el layout de los offsets")
 
 
 if __name__ == "__main__":

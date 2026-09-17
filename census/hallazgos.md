@@ -105,7 +105,7 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **AFIRMACIÓN**: `size == 250 + 4 * numConstraints` (con `numConstraints` leído en el offset +244) se cumple en **14.586 de 14.586 bloques**. Los tamaños observados son exactamente cuatro: 250 (c=0) ×12.939, 254 (c=1) ×1.645, 262 (c=3) ×1, 266 (c=4) ×1. **No existe ningún bloque entre 246 y 249 bytes.**
 **CONSULTA QUE LA PRODUJO**: recorrido de todos los bloques `bhkRigidBody`/`bhkRigidBodyT` del corpus comprobando la identidad.
 **N**: 14.586 bloques.
-**EXCEPCIONES ENCONTRADAS**: 0 violaciones. El umbral `s >= 246` que usaba `parser_nif.colision_info` no lo justificaba ningún archivo: dejaba leer campos de un bloque que `verificar.py` marcaba como corto. Queda alineado en 250, que es el piso que el corpus valida.
+**EXCEPCIONES ENCONTRADAS**: 0 violaciones. El umbral `s >= 246` que usaba `parser_nif.colision_info` no lo justificaba ningún archivo. Subirlo a 250 cerraba la franja 246–249 pero **no el desacuerdo**: con `s=251` y `c=0` el parser seguía publicando layer/masa/motion de un bloque que `verificar` marcaba como roto. El parser exige ahora la identidad completa, igual que el verificador. Barrido de 192 combinaciones sintéticas (tamaños 246–277 × constraints 0–5): **0 desacuerdos**. Sobre el corpus real no cambia nada — **11.126 de 11.126** archivos con `bhkRigidBody` conservan su dato de colisión.
 
 ### 18. (#18) BS version: lo que el corpus puede validar, y lo que no
 **AFIRMACIÓN**: **22.393 archivos con BS version 100** y **1 con BS 83** (`creationclub/_shared/dungeons/ayleidruins/interior/triggers/artrigpressureplate01.nif`). **Cero con BS ≥ 130.** Los 22.394 comparten `version 335675399 / user 12`.
