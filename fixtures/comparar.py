@@ -33,10 +33,13 @@ import struct
 import sys
 
 _AQUI = os.path.dirname(os.path.abspath(__file__))
+if _AQUI not in sys.path:
+    sys.path.insert(0, _AQUI)
 sys.path.insert(0, os.path.join(_AQUI, "..", "census"))
 
 import parser_nif  # noqa: E402
 import parser_uv  # noqa: E402
+import registrar  # noqa: E402
 
 REFERENCIA = os.path.join(_AQUI, "roadsignwhiterun01.json")
 
@@ -98,6 +101,18 @@ def reglas(ruta):
         "%d shapes" % fila["n_shapes"],
         "463 de 22.394 archivos vanilla no tienen shapes, pero son nodos "
         "auxiliares, no assets entregables"))
+
+    geos = parser_uv.geometria(nif)
+    malos_geo = [g for g in geos if "error" in g]
+    salida.append((
+        not malos_geo,
+        "geometria_legible",
+        "%d de %d shapes con geometria ilegible%s"
+        % (len(malos_geo), len(geos),
+           (": " + ", ".join(str(g.get("error", "error"))[:60] for g in malos_geo[:3]))
+           if malos_geo else ""),
+        "82.694 de 82.694 shapes del censo tienen geometria legible "
+        "(0 violaciones de identidad de bloque, hallazgo 3)"))
 
     rutas = _rutas_textura(nif, fila)
     malas_ext = [r for r in rutas if not r.lower().endswith(".dds")]
@@ -161,8 +176,10 @@ def observaciones(ruta):
         "tienen skin; la raiz no decide"))
 
     sin_uv = fuera_01 = total = 0
+    errores_geo = 0
     for sh in parser_uv.geometria(nif):
         if "error" in sh:
+            errores_geo += 1
             continue
         total += 1
         if not sh.get("con_uv"):
@@ -172,8 +189,9 @@ def observaciones(ruta):
             fuera_01 += 1
     fuera.append((
         "uv",
-        "%d de %d shapes sin UV; %d con UV fuera de [0,1]"
-        % (sin_uv, total, fuera_01),
+        "%d de %d shapes sin UV; %d con UV fuera de [0,1]%s"
+        % (sin_uv, total, fuera_01,
+           (" (%d no legibles descartados)" % errores_geo) if errores_geo else ""),
         "salir de [0,1] NO es defecto: es tiling, y pasa en el 49,2 % de los "
         "shapes vanilla medidos"))
 
@@ -242,6 +260,7 @@ def modo_identico(ruta):
         "n_shapes": fila["n_shapes"],
         "triangulos_totales": fila["triangulos_totales"],
         "shapes": fila["shapes"],
+        "geometria": registrar.resumen_geometria(nif),
         "colision": fila["colision"],
         "texturas_referenciadas": nif.texturas(),
     }
@@ -250,7 +269,9 @@ def modo_identico(ruta):
     print("")
     difs = []
     for campo in CAMPOS_IDENTIDAD:
-        if campo not in ahora:          # geometria no se recalcula aca
+        if campo not in ahora:
+            difs.append(campo)
+            print("  [NO] %s (campo ausente en medicion)" % campo)
             continue
         if ref.get(campo) != ahora[campo]:
             difs.append(campo)
@@ -262,7 +283,7 @@ def modo_identico(ruta):
         else:
             print("  [ok] %s" % campo)
     print("")
-    print("  %d campos comparados, %d distintos" % (len(ahora), len(difs)))
+    print("  %d campos comparados, %d distintos" % (len(CAMPOS_IDENTIDAD), len(difs)))
     return 1 if difs else 0
 
 

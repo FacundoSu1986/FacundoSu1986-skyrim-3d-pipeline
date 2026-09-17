@@ -140,6 +140,7 @@ Los 537 que no pasan **tienen todos una causa entendida**:
 | Regla | Archivos | Qué son |
 |---|---:|---|
 | `tiene_geometria` | 463 | los `skeleton.nif`: árboles de nodos sin shapes. Vanilla legítimo, pero no son assets entregables. |
+| `geometria_legible` | 0 | 82.694 de 82.694 shapes vanilla del censo tienen geometría legible sin violaciones de identidad de bloque (hallazgo 3). |
 | `nodo_raiz_conocido` | 93 | raíz `BSMasterParticleSystem` — efectos de partículas. **Ver la nota de abajo.** |
 | `texturas_dds` | 73 | la ruta literal `NOR` como placeholder de Bethesda |
 | `texturas_separador` | 71 | el mismo `NOR` |

@@ -88,6 +88,12 @@ class ReferenciaRegistradaTests(unittest.TestCase):
         self.assertFalse(self.ref["tiene_skin"])
         self.assertEqual(1, self.ref["bloques"].get("BSShaderTextureSet"))
 
+    def test_la_caja_de_referencia_tiene_extension_en_tres_ejes(self):
+        """roadsignwhiterun01 se eligio porque no es plano (a diferencia de rug01)."""
+        caja = self.ref["geometria"][0]["caja"]
+        for dim in caja["tamano_unidades"]:
+            self.assertGreater(dim, 0.1, "la referencia es plana en algun eje")
+
 
 class ContratoDiscriminaTests(unittest.TestCase):
     """Un contrato que aprueba todo no sirve. Cada regla tiene que reprobar
@@ -110,6 +116,20 @@ class ContratoDiscriminaTests(unittest.TestCase):
     def test_sin_geometria_reprueba(self):
         """El sintetico no tiene shapes: es un arbol de nodos y una trampa."""
         self.assertIn("tiene_geometria", self._claves_malas(self.datos))
+
+    def test_geometria_ilegible_reprueba(self):
+        """Un shape con datos corruptos (data_size != n_ver*stride + n_tri*6)
+        tiene que reprobar el contrato, no pasar desapercibido."""
+        ruta = _archivo(self.datos, self)
+        from unittest import mock
+        with mock.patch("parser_uv.geometria") as mock_geo:
+            mock_geo.return_value = [
+                {"nombre": "ShapeRoto", "tipo": "BSTriShape",
+                 "error": "inline: 10*16 + 5*6 = 190 != data_size 250"}
+            ]
+            rs = dict((clave, ok) for ok, clave, _d, _e in comparar.reglas(ruta))
+            self.assertIn("geometria_legible", rs)
+            self.assertFalse(rs["geometria_legible"])
 
     def test_version_equivocada_reprueba(self):
         malas = self._claves_malas(_campo_cabecera(self.datos, 0, 0x14000005))
@@ -143,7 +163,7 @@ class ContratoDiscriminaTests(unittest.TestCase):
         sintetico y van declaradas, no disimuladas.
         """
         sin_ejercitar = {"texturas_dds", "texturas_separador",
-                         "rigidbody_identidad"}
+                         "rigidbody_identidad", "geometria_legible"}
         casos = (
             self.datos,
             _campo_cabecera(self.datos, 0, 0x14000005),
@@ -162,6 +182,51 @@ class ContratoDiscriminaTests(unittest.TestCase):
         self.assertEqual(
             set(), nunca,
             "estas reglas no reprueban en ningun caso de prueba: %s" % nunca)
+
+
+class IdenticoCalculaGeometriaTests(unittest.TestCase):
+    """Verifica que el modo identico y sus helpers calculen la geometria
+    exactamente con la misma estructura que registrar.py."""
+
+    def test_caja_calcula_dimensiones_y_metros(self):
+        pos = [(-10.0, 0.0, 5.0), (25.0, 14.0, 12.0)]
+        caja = registrar._caja(pos)
+        self.assertEqual([-10.0, 0.0, 5.0], caja["min"])
+        self.assertEqual([25.0, 14.0, 12.0], caja["max"])
+        self.assertEqual([35.0, 14.0, 7.0], caja["tamano_unidades"])
+        self.assertEqual([0.5, 0.2, 0.1], caja["tamano_metros"])
+
+    def test_caja_vacia_devuelve_none(self):
+        self.assertIsNone(registrar._caja([]))
+
+    def test_resumen_geometria_con_mock(self):
+        class MockNif:
+            pass
+        from unittest import mock
+        with mock.patch("parser_uv.geometria") as mock_geo:
+            mock_geo.return_value = [{
+                "nombre": "TestShape:0",
+                "tipo": "BSTriShape",
+                "skin": False,
+                "con_uv": True,
+                "pos": [(0.0, 0.0, 0.0), (70.0, 70.0, 70.0)],
+                "tris": [(0, 1, 0)],
+            }]
+            geo = registrar.resumen_geometria(MockNif())
+            self.assertEqual(1, len(geo))
+            self.assertEqual("TestShape:0", geo[0]["nombre"])
+            self.assertEqual(2, geo[0]["vertices"])
+            self.assertEqual(1, geo[0]["triangulos"])
+            self.assertEqual([1.0, 1.0, 1.0], geo[0]["caja"]["tamano_metros"])
+
+    def test_modo_identico_detecta_diferencias(self):
+        ruta = _archivo(nif_sintetico.construir()[0], self)
+        from unittest import mock
+        with mock.patch("comparar._cargar_referencia") as mock_ref:
+            mock_ref.return_value = {"sha256": "otro_sha"}
+            with mock.patch("builtins.print"):
+                exit_code = comparar.modo_identico(ruta)
+            self.assertEqual(1, exit_code)
 
 
 class TodaReglaTraeEvidenciaTests(unittest.TestCase):
