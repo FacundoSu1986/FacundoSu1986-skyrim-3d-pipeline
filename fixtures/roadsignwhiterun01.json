@@ -1,0 +1,102 @@
+{
+ "_que_es_esto": "Medicion de un archivo vanilla de Skyrim SE. Metadatos, no contenido: el .nif no se versiona. Regenerable con fixtures/registrar.py.",
+ "bloques": {
+  "BSFadeNode": 1,
+  "BSLightingShaderProperty": 1,
+  "BSShaderTextureSet": 1,
+  "BSTriShape": 1,
+  "BSXFlags": 1,
+  "bhkBoxShape": 1,
+  "bhkCollisionObject": 1,
+  "bhkRigidBodyT": 1
+ },
+ "bsxflags": {
+  "bits": [
+   1,
+   7
+  ],
+  "valor": 130
+ },
+ "bytes": 3625,
+ "cabecera": {
+  "bs_version": 100,
+  "user_version": 12,
+  "version": "20.2.0.7"
+ },
+ "colision": {
+  "layer": "SKYL_STATIC",
+  "layer_id": 1,
+  "mass": 0.0,
+  "material_havok": "SKY_HAV_MAT_WOOD",
+  "material_havok_id": 500811281,
+  "materiales_chunk": null,
+  "motion_system": "MO_SYS_BOX_STABILIZED",
+  "motion_system_id": 5,
+  "tipos_bhk": [
+   "bhkBoxShape",
+   "bhkCollisionObject",
+   "bhkRigidBodyT"
+  ]
+ },
+ "geometria": [
+  {
+   "caja": {
+    "max": [
+     -4.8,
+     3.2,
+     11.2
+    ],
+    "min": [
+     -84.9295,
+     -4.813,
+     -11.2
+    ],
+    "tamano_metros": [
+     1.1447,
+     0.1145,
+     0.32
+    ],
+    "tamano_unidades": [
+     80.1295,
+     8.013,
+     22.4
+    ]
+   },
+   "con_uv": true,
+   "nombre": "RoadSignWhiterun01:0",
+   "skin": false,
+   "tipo_bloque": "BSTriShape",
+   "triangulos": 46,
+   "vertices": 70
+  }
+ ],
+ "n_bloques": 8,
+ "n_shapes": 1,
+ "ruta_relativa": "clutter/signage/roadsigns/roadsignwhiterun01.nif",
+ "sha256": "d435f916e43b865107d1dd6af7208250f83cc21626a0dab8f9d4c5b6c0a06574",
+ "shapes": [
+  {
+   "flags1": 2185233153,
+   "flags2": 32801,
+   "nombre": "RoadSignWhiterun01:0",
+   "ranuras_textura_pobladas": [
+    0,
+    1
+   ],
+   "rutas_textura": [
+    "textures\\clutter\\signage\\roadsigns\\RoadSignsCities01.dds",
+    "textures\\clutter\\signage\\roadsigns\\RoadSignsCities01_n.dds"
+   ],
+   "shader_tipo": "Default",
+   "shader_tipo_id": 0,
+   "tipo_bloque": "BSTriShape"
+  }
+ ],
+ "texturas_referenciadas": [
+  "textures\\clutter\\signage\\roadsigns\\RoadSignsCities01.dds",
+  "textures\\clutter\\signage\\roadsigns\\RoadSignsCities01_n.dds"
+ ],
+ "tiene_skin": false,
+ "tipo_nodo_raiz": "BSFadeNode",
+ "triangulos_totales": 46
+}
