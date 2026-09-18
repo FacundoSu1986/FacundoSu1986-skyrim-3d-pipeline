@@ -20,10 +20,15 @@ solo contra archivos reales.
 
 ESTRUCTURA DEL ARCHIVO QUE GENERA
 
-    BSFadeNode "RaizDePrueba"      bloque 0, raiz, 1 hijo, 1 extra data
+    <raiz_tipo> "RaizDePrueba"     bloque 0, raiz, 1 hijo, 1 extra data
     +-- NiNode "HijoDePrueba"      bloque 1, trasladado a (10, 20, 30)
     BSXFlags  "BSX" = 203          bloque 2, referenciado como extra data
     BSFurnitureMarkerNode          bloque 3, TRAMPA deliberada
+
+El tipo del bloque 0 sale de `construir(raiz_tipo)` y por defecto es
+BSFadeNode. Cambiarlo cambia la tabla de tipos del archivo, y con eso
+`esperado["cuenta_tipos"]`, que se deriva de los mismos `tipos` que se
+escriben: la verdad declarada sigue al parametro.
 
 203 no es un numero al azar: es el valor real de `soulgemgreater01.nif`, y sus
 bits encendidos son 0+1+3+6+7.
@@ -103,13 +108,18 @@ def _marcador_trampa(nombre_idx):
     return bytes(b)
 
 
-def construir():
+def construir(raiz_tipo="BSFadeNode"):
     """Devuelve (bytes_del_nif, esperado).
 
     `esperado` es la verdad declarada: lo que cualquier parser correcto tiene
     que recuperar de esos bytes.
+
+    `raiz_tipo` deja cambiar el tipo del bloque raiz. El nombre del tipo va en
+    la tabla con su largo adelante, asi que cambiarlo corre donde empiezan los
+    bloques -- por eso se reconstruye la cabecera entera aca en vez de parchear
+    bytes sobre un archivo ya armado. Un parser correcto no se entera.
     """
-    tipos = ["BSFadeNode", "NiNode", "BSXFlags", "BSFurnitureMarkerNode"]
+    tipos = [raiz_tipo, "NiNode", "BSXFlags", "BSFurnitureMarkerNode"]
     strings = [RAIZ_NOMBRE, HIJO_NOMBRE, BSX_NOMBRE, MARCADOR_NOMBRE]
 
     bloques = [
@@ -148,9 +158,8 @@ def construir():
         "user": USER,
         "bs": BS,
         "n_bloques": len(bloques),
-        "raiz": "BSFadeNode",
-        "cuenta_tipos": {"BSFadeNode": 1, "NiNode": 1, "BSXFlags": 1,
-                         "BSFurnitureMarkerNode": 1},
+        "raiz": raiz_tipo,
+        "cuenta_tipos": {t: tipos.count(t) for t in tipos},
         "strings": list(strings),
         "tamanos": [len(b) for b in bloques],
         "bsxflags": BSX_VALOR,

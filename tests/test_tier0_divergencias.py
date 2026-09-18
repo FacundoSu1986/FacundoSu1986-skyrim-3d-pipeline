@@ -57,6 +57,82 @@ class TiposDeShapeTests(unittest.TestCase):
         self.assertIn("BSDynamicTriShape", censo_nif.TIPOS_SHAPE)
 
 
+class TiposDeNodoTests(unittest.TestCase):
+    """Las tres listas de TIPOS_NODO, y el tipo que faltaba en las tres."""
+
+    def _listas(self):
+        return {"census/parser_nif.py": parser_nif.TIPOS_NODO,
+                "skills/.../censo_nif.py": censo_nif.TIPOS_NODO,
+                "skills/.../nif_nodos.py": nif_nodos.TIPOS_NODO}
+
+    def test_las_tres_listas_de_tipos_de_nodo_son_la_misma(self):
+        """Ya estaban separadas: parser_nif tenia BSRangeNode y los otros dos
+        no. Compara las tres ENTRE SI, no contra una lista escrita a mano: si
+        manana se agrega un tipo a una sola, cae aca."""
+        listas = self._listas()
+        base = set(next(iter(listas.values())))
+        for nombre, lista in listas.items():
+            self.assertEqual(
+                base, set(lista),
+                "%s no coincide con las otras: %s"
+                % (nombre, base ^ set(lista)))
+
+    def test_bsmasterparticlesystem_es_un_nodo(self):
+        """93 archivos del corpus lo traen como raiz. El layout de NiNode
+        parsea coherente en 93 de 93 bloques, y agregarlo recupera 93 nodos y
+        94 hijos que se salteaban, sin una sola evidencia nueva en
+        verificar.py. BSFurnitureMarkerNode, el caso contrario, rompia 123."""
+        for nombre, lista in self._listas().items():
+            self.assertIn("BSMasterParticleSystem", lista, nombre)
+
+    def test_una_raiz_de_ese_tipo_se_recorre_como_nodo(self):
+        """No alcanza con que este en la lista: el arbol tiene que recorrerse.
+        Enumera los tres parsers, como el test de la cabecera BS>=130, porque
+        censo_nif y nif_nodos NO comparten el recorrido con parser_nif: un
+        arreglo en uno no tapa a los otros dos. Y confronta la verdad
+        declarada del fixture con los bytes en las dos raices: si `esperado`
+        miente, esto falla contra el archivo, no contra otra lista a mano."""
+        entradas = (
+            ("census/parser_nif.py", lambda r: parser_nif.Nif(r).nodos()),
+            ("skills/.../censo_nif.py", lambda r: censo_nif.Nif(r).nodos()),
+            ("skills/.../nif_nodos.py", lambda r: nif_nodos.leer(r)["nodos"]),
+        )
+        conteos = {}
+        for tipo in ("BSFadeNode", "BSMasterParticleSystem"):
+            datos, esperado = nif_sintetico.construir(tipo)
+            self.assertEqual(tipo, esperado["raiz"],
+                             "el fixture no declara la verdad que construyo")
+            ruta = _archivo(datos)
+            try:
+                for nombre, abrir in entradas:
+                    nodos = abrir(ruta)
+                    self.assertEqual(
+                        tipo, nodos[0]["tipo"],
+                        "%s no lee la raiz %s como nodo" % (nombre, tipo))
+                    conteos[(tipo, nombre)] = (
+                        len(nodos),
+                        sum(len(x["hijos"]) for x in nodos.values()))
+                for nombre, nif in (
+                        ("census/parser_nif.py", parser_nif.Nif(ruta)),
+                        ("skills/.../censo_nif.py", censo_nif.Nif(ruta))):
+                    self.assertEqual(
+                        esperado["cuenta_tipos"], nif.cuenta_tipos(),
+                        "%s: la verdad declarada del fixture no coincide con "
+                        "el archivo con raiz %s" % (nombre, tipo))
+            finally:
+                os.unlink(ruta)
+        self.assertEqual(
+            1, len(set(conteos.values())),
+            "los tres recorridos no coinciden: %s" % conteos)
+        self.assertNotEqual((0, 0), next(iter(conteos.values())))
+
+    def test_bsfurnituremarkernode_sigue_afuera(self):
+        """El par del test de arriba. Si 'agregar tipos' fuera siempre bueno,
+        este repo no habria tenido que sacar uno que rompia 123 archivos."""
+        for nombre, lista in self._listas().items():
+            self.assertNotIn("BSFurnitureMarkerNode", lista, nombre)
+
+
 class VersionBsNoValidadaTests(unittest.TestCase):
     """#18: dos lecturas distintas de la cabecera para BS>=130, ninguna
     validada -- el corpus tiene 22.393 con BS=100, uno con BS=83 y cero con
