@@ -20,10 +20,15 @@ solo contra archivos reales.
 
 ESTRUCTURA DEL ARCHIVO QUE GENERA
 
-    BSFadeNode "RaizDePrueba"      bloque 0, raiz, 1 hijo, 1 extra data
+    <raiz_tipo> "RaizDePrueba"     bloque 0, raiz, 1 hijo, 1 extra data
     +-- NiNode "HijoDePrueba"      bloque 1, trasladado a (10, 20, 30)
     BSXFlags  "BSX" = 203          bloque 2, referenciado como extra data
     BSFurnitureMarkerNode          bloque 3, TRAMPA deliberada
+
+El tipo del bloque 0 sale de `construir(raiz_tipo)` y por defecto es
+BSFadeNode. Cambiarlo cambia la tabla de tipos del archivo, y con eso
+`esperado["cuenta_tipos"]`, que se deriva de los mismos `tipos` que se
+escriben: la verdad declarada sigue al parametro.
 
 203 no es un numero al azar: es el valor real de `soulgemgreater01.nif`, y sus
 bits encendidos son 0+1+3+6+7.
@@ -154,8 +159,7 @@ def construir(raiz_tipo="BSFadeNode"):
         "bs": BS,
         "n_bloques": len(bloques),
         "raiz": raiz_tipo,
-        "cuenta_tipos": {"BSFadeNode": 1, "NiNode": 1, "BSXFlags": 1,
-                         "BSFurnitureMarkerNode": 1},
+        "cuenta_tipos": {t: tipos.count(t) for t in tipos},
         "strings": list(strings),
         "tamanos": [len(b) for b in bloques],
         "bsxflags": BSX_VALOR,

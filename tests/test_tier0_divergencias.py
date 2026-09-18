@@ -87,29 +87,44 @@ class TiposDeNodoTests(unittest.TestCase):
 
     def test_una_raiz_de_ese_tipo_se_recorre_como_nodo(self):
         """No alcanza con que este en la lista: el arbol tiene que recorrerse.
-        El fixture se arma con ese tipo de raiz y se compara contra el mismo
-        archivo con raiz BSFadeNode -- mismos nodos, mismos hijos."""
-        rutas = []
+        Enumera los tres parsers, como el test de la cabecera BS>=130, porque
+        censo_nif y nif_nodos NO comparten el recorrido con parser_nif: un
+        arreglo en uno no tapa a los otros dos. Y confronta la verdad
+        declarada del fixture con los bytes en las dos raices: si `esperado`
+        miente, esto falla contra el archivo, no contra otra lista a mano."""
+        entradas = (
+            ("census/parser_nif.py", lambda r: parser_nif.Nif(r).nodos()),
+            ("skills/.../censo_nif.py", lambda r: censo_nif.Nif(r).nodos()),
+            ("skills/.../nif_nodos.py", lambda r: nif_nodos.leer(r)["nodos"]),
+        )
         conteos = {}
         for tipo in ("BSFadeNode", "BSMasterParticleSystem"):
             datos, esperado = nif_sintetico.construir(tipo)
             self.assertEqual(tipo, esperado["raiz"],
                              "el fixture no declara la verdad que construyo")
             ruta = _archivo(datos)
-            rutas.append(ruta)
-            nif = parser_nif.Nif(ruta)
-            self.assertEqual(tipo, nif.raiz())
-            nodos = nif.nodos()
-            conteos[tipo] = (len(nodos),
-                             sum(len(x["hijos"]) for x in nodos.values()))
-        for r in rutas:
             try:
-                os.unlink(r)
-            except OSError:
-                pass
-        self.assertEqual(conteos["BSFadeNode"], conteos["BSMasterParticleSystem"],
-                         "con esa raiz el arbol se recorre distinto: %s" % conteos)
-        self.assertNotEqual((0, 0), conteos["BSMasterParticleSystem"])
+                for nombre, abrir in entradas:
+                    nodos = abrir(ruta)
+                    self.assertEqual(
+                        tipo, nodos[0]["tipo"],
+                        "%s no lee la raiz %s como nodo" % (nombre, tipo))
+                    conteos[(tipo, nombre)] = (
+                        len(nodos),
+                        sum(len(x["hijos"]) for x in nodos.values()))
+                for nombre, nif in (
+                        ("census/parser_nif.py", parser_nif.Nif(ruta)),
+                        ("skills/.../censo_nif.py", censo_nif.Nif(ruta))):
+                    self.assertEqual(
+                        esperado["cuenta_tipos"], nif.cuenta_tipos(),
+                        "%s: la verdad declarada del fixture no coincide con "
+                        "el archivo con raiz %s" % (nombre, tipo))
+            finally:
+                os.unlink(ruta)
+        self.assertEqual(
+            1, len(set(conteos.values())),
+            "los tres recorridos no coinciden: %s" % conteos)
+        self.assertNotEqual((0, 0), next(iter(conteos.values())))
 
     def test_bsfurnituremarkernode_sigue_afuera(self):
         """El par del test de arriba. Si 'agregar tipos' fuera siempre bueno,
