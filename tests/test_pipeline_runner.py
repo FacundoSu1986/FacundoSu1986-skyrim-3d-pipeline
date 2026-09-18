@@ -167,12 +167,23 @@ class RunnerFallasTests(unittest.TestCase):
             self.assertEqual(final["estado"], "FAILED")
 
     def test_destino_no_se_toca_cuando_publish_falla(self):
-        # Arrange: package vacío -> publish debe fallar y no crear destino
+        # Arrange: un PACKAGE que declara haber corrido pero no escribe nada
+        # deja package/ vacío; el pipeline va COMPLETO para que el gate de
+        # stubs no corte antes y PUBLISH falle por esta guarda.
         tmp, raiz, mesh, manifest = _entorno()
+
+        def package_que_no_escribe(mani, ws):
+            return {"ejecutada": True, "herramienta": "falso:package-vacio"}
+
         with tmp:
-            res = PipelineRunner(manifest).run()
+            res = PipelineRunner(
+                manifest,
+                _pipeline_completo({Phase.PACKAGE: package_que_no_escribe}),
+            ).run()
             # Assert: la guarda puede fallar (detector real)
             self.assertIs(res.estado, State.FAILED)
+            self.assertIn("package/ vacío", res.error or "",
+                          "fallo por otra razón que la que este test cubre")
             self.assertFalse((raiz / "salida" / "job-test").exists())
 
     def test_publish_fail_closed_ante_destino_existente(self):

@@ -9,6 +9,7 @@ fases, no una decision. Cablear PACKAGE es el proximo slice.
 Estos tests no fijan el caso que encontramos sino la propiedad: ninguna fase
 sin conectar puede terminar en una publicacion.
 """
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -51,11 +52,15 @@ def _package_real(mani, ws):
 
 
 def _todas_cableadas():
-    """Todas las fases con adaptador propio. INGEST e INSPECT quedan con el
-    real: son las dos que si estan implementadas."""
+    """Todas las fases con adaptador funcional, salvo PUBLISH, que conserva el
+    real: es el que de verdad publica, y el que el gate debe frenar.
+
+    INGEST e INSPECT tambien van falseadas a proposito: con los reales, dejar
+    INGEST en stub haria fallar INSPECT por falta de input, y el test mediria
+    esa dependencia en vez del gate."""
     fases = {}
     for fase in ORDEN_FASES:
-        if fase in (Phase.INGEST, Phase.INSPECT, Phase.PUBLISH):
+        if fase is Phase.PUBLISH:
             continue
         fases[fase] = _package_real if fase is Phase.PACKAGE else _real(fase.value)
     return fases
@@ -91,16 +96,14 @@ class GateDeStubsTests(unittest.TestCase):
 
     def test_cualquier_fase_sin_conectar_impide_publicar(self):
         """Enumera. No alcanza con tapar el caso que encontramos: se prueba
-        CADA fase, dejandola como stub y cableando todas las demas.
+        CADA fase de ORDEN_FASES, dejandola como stub y cableando todas las
+        demas. Incluye PUBLISH: si la ultima fase es stub, la corrida no puede
+        terminar PUBLISHED (el gate previo solo audita los reportes previos).
 
         Si manana se cablea PACKAGE y se deja VALIDATE en stub -- que es
         exactamente lo que va a pasar en el proximo slice -- cae aca.
         """
-        candidatas = [f for f in ORDEN_FASES
-                      if f not in (Phase.INGEST, Phase.INSPECT, Phase.PUBLISH)]
-        self.assertTrue(candidatas, "no hay fases que probar")
-
-        for fase in candidatas:
+        for fase in ORDEN_FASES:
             with self.subTest(fase=fase.value):
                 tmp, raiz, manifest = _entorno()
                 self.addCleanup(tmp.cleanup)
@@ -129,6 +132,26 @@ class GateDeStubsTests(unittest.TestCase):
             self.assertIn(fase, r.fases_sin_conectar)
 
     # --- el gate no se puede esquivar ---------------------------------------
+
+    def test_un_publish_stub_no_se_reporta_como_exito(self):
+        """Hallazgo de review: el gate previo audita los reportes anteriores;
+        si el que se declara stub es PUBLISH, recien se sabe despues de
+        correrlo. La corrida no puede terminar PUBLISHED/ok=True sin haber
+        publicado nada."""
+        fases = _todas_cableadas()
+        fases[Phase.PUBLISH] = _fase_noop
+        r = self._correr(fases)
+
+        self.assertIs(State.FAILED, r.estado)
+        self.assertFalse(r.ok, "un PUBLISH stub no puede informar exito")
+        self.assertIn(Phase.PUBLISH.value, r.fases_sin_conectar)
+        self.assertIn(Phase.PUBLISH.value, r.error or "")
+        self.assertEqual([], self._publicado())
+        final = json.loads(
+            (self.raiz / "workspace" / self.manifest.job_id / "reports"
+             / "final.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual("FAILED", final["estado"])
 
     def test_un_publish_propio_no_saltea_el_gate(self):
         """Por eso el gate vive en el runner y no dentro de _fase_publish: la

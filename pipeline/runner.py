@@ -20,12 +20,17 @@ Garantías:
   - cada fase produce un reporte JSON en reports/ (qué entró, qué salió);
   - el manifest se valida ANTES de crear cualquier directorio.
 
-Fases por defecto de esta slice: INGEST (copia con hash, no mueve el
-original) y PUBLISH (fail-closed: si el destino existe, error; copia del
-árbol package/ completo a un temp vecino y os.replace). El resto son
-no-ops que registran reporte vacío: son los puntos de enganche donde las
-slices siguientes conectarán los verificadores existentes (parser_nif,
-parser_dds, scripts Blender) mediante adaptadores inyectables.
+Fases por defecto: INGEST (copia con hash, no mueve el original), INSPECT
+(inspección read-only de la copia) y PUBLISH (fail-closed: si el destino
+existe, error; copia del árbol package/ completo a un temp vecino y
+os.replace). El resto son stubs que se declaran como tales (`stub=True`,
+`ejecutada=False`): puntos de enganche donde las slices siguientes conectarán
+los verificadores existentes (parser_nif, parser_dds, scripts Blender)
+mediante adaptadores inyectables.
+
+Ninguna fase sin conectar puede terminar en una publicación: `run()` rechaza
+PUBLISH si alguna fase ejecutada -- incluido el propio PUBLISH -- se declaró
+stub.
 
 Publicación: os.replace de directorio es atómico dentro del mismo volumen
 en NTFS/Linux; si la plataforma no lo garantiza, queda documentado aquí
@@ -126,9 +131,24 @@ def _fase_noop(mani: JobManifest, ws: JobWorkspace) -> dict:
 
 
 def fases_stub(reports: dict[str, dict]) -> list[str]:
-    """Fases que informaron ser un stub, en orden de aparición."""
+    """Fases que informaron ser un stub, en orden de aparición.
+
+    Límite conocido: es una declaración explícita del adaptador. Un adaptador
+    que no hace nada pero se declara ejecutado no se detecta acá; para PACKAGE,
+    la guarda de `package/` vacío en PUBLISH es el backstop.
+    """
     return [nombre for nombre, rep in reports.items()
             if isinstance(rep, dict) and rep.get(CLAVE_STUB) is True]
+
+
+def _error_publicacion_con_stubs(stubs: list[str]) -> PublishError:
+    """Mensaje único para las dos vías de rechazo: stubs antes de PUBLISH, y
+    el propio PUBLISH declarado stub."""
+    return PublishError(
+        "no se publica: %d fase(s) sin conectar (%s). Un stub informa que no "
+        "hizo nada; publicar igual seria dar por bueno un asset que nadie "
+        "produjo." % (len(stubs), ", ".join(stubs))
+    )
 
 
 def _sha256(ruta: Path) -> str:
@@ -218,8 +238,9 @@ class RunResult:
 
     @property
     def fases_sin_conectar(self) -> list[str]:
-        """Las fases que corrieron como stub. Una corrida con esto no vacio no
-        produjo un asset, aunque ninguna fase haya fallado."""
+        """Las fases que corrieron como stub, en orden de ejecución. Una
+        corrida con esta lista no vacía no produjo un asset: si hay stubs,
+        `estado` nunca es PUBLISHED."""
         return fases_stub(self.reports)
 
 
@@ -248,7 +269,8 @@ class PipelineRunner:
     def run(self) -> RunResult:
         """Ejecuta el pipeline. Devuelve RunResult; nunca lanza por fallo de
         fase (el fallo queda en result.error y estado=FAILED). Sí lanza por
-        manifest inválido: ese error es previo a cualquier ejecución."""
+        manifest inválido -- error previo a cualquier ejecución -- y por
+        OSError si la evidencia (reports/) no se puede escribir."""
         self.manifest.validar()
         ws = JobWorkspace(self.manifest.workspace_raiz, self.manifest.job_id)
         ws.crear()
@@ -264,12 +286,7 @@ class PipelineRunner:
             if fase is Phase.PUBLISH:
                 pendientes = fases_stub(reports)
                 if pendientes:
-                    e = PublishError(
-                        "no se publica: %d fase(s) sin conectar (%s). Un stub "
-                        "informa que no hizo nada; publicar igual seria dar por "
-                        "bueno un asset que nadie produjo."
-                        % (len(pendientes), ", ".join(pendientes))
-                    )
+                    e = _error_publicacion_con_stubs(pendientes)
                     reports[fase.value] = {
                         "ejecutada": False,
                         "error": f"{type(e).__name__}: {e}",
@@ -278,12 +295,25 @@ class PipelineRunner:
                     self._escribir_final(ws, estado, reports, str(e))
                     return RunResult(estado=estado, reports=reports, error=str(e))
             try:
-                reports[fase.value] = self.fases[fase](self.manifest, ws)
+                reporte = self.fases[fase](self.manifest, ws)
             except Exception as e:
                 reports[fase.value] = {
                     "ejecutada": False,
                     "error": f"{type(e).__name__}: {e}",
                 }
+                estado = State.FAILED
+                self._escribir_final(ws, estado, reports, str(e))
+                return RunResult(estado=estado, reports=reports, error=str(e))
+            reports[fase.value] = reporte
+            # El gate previo audita lo ya ejecutado; que PUBLISH sea stub recién
+            # se sabe después de correrlo. Sin este chequeo la corrida termina
+            # PUBLISHED/ok=True sin haber publicado nada: exactamente la mentira
+            # que este cambio elimina. El reporte stub se conserva para que
+            # fases_sin_conectar lo liste.
+            if (fase is Phase.PUBLISH and isinstance(reporte, dict)
+                    and reporte.get(CLAVE_STUB) is True):
+                e = _error_publicacion_con_stubs([fase.value])
+                reporte["error"] = f"{type(e).__name__}: {e}"
                 estado = State.FAILED
                 self._escribir_final(ws, estado, reports, str(e))
                 return RunResult(estado=estado, reports=reports, error=str(e))
@@ -298,8 +328,9 @@ class PipelineRunner:
         reports: dict[str, dict],
         error: str | None,
     ) -> None:
-        """Persiste evidencia estructurada. Si ni siquiera el reporte se puede
-        escribir, se intenta best-effort y se avisa en el error de vuelta."""
+        """Persiste evidencia estructurada. Es I/O directo: si `reports/` no
+        es escribible, la OSError propaga (no hay canal alternativo para dejar
+        el diagnóstico)."""
         final = {
             "estado": estado.name,
             "error": error,
