@@ -13,6 +13,12 @@ caer EXACTO en el fin del archivo.
   grupo:   24 bytes de encabezado, y groupSize INCLUYE esos 24
   subrecord dentro de un record: 4 de tipo + 2 de tamano + tamano bytes
 
+Cuando el subrecord mide mas de lo que entra en un u16, Bethesda lo precede de
+un subrecord XXXX (4 + 2 + 4) con el tamano real. Se decodifica: en los masters
+del corpus no aparece (medido: 0 en 1,17 millones de records), pero un plugin
+de mod valido puede tenerlo y leerlo como subrecord comun corre todos los
+offsets que siguen.
+
 Si alguno de esos tres tamanos estuviera mal interpretado, el recorrido se
 desalinea y no termina donde termina el archivo. Sobre un .esm de 250 MB eso no
 pasa por casualidad.
@@ -36,6 +42,10 @@ BANDERA_ESL = 0x00000200          # NO VERIFICADO contra el corpus
 CABECERA_RECORD = 24
 CABECERA_GRUPO = 24
 
+# Escape de tamano extendido: un subrecord de mas de 65535 bytes se precede de
+# un XXXX con el tamano real en un u32.
+ESCAPE_TAMANO = b"XXXX"
+
 
 class PluginInvalido(Exception):
     pass
@@ -56,7 +66,7 @@ class Plugin(object):
         self.es_esm = bool(self.banderas & BANDERA_ESM)
         self.es_esl = bool(self.banderas & BANDERA_ESL)
 
-        self.records = []          # (tipo, offset, tam_datos, form_id, nivel)
+        self.records = []          # (tipo, offset, tam_datos, form_id)
         self.grupos = []           # (etiqueta, offset, tam_total, tipo_grupo)
         self._recorrer()
 
@@ -79,6 +89,10 @@ class Plugin(object):
                                  % (p, fin))
 
     def _record(self, p):
+        if p + CABECERA_RECORD > len(self.d):
+            raise PluginInvalido(
+                "encabezado de record en %d: el archivo termina en %d"
+                % (p, len(self.d)))
         tipo = self.d[p:p + 4]
         tam, _fl, fid = struct.unpack_from("<III", self.d, p + 4)
         fin = p + CABECERA_RECORD + tam
@@ -99,6 +113,13 @@ class Plugin(object):
         self.grupos.append((etiqueta.decode("latin-1"), p, tam, tipo_grupo))
         q = p + CABECERA_GRUPO
         while q < fin:
+            # El hijo tiene que entrar entero en el grupo, no solo en el
+            # archivo: con una cola de menos de 24 B, `_record` leia el bloque
+            # siguiente (o reventaba con struct.error si el grupo estaba al
+            # final) en vez de rechazar el grupo.
+            if fin - q < CABECERA_GRUPO:
+                raise PluginInvalido(
+                    "grupo en %d: cola de %d bytes en %d" % (p, fin - q, q))
             if self.d[q:q + 4] == b"GRUP":
                 q = self._grupo(q, nivel + 1)
             else:
@@ -115,6 +136,11 @@ class Plugin(object):
 
         No se descomprimen los records con bandera 0x40000: se informan y se
         saltean, porque inventar su contenido seria peor que no leerlo.
+
+        El escape XXXX lleva el tamano real (> 65535) del subrecord siguiente,
+        porque el u16 no alcanza. Se decodifica si aparece: un plugin valido
+        con un subrecord grande correria TODOS los offsets siguientes si se
+        leyera como un subrecord comun.
         """
         tam, banderas, _fid = struct.unpack_from("<III", self.d, offset_record + 4)
         if banderas & 0x00040000:
@@ -122,11 +148,32 @@ class Plugin(object):
         fuera = []
         p = offset_record + CABECERA_RECORD
         fin = p + tam
+        pendiente = None
+        origen_xxxx = None
         while p + 6 <= fin:
-            tipo = self.d[p:p + 4].decode("latin-1")
+            crudo = self.d[p:p + 4]
+            tipo = crudo.decode("latin-1")
             n, = struct.unpack_from("<H", self.d, p + 4)
-            fuera.append((tipo, p + 6, n))
-            p += 6 + n
+            p += 6
+            if crudo == ESCAPE_TAMANO:
+                if n != 4 or p + 4 > fin:
+                    raise PluginInvalido(
+                        "XXXX mal formado en %d" % (p - 6))
+                pendiente, = struct.unpack_from("<I", self.d, p)
+                origen_xxxx = p - 6
+                p += 4
+                continue
+            if pendiente is not None:
+                n = pendiente
+                pendiente = None
+            fuera.append((tipo, p, n))
+            p += n
+        if pendiente is not None:
+            # El XXXX promete el subrecord que describe. Sin el, el record esta
+            # truncado y un `p == fin` limpio lo daria por bueno.
+            raise PluginInvalido(
+                "XXXX en %d sin el subrecord que describe (%d bytes)"
+                % (origen_xxxx, pendiente))
         if p != fin:
             raise PluginInvalido(
                 "subrecords de %d: recorrido %d != fin %d" % (offset_record, p, fin))

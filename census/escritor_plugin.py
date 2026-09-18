@@ -40,6 +40,7 @@ import parser_plugin  # noqa: E402
 BANDERA_ESM = parser_plugin.BANDERA_ESM
 BANDERA_ESL = parser_plugin.BANDERA_ESL
 
+CABECERA = parser_plugin.CABECERA_RECORD    # records y GRUP miden lo mismo
 MAX_OBJETO_ESL = 0xFFF
 
 
@@ -87,8 +88,13 @@ def grupo(etiqueta, records, tipo_grupo=0):
             + struct.pack("<iHHHH", tipo_grupo, 0, 0, 0, 0) + cuerpo)
 
 
-def tes4(maestros, n_records, siguiente_id, autor="", esl=True, descripcion=""):
-    subs = [sub("HEDR", struct.pack("<fiI", 1.71, n_records, siguiente_id))]
+def tes4(maestros, n_bloques, siguiente_id, autor="", esl=True, descripcion=""):
+    """`n_bloques` es lo que pide HEDR: records + grupos, sin el TES4.
+
+    Medido en los 5 masters del corpus: HEDR.numRecords == bloques totales - 1
+    (TES4) exacto en los cinco. No es la cantidad de FormID nuevos.
+    """
+    subs = [sub("HEDR", struct.pack("<fiI", 1.71, n_bloques, siguiente_id))]
     if autor:
         subs.append(sub("CNAM", zstr(autor)))
     if descripcion:
@@ -110,6 +116,41 @@ def comprobar_esl(form_ids):
             % ", ".join("0x%08X" % f for f in malos))
 
 
+def contar_bloques(serializados):
+    """records + grupos de una secuencia de bloques serializados, sin TES4.
+
+    Recorre los encabezados con el mismo contrato que exige el parser: si
+    `serializados` no embaldosa, la escritura esta mal armada y se rechaza
+    antes de producir un archivo. El total es el campo HEDR (ver `tes4()`).
+    """
+    total = 0
+    for bloque in serializados:
+        p = 0
+        n = len(bloque)
+        while p < n:
+            if n - p < CABECERA:
+                raise ErrorPlugin(
+                    "bloque en %d: cola de %d bytes, no entra un encabezado"
+                    % (p, n - p))
+            tam, = struct.unpack_from("<I", bloque, p + 4)
+            if bloque[p:p + 4] == b"GRUP":
+                if tam < CABECERA or p + tam > n:
+                    raise ErrorPlugin(
+                        "GRUP en %d con tamano %d no entra en %d bytes"
+                        % (p, tam, n))
+                sub = bloque[p + CABECERA:p + tam]
+                total += 1 + (contar_bloques([sub]) if sub else 0)
+                p += tam
+            else:
+                if p + CABECERA + tam > n:
+                    raise ErrorPlugin(
+                        "record en %d declara %d bytes y no entra en %d"
+                        % (p, tam, n))
+                total += 1
+                p += CABECERA + tam
+    return total
+
+
 def escribir(ruta, maestros, grupos, form_ids_nuevos, autor="", esl=True,
              descripcion=""):
     """Arma el archivo entero. `grupos` ya vienen serializados."""
@@ -117,8 +158,8 @@ def escribir(ruta, maestros, grupos, form_ids_nuevos, autor="", esl=True,
         comprobar_esl(form_ids_nuevos)
     siguiente = (max(f & 0x00FFFFFF for f in form_ids_nuevos) + 1
                  if form_ids_nuevos else 0x800)
-    cabecera = tes4(maestros, len(form_ids_nuevos), siguiente, autor, esl,
-                    descripcion)
+    n_bloques = contar_bloques(grupos)
+    cabecera = tes4(maestros, n_bloques, siguiente, autor, esl, descripcion)
     with open(ruta, "wb") as fh:
         fh.write(cabecera)
         for g in grupos:

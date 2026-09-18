@@ -28,6 +28,19 @@ def _archivo(datos, caso, sufijo=".esl"):
     return ruta
 
 
+def _hedr(ruta):
+    """(version, numRecords, nextObjectID) del HEDR, leido a mano."""
+    with open(ruta, "rb") as fh:
+        d = fh.read()
+    p, fin = 24, 24 + struct.unpack_from("<I", d, 4)[0]
+    while p + 6 <= fin:
+        tipo, n = d[p:p + 4], struct.unpack_from("<H", d, p + 4)[0]
+        if tipo == b"HEDR":
+            return struct.unpack_from("<fiI", d, p + 6)
+        p += 6 + n
+    raise AssertionError("el TES4 no tiene HEDR")
+
+
 class EscribirYReleerTests(unittest.TestCase):
 
     def setUp(self):
@@ -111,6 +124,74 @@ class EscribirYReleerTests(unittest.TestCase):
     def test_algo_que_no_es_un_plugin_se_rechaza(self):
         with self.assertRaises(parser_plugin.PluginInvalido):
             parser_plugin.Plugin(_archivo(b"esto no es un plugin", self))
+
+    def test_el_hedr_cuenta_records_y_grupos_sin_el_tes4(self):
+        """El campo HEDR es records + grupos, sin TES4: la spec lo dice y los
+        5 masters del corpus lo cumplen exacto (bloques totales - 1). Antes se
+        escribia la cantidad de FormID nuevos, que no es lo mismo."""
+        p = parser_plugin.Plugin(self._mod())
+        _version, num, _siguiente = _hedr(self._mod())
+        total = len(p.records) - 1 + len(p.grupos)
+        self.assertEqual(4, num, "2 records + 2 grupos")
+        self.assertEqual(total, num)
+
+
+class GruposYSubrecordsTests(unittest.TestCase):
+    """Los dos limites que la review encontro sin cubrir."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = self.tmp.name
+
+    def test_un_grupo_con_cola_corta_reprueba(self):
+        """Un GRUP cuyo contenido no cierra en encabezados de 24 B tiene que
+        reprobar: antes leia el bloque siguiente (o reventaba con struct.error
+        si el grupo estaba al final) en vez de rechazar el grupo."""
+        tes4 = ep.tes4(["Skyrim.esm"], 2, 0x801)
+        cola = b"\x00"
+        grupo = (b"GRUP" + struct.pack("<I", 24 + len(cola)) + b"STAT"
+                 + struct.pack("<iHHHH", 0, 0, 0, 0, 0) + cola)
+        with self.assertRaises(parser_plugin.PluginInvalido):
+            parser_plugin.Plugin(_archivo(tes4 + grupo, self))
+
+    def test_un_xxxx_extiende_el_tamano_del_subrecord_siguiente(self):
+        """Un subrecord de 70.000 bytes no entra en el u16: el XXXX previo
+        lleva el tamano real. Leerlo como subrecord comun corre todos los
+        offsets que siguen."""
+        grande = b"\x00" * 70000
+        cuerpo = ep.sub("EDID", ep.zstr("Prueba"))
+        cuerpo += b"XXXX" + struct.pack("<H", 4) + struct.pack("<I", len(grande))
+        cuerpo += b"MNAM" + struct.pack("<H", 0) + grande
+        r = ep.record("STAT", 0x01000800, [cuerpo])
+        ruta = ep.escribir(os.path.join(self.dir, "x.esl"), ["Skyrim.esm"],
+                           [ep.grupo("STAT", [r])], [0x01000800])
+        p = parser_plugin.Plugin(ruta)
+        off = next(o for t, o, _t, _f in p.records if t == "STAT")
+        subs = p.subrecords(off)
+        self.assertEqual(["EDID", "MNAM"], [s[0] for s in subs])
+        self.assertEqual(70000, subs[1][2])
+        self.assertEqual(grande, p.d[subs[1][1]:subs[1][1] + subs[1][2]])
+
+    def test_un_xxxx_colgado_reprueba(self):
+        """El XXXX promete el subrecord que describe: sin el, el record esta
+        truncado y el recorrido `p == fin` limpio lo daria por bueno."""
+        cuerpo = b"XXXX" + struct.pack("<H", 4) + struct.pack("<I", 8)
+        r = ep.record("STAT", 0x01000800, [cuerpo])
+        ruta = ep.escribir(os.path.join(self.dir, "y.esl"), ["Skyrim.esm"],
+                           [ep.grupo("STAT", [r])], [0x01000800])
+        p = parser_plugin.Plugin(ruta)
+        off = next(o for t, o, _t, _f in p.records if t == "STAT")
+        with self.assertRaises(parser_plugin.PluginInvalido):
+            p.subrecords(off)
+
+    def test_contar_bloques_rechaza_un_bloque_que_no_embaldosa(self):
+        """El HEDR se computa recorriendo los grupos serializados: si no
+        embaldosan, se rechaza antes de escribir el archivo."""
+        roto = b"GRUP" + struct.pack("<I", 24 + 3) + b"STAT"
+        roto += struct.pack("<iHHHH", 0, 0, 0, 0, 0) + b"\x00\x00\x00"
+        with self.assertRaises(ep.ErrorPlugin):
+            ep.contar_bloques([roto])
 
 
 class RestriccionEslTests(unittest.TestCase):
