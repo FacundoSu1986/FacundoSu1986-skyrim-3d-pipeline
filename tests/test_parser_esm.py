@@ -125,6 +125,16 @@ class LaIdentidadPuedeFallarTests(unittest.TestCase):
         with self.assertRaises(PluginInvalido):
             Plugin.subrecords(bytes(d))
 
+    def test_un_record_que_termina_en_un_xxxx_colgado_reprueba(self):
+        """El XXXX promete el subrecord que describe. Si el record termina
+        justo despues del escape, el recorrido da `p == n` limpio y antes se
+        aceptaba como un record sin subrecords: un STAT corrupto pasaba el
+        tercer nivel de la identidad."""
+        datos = b"EDID" + struct.pack("<H", 5) + b"Hola\x00"
+        datos += b"XXXX" + struct.pack("<H", 4) + struct.pack("<I", 0xFFFF)
+        with self.assertRaises(PluginInvalido):
+            Plugin.subrecords(datos)
+
     def test_lo_que_no_empieza_con_tes4_no_es_un_plugin(self):
         with self.assertRaises(PluginInvalido):
             Plugin(_archivo(b"XXXX" + self.datos[4:], self))

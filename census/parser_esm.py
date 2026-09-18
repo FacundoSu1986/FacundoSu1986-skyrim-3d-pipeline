@@ -29,8 +29,12 @@ mismo con los subrecords dentro de un record. Si el layout estuviera mal, el
 recorrido se sale del archivo en el primer bloque torcido -- es la misma
 identidad `cursor == offset + size` que valida el parser de NIF y el de DDS.
 
-Medido sobre los 10 plugins de una instalacion SE: 1.328.055 records, 121 tipos,
-0 violaciones.
+Medido sobre los 10 plugins de una instalacion SE: 1.328.055 bloques, 121 tipos,
+0 violaciones en los dos primeros niveles. La pasada de subrecords cubre TODOS
+los records de los 5 masters que AUTOTEST fija (no solo STAT): cualquier tipo
+con un subrecord que no embaldose la hace fallar. Los cinco plugins de Creation
+Club del censo no se fijan porque Bethesda los publica y actualiza por fuera del
+juego base; el censo los incluye, el ancla no.
 """
 import collections
 import os
@@ -150,6 +154,7 @@ class Plugin(object):
         p = 0
         n = len(datos)
         pendiente = None
+        origen_xxxx = None
         while p + SUB_CABECERA <= n:
             tipo = datos[p:p + 4]
             tam, = struct.unpack_from("<H", datos, p + 4)
@@ -158,6 +163,7 @@ class Plugin(object):
                 if tam != 4 or p + 4 > n:
                     raise PluginInvalido("XXXX mal formado en +%d" % (p - SUB_CABECERA))
                 pendiente, = struct.unpack_from("<I", datos, p)
+                origen_xxxx = p - SUB_CABECERA
                 p += 4
                 continue
             if pendiente is not None:
@@ -169,6 +175,13 @@ class Plugin(object):
                     % (tipo, tam, p - SUB_CABECERA, n))
             fuera.append((tipo.decode("ascii", "replace"), datos[p:p + tam]))
             p += tam
+        if pendiente is not None:
+            # El XXXX promete un subrecord que lo sigue. Sin el, el record esta
+            # truncado, y un `p == n` limpio aca abajo lo daria por bueno: la
+            # pasada de subrecords del autotest lo reportaria como embaldosado.
+            raise PluginInvalido(
+                "XXXX en +%d sin el subrecord que describe (%d bytes)"
+                % (origen_xxxx, pendiente))
         if p != n:
             raise PluginInvalido(
                 "los subrecords terminan en %d y no en %d (sobran %d)" % (p, n, n - p))
@@ -208,6 +221,12 @@ def campos_stat(plugin, offset):
 # La distincion no es academica. La primera version de esta tabla decia
 # STAT: 4772 para Skyrim.esm -- un numero que nunca medi y puse de memoria. El
 # autotest lo reprobo en la primera corrida. El valor real es 9720.
+#
+# `bytes` es la unica ancla que depende de la REVISION del juego, no del
+# formato: una actualizacion de Bethesda cambia el tamano del archivo sin tocar
+# los conteos. Verificado sobre una segunda instalacion de Skyrim.esm (121 B
+# mas): bloques, tipos y STAT dan igual; los bytes no. Si esta falla sola,
+# revisar la version del archivo antes de tocar el parser.
 
 AUTOTEST = [
     ("Skyrim.esm", {"bytes": 249753412, "bloques": 920182, "tipos": 120,
@@ -249,8 +268,12 @@ def autotest(raiz):
               % (nombre, obtenido["bloques"], obtenido["tipos"],
                  "" if not fallo else "  <-- con fallas"))
 
-    # Los subrecords de cada STAT tambien tienen que embaldosar.
-    n_stat = n_mal = 0
+    # El tercer nivel: los subrecords de CADA record tambien tienen que
+    # embaldosar. Antes solo se abria STAT -- 12.626 de 1,3 millones -- y el
+    # claim "la identidad se cumple en los tres niveles" lo respaldaba un 0,9 %
+    # del corpus. Con todos los records entran tambien los comprimidos (el
+    # camino de zlib, que antes solo ejercitaba el fixture sintetico).
+    n_rec = n_mal = 0
     for nombre, _e in AUTOTEST:
         ruta = os.path.join(raiz, nombre)
         if not os.path.exists(ruta):
@@ -258,22 +281,23 @@ def autotest(raiz):
         try:
             p = Plugin(ruta)
             for tipo, off, _tam, _prof in p.recorrer():
-                if tipo != "STAT":
+                if tipo == "GRUP":
                     continue
-                n_stat += 1
+                n_rec += 1
                 try:
                     Plugin.subrecords(p.datos(off))
                 except Exception as e:
                     n_mal += 1
                     if n_mal <= 3:
-                        print("    %s %08X: %s" % (nombre, p.form_id(off), e))
+                        print("    %s %s %08X: %s"
+                              % (nombre, tipo, p.form_id(off), e))
         except PluginInvalido as e:
             # El recorrido tiene que poder reprobar sin reventar: un layout mal
             # leido es un resultado del autotest, no un accidente del script.
             print("    %s: el recorrido viola la identidad: %s" % (nombre, e))
             n_mal += 1
     print("")
-    print("  %d STAT con subrecords que embaldosan, %d rotos" % (n_stat - n_mal, n_mal))
+    print("  %d records con subrecords que embaldosan, %d rotos" % (n_rec - n_mal, n_mal))
     fallo += n_mal
 
     print("")

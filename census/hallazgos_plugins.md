@@ -28,13 +28,18 @@ torcido, no "un poco más adelante".
 
 **AFIRMACIÓN**: Los bloques embaldosan el archivo sin huecos ni solapes, en los
 tres niveles —bloques de nivel superior, contenido de cada `GRUP`, subrecords
-dentro de cada record— en **los 10 plugins**: **1.328.055 records** de
-**121 tipos**, **0 violaciones**.
+dentro de cada record— con **0 violaciones**. Los dos primeros niveles, sobre
+**los 10 plugins**: **1.328.055 bloques** de **121 tipos**. El tercero, sobre
+**todos los records de los 5 masters** que `--autotest` fija; los cinco plugins
+de Creation Club no se fijan porque Bethesda los publica y actualiza aparte del
+juego base, así que el ancla no puede exigirlos.
 **CONSULTA**: `python census/parser_esm.py --autotest <carpeta Data>`
-**N**: 10 plugins, 1.328.055 records.
-**EXCEPCIONES**: 0. Y `0 de 12.626` STAT tienen la bandera de compresión, así
-que el camino de `zlib` del parser está implementado pero **no ejercitado por
-el corpus** — solo por el fixture sintético. Queda declarado.
+**N**: 10 plugins, 1.328.055 bloques; subrecords de cada record de los 5 masters
+fijados.
+**EXCEPCIONES**: 0. La pasada de subrecords corre también sobre los records
+comprimidos, así que el camino de `zlib` del parser queda **ejercitado por el
+corpus**, no solo por el fixture sintético. (`0 de 12.626` STAT tienen la
+bandera de compresión; la bandera aparece en otros tipos.)
 
 ### 3. Qué tiene adentro un `STAT`
 
@@ -115,10 +120,13 @@ entendemos.
 - **`DNAM`, `MODT`, `MODS`, `MNAM`.** Se midió su presencia y su tamaño, no su
   contenido. `MNAM` mide siempre 1040 bytes, lo cual sugiere una estructura
   fija, y no se investigó.
-- **El resto de los 121 tipos de record.** Solo se abrió `STAT`. `REFR`
-  (866.240 records) es el que coloca un static en el mundo y no se tocó.
+- **El contenido del resto de los 121 tipos de record.** Solo se abrió `STAT`.
+  `REFR` (866.240 records) es el que coloca un static en el mundo y no se tocó.
+  La *estructura* de sus subrecords sí se comprueba: la pasada del autotest
+  embaldosa los de cada record, sin mirar qué dicen.
 - **Escribir.** Esto lee. Escribir un plugin exige completitud donde leer
   permite selectividad — la misma asimetría que decidió usar PyNifly en vez de
   escribir el NIF nosotros.
-- **El camino de compresión.** 0 de 12.626 STAT lo usan; solo lo ejercita el
-  fixture sintético.
+- **El camino de compresión en los STAT.** 0 de 12.626 STAT lo usan; en otros
+  tipos sí aparece, y la pasada de subrecords del autotest los descomprime y
+  verifica, pero el censo no mide cuántos ni de qué tipos.
