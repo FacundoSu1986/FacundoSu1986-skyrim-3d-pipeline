@@ -158,8 +158,14 @@ def leer(ruta):
         "cubemap": es_cubemap, "caras": caras,
         "volumen": es_volumen, "profundidad": prof0,
         "comprimido": bpb is not None,
-        "tiene_alfa": bool(mascara_alfa) or fmt in ("DXT3", "DXT5", "BC2", "BC3",
-                                                    "BC7", "DXGI_98", "DXGI_99"),
+        # Una mascara alfa distinta de cero NO alcanza: tiene que entrar en el
+        # pixel declarado. Un DDS de 24 bpp con alfa_mask=0xFF000000 tiene la
+        # mascara pero no los bytes -- cada pixel mide 3 -- y `bool(mask)` solo
+        # lo daba por bueno. La comparacion por bits es exacta para cualquier
+        # bpp (16 incluido) y no cambia nada sobre el corpus de 32 bpp.
+        "tiene_alfa": ((bool(mascara_alfa) and mascara_alfa.bit_length() <= bits)
+                       or fmt in ("DXT3", "DXT5", "BC2", "BC3",
+                                  "BC7", "DXGI_98", "DXGI_99")),
         "bytes": tam_archivo,
         "bytes_esperados": esperado,
         "tamano_cuadra": (esperado is not None) and (esperado == tam_archivo),

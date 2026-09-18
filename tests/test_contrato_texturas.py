@@ -178,19 +178,44 @@ class ReglasDdsTests(unittest.TestCase):
         self.assertIn("dds_tamano", self._claves_malas(ruta_desconocida))
 
     def test_normal_en_dxt1_reprueba(self):
+        """DXT1 no tiene canal alfa, y el alfa de un _n lleva el especular.
+        0 de 12.075 normales del corpus usan un formato sin alfa."""
         ruta = self._dxt("piedra_n.dds", 64, 64, 7, DXT1, 8)
-        self.assertIn("normal_dxt5", self._claves_malas(ruta))
+        self.assertIn("normal_con_alfa", self._claves_malas(ruta))
 
     def test_normal_en_dxt5_pasa(self):
         ruta = self._dxt("piedra_n.dds", 64, 64, 7, DXT5, 16)
-        self.assertNotIn("normal_dxt5", self._claves_malas(ruta))
+        self.assertNotIn("normal_con_alfa", self._claves_malas(ruta))
+
+    def test_normal_sin_comprimir_con_alfa_pasa(self):
+        """El caso que obligo a reescribir la regla. Estaba como
+        "formato == DXT5" y reprobaba un normal sin comprimir de 32 bpp, que
+        tiene los cuatro canales a precision completa.
+
+        El error era de criterio: para BC7 ya habiamos dicho que 0 de 32.241 es
+        lo que Bethesda USO, no lo que el motor EXIGE, y lo dejamos como
+        observacion. Con el _n se habia usado la otra vara."""
+        cuerpo = 64 * 64 * 4
+        ruta = dds(self.dir, "piedra_n.dds", cuerpo, ancho=64, alto=64,
+                   mips=1, bits=32, alfa_mask=0xFF000000)
+        self.assertNotIn("normal_con_alfa", self._claves_malas(ruta))
+
+    def test_normal_sin_comprimir_sin_canal_alfa_reprueba(self):
+        """El par del de arriba: un DDS de 24 bpp no tiene bytes para el alfa.
+        Con la mascara alfa declarada (inconsistente) el parser lo daba por
+        bueno y la regla pasaba. Tiene que reprobar: el especular de un _n
+        vive en ese canal."""
+        cuerpo = 64 * 64 * 3
+        ruta = dds(self.dir, "piedra_n.dds", cuerpo, ancho=64, alto=64,
+                   mips=1, bits=24, alfa_mask=0xFF000000)
+        self.assertIn("normal_con_alfa", self._claves_malas(ruta))
 
     def test_la_regla_del_normal_mira_el_nombre_declarado(self):
         """La ruta en disco puede ser un temporal con cualquier nombre; lo que
         decide es como la declara el NIF."""
         ruta = self._dxt("cualquiera.dds", 64, 64, 7, DXT1, 8)
-        self.assertNotIn("normal_dxt5", self._claves_malas(ruta))
-        self.assertIn("normal_dxt5",
+        self.assertNotIn("normal_con_alfa", self._claves_malas(ruta))
+        self.assertIn("normal_con_alfa",
                       self._claves_malas(ruta, r"textures\x\piedra_n.dds"))
 
     def test_archivo_que_no_es_dds_reprueba_por_parseo(self):
