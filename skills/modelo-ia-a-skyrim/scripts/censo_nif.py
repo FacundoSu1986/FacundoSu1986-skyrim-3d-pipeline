@@ -94,11 +94,19 @@ TIPOS_SHAPE = ("BSTriShape", "BSDynamicTriShape", "BSSubIndexTriShape")
 # en este corpus (0 bloques en 22.394 archivos); va igual para que las dos
 # listas no vuelvan a separarse.
 
-TIPOS_NODO = {"NiNode", "BSFadeNode", "BSLeafAnimNode", "BSTreeNode",
-              "BSOrderedNode", "BSValueNode", "BSMultiBoundNode",
-              "BSBlastNode", "BSDamageStage", "NiBillboardNode",
-              "NiSwitchNode"}
-
+# BSMasterParticleSystem: 93 archivos del corpus, todos con el tipo
+# como RAIZ. El layout de NiNode parsea coherente en 93 de 93 bloques
+# (1 hijo en 92, 2 en uno; cola de 14 a 30 bytes, que son sus campos
+# propios). Lo contrario de BSFurnitureMarkerNode, que se saco de aca
+# porque el sufijo enganaba y rompia 123 archivos de muebles.
+# BSRangeNode: 0 bloques en el corpus. No lo ejercita nada; va en las
+# tres listas para que no vuelvan a separarse.
+TIPOS_NODO = {
+    "NiNode", "BSFadeNode", "BSLeafAnimNode", "BSTreeNode",
+    "BSOrderedNode", "BSValueNode", "BSMultiBoundNode",
+    "BSBlastNode", "BSDamageStage", "BSRangeNode", "NiBillboardNode",
+    "NiSwitchNode", "BSMasterParticleSystem",
+}
 
 class Nif(object):
     """Un NIF parseado a nivel de cabecera. Los bloques se leen bajo demanda."""

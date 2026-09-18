@@ -113,14 +113,21 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **N**: 22.394.
 **EXCEPCIONES ENCONTRADAS**: los tres parsers del repo traían **dos lecturas distintas e incompatibles** del campo extra de cabecera para BS ≥ 130 —`nif_nodos.py` un SizedString en medio de los tres shorts, los del censo un cuarto ShortString después— y **ningún archivo del corpus ejercita ninguna de las dos**. No se eligió una: las tres ahora rechazan BS ≥ 130 explícitamente. Adivinar el largo de un campo de cabecera corre *todos* los offsets de bloque, que es la familia exacta del bug que produjo el `pesos por vértice = 1035` de `census/README.md`.
 
-### 19. La geometría de colisión, decodificada
+### 19. (#26) `BSMasterParticleSystem` sí es un nodo, y `BSRangeNode` no existe
+**AFIRMACIÓN**: **93 archivos** traen `BSMasterParticleSystem`, y en los 93 está como **raíz**. El layout de `NiNode` —nombre, extra data, controller, flags, transform, colisión, hijos— parsea de forma coherente en **93 de 93** bloques: 1 hijo en 92 archivos, 2 en uno, y una cola de 14 a 30 bytes que son sus campos propios. Incluirlo en `TIPOS_NODO` recupera **93 nodos y 94 referencias de hijo** que se salteaban, y `verificar.py` devuelve **exactamente la misma evidencia** que antes: `header_cola` 93, `trailer` 93, `shape_tail` 1. Cero violaciones nuevas.
+**CONSULTA QUE LA PRODUJO**: intento del layout de `NiNode` dentro de cada bloque, comprobando que los contadores no excedan el bloque y que los hijos sean índices válidos; después `nodos()` y `verificar._chequear()` sobre los 93, con y sin el tipo en la lista.
+**N**: 22.394 archivos; 93 bloques `BSMasterParticleSystem`.
+**EXCEPCIONES ENCONTRADAS**: 0 bloques incoherentes. Es el caso opuesto a `BSFurnitureMarkerNode` (§1), que se sacó de `TIPOS_NODO` porque el sufijo `Node` engañaba y su inclusión rompía 123 archivos de muebles. El sufijo del nombre no dice de qué hereda —en las dos direcciones—, así que se decide parseando.
+
+**Segundo hallazgo del mismo barrido**: `BSRangeNode` estaba en `TIPOS_NODO` de `parser_nif.py` y **no** en las de `censo_nif.py` ni `nif_nodos.py`. Tiene **0 bloques en el corpus**, así que ningún archivo delataba la divergencia. Las tres listas quedan iguales y hay un test que las compara entre sí; el tipo se deja en las tres, declarado como no ejercitado.
+### 20. La geometría de colisión, decodificada
 
 **AFIRMACIÓN**: `bhkConvexVerticesShape` guarda `numVertices` en +32 y los vértices como `Vector4` desde +36, seguidos de `numNormals` y las normales. La identidad **`36 + 16·nv + 4 + 16·nn == tamaño del bloque`** se cumple en **3.553 de 3.553** bloques. El cuaternión del `bhkRigidBody` está en **+68** y la traslación en **+52**, en unidades de Havok (factor **69,99**).
 **CONSULTA QUE LA PRODUJO**: `python census/parser_colision.py --autotest meshes`; el offset del cuaternión se buscó exigiendo norma 1 sobre los 14.586 bloques del corpus.
 **N**: 3.553 formas convexas; 14.586 cuerpos rígidos; 22.394 archivos leídos.
 **EXCEPCIONES ENCONTRADAS**: 0 violaciones de la identidad. Para el cuaternión, los candidatos dieron: +32 → 17 de 14.586; +36 → 0; +64 → 602; **+68 → 14.586**; +72 → 13.276. Yo había supuesto +36 leyendo el *orden* en que el exportador de PyNifly asigna los campos; en el archivo el orden es el contrario, y la medición lo corrigió. Validación cruzada contra Blender en tres archivos: las cajas coinciden al centésimo de unidad.
 
-### 20. "La colisión envuelve la malla" es falso en el 96,7 % del corpus
+### 21. "La colisión envuelve la malla" es falso en el 96,7 % del corpus
 
 **AFIRMACIÓN**: De los **3.126** archivos con malla y colisión decodificables, solo **102 (3,3 %)** tienen una colisión cuya caja contiene a la de la malla. La distancia entre centros tampoco da umbral: **p50 2,24 u, p90 89,80 u, p99 726,80 u, máximo 3.848 u**; relativa a la diagonal de la malla, p50 0,027 y p90 0,317.
 **CONSULTA QUE LA PRODUJO**: caja envolvente de todas las formas de colisión contra la de todos los shapes, en espacio de mundo.

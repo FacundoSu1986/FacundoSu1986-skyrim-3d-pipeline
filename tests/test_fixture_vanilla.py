@@ -246,6 +246,17 @@ class IdenticoCalculaGeometriaTests(unittest.TestCase):
                 exit_code = comparar.modo_identico(ruta)
             self.assertEqual(1, exit_code)
 
+    def test_medir_firma_acepta_dos_rutas(self):
+        """registrar.medir debe recibir raiz_meshes y raiz_texturas sin colisiones de nombre."""
+        import inspect
+        sig = inspect.signature(registrar.medir)
+        params = list(sig.parameters.keys())
+        self.assertEqual(["raiz_meshes", "raiz_texturas"], params)
+
+    def test_medir_valida_directorios_inexistentes(self):
+        with self.assertRaises(SystemExit):
+            registrar.medir("/ruta/inexistente/meshes", "/ruta/inexistente/textures")
+
 
 class TodaReglaTraeEvidenciaTests(unittest.TestCase):
     """La disciplina del repo, cableada: una regla sin numero atras no entra.

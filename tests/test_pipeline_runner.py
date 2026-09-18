@@ -21,7 +21,7 @@ from pathlib import Path
 
 from pipeline.errors import PublishError
 from pipeline.manifest import JobManifest
-from pipeline.runner import Phase, PipelineRunner, State
+from pipeline.runner import ORDEN_FASES, Phase, PipelineRunner, State
 from pipeline.staging import JobWorkspace
 from glb_sintetico import construir
 
@@ -60,17 +60,42 @@ def _fase_ok(mani, ws):
     return {"ejecutada": True}
 
 
+def _herramienta(nombre):
+    """Adaptador de mentira que declara haber usado una herramienta real."""
+    def fase(mani, ws):
+        return {"ejecutada": True, "herramienta": "falso:%s" % nombre}
+    return fase
+
+
+def _pipeline_completo(extra=None):
+    """Todas las fases con adaptador; ninguna queda en stub.
+
+    Hace falta desde el gate del issue #23: un pipeline con fases sin conectar
+    ya no publica. Antes este mismo test cableaba solo PACKAGE y esperaba
+    PUBLISHED -- o sea que el "camino feliz" de la suite era exactamente el
+    escenario que el issue reportaba como defecto.
+    """
+    fases = {}
+    for fase in ORDEN_FASES:
+        if fase in (Phase.INGEST, Phase.INSPECT, Phase.PUBLISH):
+            continue
+        fases[fase] = (_fase_package_real if fase is Phase.PACKAGE
+                       else _herramienta(fase.value))
+    if extra:
+        fases.update(extra)
+    return fases
+
+
 class RunnerCaminoFelizTests(unittest.TestCase):
     def test_job_valido_progresa_hasta_published(self):
         # Arrange
         tmp, raiz, mesh, manifest = _entorno()
         with tmp:
             # Act
-            res = PipelineRunner(
-                manifest, {Phase.PACKAGE: _fase_package_real}
-            ).run()
+            res = PipelineRunner(manifest, _pipeline_completo()).run()
             # Assert
             self.assertIs(res.estado, State.PUBLISHED)
+            self.assertEqual([], res.fases_sin_conectar)
             self.assertIsNone(res.error)
             destino = raiz / "salida" / "job-test" / "asset.nif"
             self.assertTrue(destino.is_file())
@@ -86,7 +111,7 @@ class RunnerCaminoFelizTests(unittest.TestCase):
         tmp, raiz, mesh, manifest = _entorno()
         with tmp:
             antes = _hash(mesh)
-            PipelineRunner(manifest, {Phase.PACKAGE: _fase_package_real}).run()
+            PipelineRunner(manifest, _pipeline_completo()).run()
             self.assertEqual(_hash(mesh), antes)
 
 
@@ -142,12 +167,23 @@ class RunnerFallasTests(unittest.TestCase):
             self.assertEqual(final["estado"], "FAILED")
 
     def test_destino_no_se_toca_cuando_publish_falla(self):
-        # Arrange: package vacío -> publish debe fallar y no crear destino
+        # Arrange: un PACKAGE que declara haber corrido pero no escribe nada
+        # deja package/ vacío; el pipeline va COMPLETO para que el gate de
+        # stubs no corte antes y PUBLISH falle por esta guarda.
         tmp, raiz, mesh, manifest = _entorno()
+
+        def package_que_no_escribe(mani, ws):
+            return {"ejecutada": True, "herramienta": "falso:package-vacio"}
+
         with tmp:
-            res = PipelineRunner(manifest).run()
+            res = PipelineRunner(
+                manifest,
+                _pipeline_completo({Phase.PACKAGE: package_que_no_escribe}),
+            ).run()
             # Assert: la guarda puede fallar (detector real)
             self.assertIs(res.estado, State.FAILED)
+            self.assertIn("package/ vacío", res.error or "",
+                          "fallo por otra razón que la que este test cubre")
             self.assertFalse((raiz / "salida" / "job-test").exists())
 
     def test_publish_fail_closed_ante_destino_existente(self):
@@ -157,10 +193,14 @@ class RunnerFallasTests(unittest.TestCase):
             destino = raiz / "salida" / "job-test"
             destino.mkdir()
             (destino / "preexistente.txt").write_text("yo estaba aquí")
-            fases = {Phase.PACKAGE: _fase_package_real}
-            res = PipelineRunner(manifest, fases).run()
+            # El pipeline va COMPLETO: con fases en stub el gate del #23 corta
+            # antes de PUBLISH, y este test pasaria sin haber probado nunca lo
+            # que dice su nombre.
+            res = PipelineRunner(manifest, _pipeline_completo()).run()
             # Assert
             self.assertIs(res.estado, State.FAILED)
+            self.assertIn("destino ya existe", res.error or "",
+                          "fallo por otra razon que la que este test cubre")
             contenido = (destino / "preexistente.txt").read_text()
             self.assertEqual(contenido, "yo estaba aquí")
             self.assertFalse((destino / "asset.nif").exists())

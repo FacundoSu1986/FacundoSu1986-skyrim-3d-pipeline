@@ -20,12 +20,17 @@ Garantías:
   - cada fase produce un reporte JSON en reports/ (qué entró, qué salió);
   - el manifest se valida ANTES de crear cualquier directorio.
 
-Fases por defecto de esta slice: INGEST (copia con hash, no mueve el
-original) y PUBLISH (fail-closed: si el destino existe, error; copia del
-árbol package/ completo a un temp vecino y os.replace). El resto son
-no-ops que registran reporte vacío: son los puntos de enganche donde las
-slices siguientes conectarán los verificadores existentes (parser_nif,
-parser_dds, scripts Blender) mediante adaptadores inyectables.
+Fases por defecto: INGEST (copia con hash, no mueve el original), INSPECT
+(inspección read-only de la copia) y PUBLISH (fail-closed: si el destino
+existe, error; copia del árbol package/ completo a un temp vecino y
+os.replace). El resto son stubs que se declaran como tales (`stub=True`,
+`ejecutada=False`): puntos de enganche donde las slices siguientes conectarán
+los verificadores existentes (parser_nif, parser_dds, scripts Blender)
+mediante adaptadores inyectables.
+
+Ninguna fase sin conectar puede terminar en una publicación: `run()` rechaza
+PUBLISH si alguna fase ejecutada -- incluido el propio PUBLISH -- se declaró
+stub.
 
 Publicación: os.replace de directorio es atómico dentro del mismo volumen
 en NTFS/Linux; si la plataforma no lo garantiza, queda documentado aquí
@@ -104,10 +109,46 @@ def _fase_inspect(mani: JobManifest, ws: JobWorkspace) -> dict:
     return inspeccionar_malla(entradas[0])
 
 
+# Marca que distingue "esta fase no existe todavia" de "esta fase corrio y no
+# tenia nada que hacer". Son cosas distintas y el reporte las confundia.
+CLAVE_STUB = "stub"
+
+
 def _fase_noop(mani: JobManifest, ws: JobWorkspace) -> dict:
-    """Placeholdo explícito: la fase no está conectada a herramientas reales.
-    Registra que corrió para que el reporte final diga la verdad."""
-    return {"ejecutada": True, "herramienta": None, "nota": "fase stub (slice 1)"}
+    """Placeholder explícito: la fase no está conectada a herramientas reales.
+
+    `ejecutada` es False a propósito. Antes devolvía True, y eso es una mentira
+    barata con consecuencia cara: lo único que impedía publicar basura era que
+    PACKAGE también fuera stub y dejara `package/` vacío. O sea que el gate lo
+    sostenía el orden en que se fueron cableando las fases, no una decisión.
+
+    Cablear PACKAGE es el próximo slice. El día que pase, EXPORT_NIF, READ_BACK
+    y VALIDATE seguirían informando éxito sin hacer nada, y el runner publicaría
+    con el estado PUBLISHED.
+    """
+    return {"ejecutada": False, CLAVE_STUB: True, "herramienta": None,
+            "nota": "fase stub: no conectada a ninguna herramienta"}
+
+
+def fases_stub(reports: dict[str, dict]) -> list[str]:
+    """Fases que informaron ser un stub, en orden de aparición.
+
+    Límite conocido: es una declaración explícita del adaptador. Un adaptador
+    que no hace nada pero se declara ejecutado no se detecta acá; para PACKAGE,
+    la guarda de `package/` vacío en PUBLISH es el backstop.
+    """
+    return [nombre for nombre, rep in reports.items()
+            if isinstance(rep, dict) and rep.get(CLAVE_STUB) is True]
+
+
+def _error_publicacion_con_stubs(stubs: list[str]) -> PublishError:
+    """Mensaje único para las dos vías de rechazo: stubs antes de PUBLISH, y
+    el propio PUBLISH declarado stub."""
+    return PublishError(
+        "no se publica: %d fase(s) sin conectar (%s). Un stub informa que no "
+        "hizo nada; publicar igual seria dar por bueno un asset que nadie "
+        "produjo." % (len(stubs), ", ".join(stubs))
+    )
 
 
 def _sha256(ruta: Path) -> str:
@@ -195,6 +236,13 @@ class RunResult:
     def ok(self) -> bool:
         return self.estado is State.PUBLISHED
 
+    @property
+    def fases_sin_conectar(self) -> list[str]:
+        """Las fases que corrieron como stub, en orden de ejecución. Una
+        corrida con esta lista no vacía no produjo un asset: si hay stubs,
+        `estado` nunca es PUBLISHED."""
+        return fases_stub(self.reports)
+
 
 class PipelineRunner:
     """Ejecuta las fases en orden sobre un JobManifest validado."""
@@ -221,7 +269,8 @@ class PipelineRunner:
     def run(self) -> RunResult:
         """Ejecuta el pipeline. Devuelve RunResult; nunca lanza por fallo de
         fase (el fallo queda en result.error y estado=FAILED). Sí lanza por
-        manifest inválido: ese error es previo a cualquier ejecución."""
+        manifest inválido -- error previo a cualquier ejecución -- y por
+        OSError si la evidencia (reports/) no se puede escribir."""
         self.manifest.validar()
         ws = JobWorkspace(self.manifest.workspace_raiz, self.manifest.job_id)
         ws.crear()
@@ -229,13 +278,42 @@ class PipelineRunner:
         reports: dict[str, dict] = {}
         estado = State.PENDING
         for fase in ORDEN_FASES:
+            # El gate vive aca y no dentro de _fase_publish a proposito: es una
+            # propiedad del pipeline, no de un adaptador. Puesto en el
+            # adaptador, cualquiera que registre su propio PUBLISH se lo saltea
+            # sin enterarse -- y registrar adaptadores propios es justamente lo
+            # que la API ofrece.
+            if fase is Phase.PUBLISH:
+                pendientes = fases_stub(reports)
+                if pendientes:
+                    e = _error_publicacion_con_stubs(pendientes)
+                    reports[fase.value] = {
+                        "ejecutada": False,
+                        "error": f"{type(e).__name__}: {e}",
+                    }
+                    estado = State.FAILED
+                    self._escribir_final(ws, estado, reports, str(e))
+                    return RunResult(estado=estado, reports=reports, error=str(e))
             try:
-                reports[fase.value] = self.fases[fase](self.manifest, ws)
+                reporte = self.fases[fase](self.manifest, ws)
             except Exception as e:
                 reports[fase.value] = {
                     "ejecutada": False,
                     "error": f"{type(e).__name__}: {e}",
                 }
+                estado = State.FAILED
+                self._escribir_final(ws, estado, reports, str(e))
+                return RunResult(estado=estado, reports=reports, error=str(e))
+            reports[fase.value] = reporte
+            # El gate previo audita lo ya ejecutado; que PUBLISH sea stub recién
+            # se sabe después de correrlo. Sin este chequeo la corrida termina
+            # PUBLISHED/ok=True sin haber publicado nada: exactamente la mentira
+            # que este cambio elimina. El reporte stub se conserva para que
+            # fases_sin_conectar lo liste.
+            if (fase is Phase.PUBLISH and isinstance(reporte, dict)
+                    and reporte.get(CLAVE_STUB) is True):
+                e = _error_publicacion_con_stubs([fase.value])
+                reporte["error"] = f"{type(e).__name__}: {e}"
                 estado = State.FAILED
                 self._escribir_final(ws, estado, reports, str(e))
                 return RunResult(estado=estado, reports=reports, error=str(e))
@@ -250,8 +328,9 @@ class PipelineRunner:
         reports: dict[str, dict],
         error: str | None,
     ) -> None:
-        """Persiste evidencia estructurada. Si ni siquiera el reporte se puede
-        escribir, se intenta best-effort y se avisa en el error de vuelta."""
+        """Persiste evidencia estructurada. Es I/O directo: si `reports/` no
+        es escribible, la OSError propaga (no hay canal alternativo para dejar
+        el diagnóstico)."""
         final = {
             "estado": estado.name,
             "error": error,
