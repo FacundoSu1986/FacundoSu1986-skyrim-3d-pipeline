@@ -159,6 +159,17 @@ class FixtureDdsTests(BaseDds):
         self.assertEqual(e["bytes_esperados"], 192)
         self.assertTrue(e["tamano_cuadra"])
 
+    def test_sin_comprimir_24bpp_no_tiene_alfa_aunque_declare_mascara(self):
+        """La mascara alfa de un header inconsistente no alcanza: en 24 bpp
+        cada pixel mide 3 bytes y 0xFF000000 no puede existir. `bool(mask)`
+        solo lo daba por bueno, y con eso un _n de 24 bpp pasaba la regla del
+        canal alfa (review del PR #32)."""
+        e = leer(dds(self.dir, "i.dds", 4 * 4 * 3, ancho=4, alto=4, bits=24,
+                     alfa_mask=0xFF000000))
+        self.assertEqual(e["formato"], "sin_comprimir_24bpp")
+        self.assertTrue(e["tamano_cuadra"])
+        self.assertFalse(e["tiene_alfa"])
+
     def test_mips_sin_flag_se_fuerza_a_1(self):
         # Declara 5 mips pero sin DDSD_MIPMAPCOUNT: vale 1, y el cuerpo de un
         # solo nivel (32) tiene que cuadrar.
