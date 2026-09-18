@@ -104,10 +104,31 @@ def _fase_inspect(mani: JobManifest, ws: JobWorkspace) -> dict:
     return inspeccionar_malla(entradas[0])
 
 
+# Marca que distingue "esta fase no existe todavia" de "esta fase corrio y no
+# tenia nada que hacer". Son cosas distintas y el reporte las confundia.
+CLAVE_STUB = "stub"
+
+
 def _fase_noop(mani: JobManifest, ws: JobWorkspace) -> dict:
-    """Placeholdo explícito: la fase no está conectada a herramientas reales.
-    Registra que corrió para que el reporte final diga la verdad."""
-    return {"ejecutada": True, "herramienta": None, "nota": "fase stub (slice 1)"}
+    """Placeholder explícito: la fase no está conectada a herramientas reales.
+
+    `ejecutada` es False a propósito. Antes devolvía True, y eso es una mentira
+    barata con consecuencia cara: lo único que impedía publicar basura era que
+    PACKAGE también fuera stub y dejara `package/` vacío. O sea que el gate lo
+    sostenía el orden en que se fueron cableando las fases, no una decisión.
+
+    Cablear PACKAGE es el próximo slice. El día que pase, EXPORT_NIF, READ_BACK
+    y VALIDATE seguirían informando éxito sin hacer nada, y el runner publicaría
+    con el estado PUBLISHED.
+    """
+    return {"ejecutada": False, CLAVE_STUB: True, "herramienta": None,
+            "nota": "fase stub: no conectada a ninguna herramienta"}
+
+
+def fases_stub(reports: dict[str, dict]) -> list[str]:
+    """Fases que informaron ser un stub, en orden de aparición."""
+    return [nombre for nombre, rep in reports.items()
+            if isinstance(rep, dict) and rep.get(CLAVE_STUB) is True]
 
 
 def _sha256(ruta: Path) -> str:
@@ -195,6 +216,12 @@ class RunResult:
     def ok(self) -> bool:
         return self.estado is State.PUBLISHED
 
+    @property
+    def fases_sin_conectar(self) -> list[str]:
+        """Las fases que corrieron como stub. Una corrida con esto no vacio no
+        produjo un asset, aunque ninguna fase haya fallado."""
+        return fases_stub(self.reports)
+
 
 class PipelineRunner:
     """Ejecuta las fases en orden sobre un JobManifest validado."""
@@ -229,6 +256,27 @@ class PipelineRunner:
         reports: dict[str, dict] = {}
         estado = State.PENDING
         for fase in ORDEN_FASES:
+            # El gate vive aca y no dentro de _fase_publish a proposito: es una
+            # propiedad del pipeline, no de un adaptador. Puesto en el
+            # adaptador, cualquiera que registre su propio PUBLISH se lo saltea
+            # sin enterarse -- y registrar adaptadores propios es justamente lo
+            # que la API ofrece.
+            if fase is Phase.PUBLISH:
+                pendientes = fases_stub(reports)
+                if pendientes:
+                    e = PublishError(
+                        "no se publica: %d fase(s) sin conectar (%s). Un stub "
+                        "informa que no hizo nada; publicar igual seria dar por "
+                        "bueno un asset que nadie produjo."
+                        % (len(pendientes), ", ".join(pendientes))
+                    )
+                    reports[fase.value] = {
+                        "ejecutada": False,
+                        "error": f"{type(e).__name__}: {e}",
+                    }
+                    estado = State.FAILED
+                    self._escribir_final(ws, estado, reports, str(e))
+                    return RunResult(estado=estado, reports=reports, error=str(e))
             try:
                 reports[fase.value] = self.fases[fase](self.manifest, ws)
             except Exception as e:
