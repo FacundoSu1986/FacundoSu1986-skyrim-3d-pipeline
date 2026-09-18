@@ -113,3 +113,11 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **N**: 22.394.
 **EXCEPCIONES ENCONTRADAS**: los tres parsers del repo traían **dos lecturas distintas e incompatibles** del campo extra de cabecera para BS ≥ 130 —`nif_nodos.py` un SizedString en medio de los tres shorts, los del censo un cuarto ShortString después— y **ningún archivo del corpus ejercita ninguna de las dos**. No se eligió una: las tres ahora rechazan BS ≥ 130 explícitamente. Adivinar el largo de un campo de cabecera corre *todos* los offsets de bloque, que es la familia exacta del bug que produjo el `pesos por vértice = 1035` de `census/README.md`.
 
+### 19. (#26) `BSMasterParticleSystem` sí es un nodo, y `BSRangeNode` no existe
+**AFIRMACIÓN**: **93 archivos** traen `BSMasterParticleSystem`, y en los 93 está como **raíz**. El layout de `NiNode` —nombre, extra data, controller, flags, transform, colisión, hijos— parsea de forma coherente en **93 de 93** bloques: 1 hijo en 92 archivos, 2 en uno, y una cola de 14 a 30 bytes que son sus campos propios. Incluirlo en `TIPOS_NODO` recupera **93 nodos y 94 referencias de hijo** que se salteaban, y `verificar.py` devuelve **exactamente la misma evidencia** que antes: `header_cola` 93, `trailer` 93, `shape_tail` 1. Cero violaciones nuevas.
+**CONSULTA QUE LA PRODUJO**: intento del layout de `NiNode` dentro de cada bloque, comprobando que los contadores no excedan el bloque y que los hijos sean índices válidos; después `nodos()` y `verificar._chequear()` sobre los 93, con y sin el tipo en la lista.
+**N**: 22.394 archivos; 93 bloques `BSMasterParticleSystem`.
+**EXCEPCIONES ENCONTRADAS**: 0 bloques incoherentes. Es el caso opuesto a `BSFurnitureMarkerNode` (§1), que se sacó de `TIPOS_NODO` porque el sufijo `Node` engañaba y su inclusión rompía 123 archivos de muebles. El sufijo del nombre no dice de qué hereda —en las dos direcciones—, así que se decide parseando.
+
+**Segundo hallazgo del mismo barrido**: `BSRangeNode` estaba en `TIPOS_NODO` de `parser_nif.py` y **no** en las de `censo_nif.py` ni `nif_nodos.py`. Tiene **0 bloques en el corpus**, así que ningún archivo delataba la divergencia. Las tres listas quedan iguales y hay un test que las compara entre sí; el tipo se deja en las tres, declarado como no ejercitado.
+

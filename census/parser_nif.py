@@ -47,11 +47,18 @@ _RE_DDS = re.compile(rb"[ -~]{4,160}\.dds", re.IGNORECASE)
 # nodo (hereda de BSFurnitureMarker <- NiExtraData): tratarlo como NiNode
 # revienta al leer children. Los archivos de muebles lo contienen; medido:
 # 123 archivos fallaban asi con el parser que lo incluia.
+# BSMasterParticleSystem: 93 archivos del corpus, todos con el tipo
+# como RAIZ. El layout de NiNode parsea coherente en 93 de 93 bloques
+# (1 hijo en 92, 2 en uno; cola de 14 a 30 bytes, que son sus campos
+# propios). Lo contrario de BSFurnitureMarkerNode, que se saco de aca
+# porque el sufijo enganaba y rompia 123 archivos de muebles.
+# BSRangeNode: 0 bloques en el corpus. No lo ejercita nada; va en las
+# tres listas para que no vuelvan a separarse.
 TIPOS_NODO = {
     "NiNode", "BSFadeNode", "BSLeafAnimNode", "BSTreeNode",
     "BSOrderedNode", "BSValueNode", "BSMultiBoundNode",
     "BSBlastNode", "BSDamageStage", "BSRangeNode", "NiBillboardNode",
-    "NiSwitchNode",
+    "NiSwitchNode", "BSMasterParticleSystem",
 }
 
 TIPOS_SHAPE = ("BSTriShape", "BSDynamicTriShape", "BSSubIndexTriShape")

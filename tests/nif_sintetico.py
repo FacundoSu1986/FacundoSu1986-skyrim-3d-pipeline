@@ -103,13 +103,18 @@ def _marcador_trampa(nombre_idx):
     return bytes(b)
 
 
-def construir():
+def construir(raiz_tipo="BSFadeNode"):
     """Devuelve (bytes_del_nif, esperado).
 
     `esperado` es la verdad declarada: lo que cualquier parser correcto tiene
     que recuperar de esos bytes.
+
+    `raiz_tipo` deja cambiar el tipo del bloque raiz. El nombre del tipo va en
+    la tabla con su largo adelante, asi que cambiarlo corre donde empiezan los
+    bloques -- por eso se reconstruye la cabecera entera aca en vez de parchear
+    bytes sobre un archivo ya armado. Un parser correcto no se entera.
     """
-    tipos = ["BSFadeNode", "NiNode", "BSXFlags", "BSFurnitureMarkerNode"]
+    tipos = [raiz_tipo, "NiNode", "BSXFlags", "BSFurnitureMarkerNode"]
     strings = [RAIZ_NOMBRE, HIJO_NOMBRE, BSX_NOMBRE, MARCADOR_NOMBRE]
 
     bloques = [
@@ -148,7 +153,7 @@ def construir():
         "user": USER,
         "bs": BS,
         "n_bloques": len(bloques),
-        "raiz": "BSFadeNode",
+        "raiz": raiz_tipo,
         "cuenta_tipos": {"BSFadeNode": 1, "NiNode": 1, "BSXFlags": 1,
                          "BSFurnitureMarkerNode": 1},
         "strings": list(strings),
