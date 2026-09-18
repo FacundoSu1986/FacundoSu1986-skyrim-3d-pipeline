@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Compara un NIF contra la referencia vanilla.
 
-    python fixtures/comparar.py --contrato <archivo.nif> [<carpeta textures/>]
+    python fixtures/comparar.py --contrato <archivo.nif> [<textures/> ...]
     python fixtures/comparar.py --identico <archivo.nif>
     python fixtures/comparar.py --fiel <original.nif> <exportado.nif>
 
@@ -96,6 +96,20 @@ def _resolver_insensible(raiz, rel_path):
 
 
 def resolver_textura(declarada, raiz_texturas):
+    """Acepta una raiz o varias. Un asset propio suele repartirse entre la
+    carpeta del mod y la del juego -- el cubemap y los efectos vienen de
+    Bethesda y las difusas son tuyas -- y con una sola raiz el chequeo reprueba
+    por donde estan los archivos, no por como esta el asset."""
+    if isinstance(raiz_texturas, (list, tuple)):
+        for r in raiz_texturas:
+            hallada = _resolver_una(declarada, r)
+            if hallada:
+                return hallada
+        return None
+    return _resolver_una(declarada, raiz_texturas)
+
+
+def _resolver_una(declarada, raiz_texturas):
     r"""Ruta real de una textura declarada en un NIF, o None.
 
     Las cuatro formas se sacaron de MEDIR, no de suponer. De las 10.116 rutas
@@ -216,12 +230,24 @@ def reglas_dds(ruta, declarada=None):
         "dos; es el invariante mas limpio del corpus"))
 
     if nombre.endswith("_n.dds"):
+        # La regla pide CANAL ALFA, no DXT5. Estaba escrita como "formato ==
+        # DXT5" y reprobaba un normal sin comprimir de 32 bpp, que tiene los
+        # cuatro canales a precision completa -- o sea, mejor que DXT5, no peor.
+        #
+        # El error era de criterio, no de numero: para BC7 escribi "0 de 32.241
+        # es lo que Bethesda USO, no lo que SE admite" y lo deje como
+        # observacion; para el _n use la misma clase de evidencia y lo converti
+        # en regla. Dos varas distintas para el mismo tipo de dato.
+        #
+        # Lo que si se puede exigir es la propiedad que hace falta: el alfa de
+        # un _n lleva el especular, y DXT1 no tiene alfa. En el corpus, 0 de
+        # 12.075 normales usan un formato sin alfa.
         salida.append((
-            d["formato"] == "DXT5",
-            "normal_dxt5",
-            "formato=%s" % d["formato"],
-            "12.075 de 12.075 normales (_n) del corpus usan DXT5, sin una "
-            "sola excepcion"))
+            d["tiene_alfa"],
+            "normal_con_alfa",
+            "formato=%s alfa=%s" % (d["formato"], d["tiene_alfa"]),
+            "0 de 12.075 normales (_n) del corpus usan un formato sin canal "
+            "alfa; los 12.075 son DXT5, que lo tiene"))
 
     return salida
 
@@ -235,6 +261,14 @@ def observaciones_dds(ruta, declarada=None):
         "NO es regla: 192 de 32.241 vanilla no tienen mipmaps (mascaras de "
         "tinte y lens flares). Y la cadena corta en 2x2 en el 96,4 %, no en "
         "1x1: medir contra 1x1 marcaba 31.940 texturas correctas como rotas")]
+    if (declarada or ruta).lower().endswith("_n.dds"):
+        fuera.append((
+            "normal_formato",
+            "formato=%s" % d["formato"],
+            "NO es regla: los 12.075 normales del corpus son DXT5, pero eso es "
+            "lo que Bethesda ELIGIO. Sin comprimir de 32 bpp tiene los cuatro "
+            "canales a precision completa y pesa 4 veces mas; cual conviene es "
+            "una decision, no una correccion"))
     fuera.append((
         "dds_formato",
         "formato=%s comprimido=%s" % (d["formato"], d["comprimido"]),
@@ -692,10 +726,11 @@ def main():
         raise SystemExit(modo_fiel(a[1], a[2]))
     if a[0] == "--identico":
         raise SystemExit(modo_identico(a[1]))
-    raiz = a[2] if len(a) > 2 else None
-    if raiz and not os.path.isdir(raiz):
-        raise SystemExit("no es una carpeta: %s" % raiz)
-    raise SystemExit(modo_contrato(a[1], raiz))
+    raices = [r for r in a[2:] if r]
+    for r in raices:
+        if not os.path.isdir(r):
+            raise SystemExit("no es una carpeta: %s" % r)
+    raise SystemExit(modo_contrato(a[1], raices or None))
 
 
 if __name__ == "__main__":
