@@ -120,4 +120,17 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **EXCEPCIONES ENCONTRADAS**: 0 bloques incoherentes. Es el caso opuesto a `BSFurnitureMarkerNode` (§1), que se sacó de `TIPOS_NODO` porque el sufijo `Node` engañaba y su inclusión rompía 123 archivos de muebles. El sufijo del nombre no dice de qué hereda —en las dos direcciones—, así que se decide parseando.
 
 **Segundo hallazgo del mismo barrido**: `BSRangeNode` estaba en `TIPOS_NODO` de `parser_nif.py` y **no** en las de `censo_nif.py` ni `nif_nodos.py`. Tiene **0 bloques en el corpus**, así que ningún archivo delataba la divergencia. Las tres listas quedan iguales y hay un test que las compara entre sí; el tipo se deja en las tres, declarado como no ejercitado.
+### 20. La geometría de colisión, decodificada
+
+**AFIRMACIÓN**: `bhkConvexVerticesShape` guarda `numVertices` en +32 y los vértices como `Vector4` desde +36, seguidos de `numNormals` y las normales. La identidad **`36 + 16·nv + 4 + 16·nn == tamaño del bloque`** se cumple en **3.553 de 3.553** bloques. El cuaternión del `bhkRigidBody` está en **+68** y la traslación en **+52**, en unidades de Havok (factor **69,99**).
+**CONSULTA QUE LA PRODUJO**: `python census/parser_colision.py --autotest meshes`; el offset del cuaternión se buscó exigiendo norma 1 sobre los 14.586 bloques del corpus.
+**N**: 3.553 formas convexas; 14.586 cuerpos rígidos; 22.394 archivos leídos.
+**EXCEPCIONES ENCONTRADAS**: 0 violaciones de la identidad. Para el cuaternión, los candidatos dieron: +32 → 17 de 14.586; +36 → 0; +64 → 602; **+68 → 14.586**; +72 → 13.276. Yo había supuesto +36 leyendo el *orden* en que el exportador de PyNifly asigna los campos; en el archivo el orden es el contrario, y la medición lo corrigió. Validación cruzada contra Blender en tres archivos: las cajas coinciden al centésimo de unidad.
+
+### 21. "La colisión envuelve la malla" es falso en el 96,7 % del corpus
+
+**AFIRMACIÓN**: De los **3.126** archivos con malla y colisión decodificables, solo **102 (3,3 %)** tienen una colisión cuya caja contiene a la de la malla. La distancia entre centros tampoco da umbral: **p50 2,24 u, p90 89,80 u, p99 726,80 u, máximo 3.848 u**; relativa a la diagonal de la malla, p50 0,027 y p90 0,317.
+**CONSULTA QUE LA PRODUJO**: caja envolvente de todas las formas de colisión contra la de todos los shapes, en espacio de mundo.
+**N**: 3.126 archivos.
+**EXCEPCIONES ENCONTRADAS**: el caso más extremo es `actors/atronachfrost/character assets/shield.nif`, con los centros a 13,9 diagonales de distancia. **Esta entrada existe para impedir una regla**: "la colisión tiene que envolver la malla" parece obvia, la viola el propio escudo de vidrio de Bethesda —su colisión es 1,2 unidades más corta que la malla en Y— y reprobaría al 96,7 % del corpus. Saber si una colisión quedó donde debía exige un original contra qué comparar, que es lo que hace `comparar.py --fiel`.
 

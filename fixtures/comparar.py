@@ -3,11 +3,14 @@
 
     python fixtures/comparar.py --contrato <archivo.nif> [<carpeta textures/>]
     python fixtures/comparar.py --identico <archivo.nif>
+    python fixtures/comparar.py --fiel <original.nif> <exportado.nif>
 
 --contrato  comprueba las REGLAS que la referencia demuestra y el censo
             respalda. Sirve para un asset nuevo.
 --identico  compara campo por campo contra fixtures/roadsignwhiterun01.json.
             Sirve para regresion sobre la referencia misma.
+--fiel      compara COLOCACION entre dos NIF del mismo asset: que cada shape y
+            la colision sigan donde estaban. El contrato no lo mira.
 
 Exit 0 si pasa, 1 si no.
 
@@ -37,6 +40,7 @@ if _AQUI not in sys.path:
     sys.path.insert(0, _AQUI)
 sys.path.insert(0, os.path.join(_AQUI, "..", "census"))
 
+import parser_colision  # noqa: E402
 import parser_dds  # noqa: E402
 import parser_nif  # noqa: E402
 import parser_uv  # noqa: E402
@@ -388,6 +392,36 @@ def observaciones(ruta):
         "salir de [0,1] NO es defecto: es tiling, y pasa en el 49,2 % de los "
         "shapes vanilla medidos"))
 
+    try:
+        formas = [f for f in parser_colision.formas_de_colision(nif)
+                  if f.get("caja")]
+        cajas_sh = [c["caja"] for c in parser_colision.cajas_de_shapes(nif)
+                    if c.get("caja")]
+    except Exception:
+        formas, cajas_sh = [], []
+    if formas and cajas_sh:
+        pm = [(c[0][i], c[1][j], c[2][k]) for c in cajas_sh
+              for i in (0, 1) for j in (0, 1) for k in (0, 1)]
+        pcol = [(f["caja"][0][i], f["caja"][1][j], f["caja"][2][k])
+                for f in formas
+                for i in (0, 1) for j in (0, 1) for k in (0, 1)]
+        cm = parser_colision.caja(pm)
+        cc = parser_colision.caja(pcol)
+        d = parser_colision.distancia(cm, cc)
+        diag = max(1e-6, sum((e[1] - e[0]) ** 2 for e in cm) ** 0.5)
+        envuelve = all(cc[i][0] <= cm[i][0] and cc[i][1] >= cm[i][1]
+                       for i in range(3))
+        fuera.append((
+            "colocacion_colision",
+            "centros a %.2f u (%.3f de la diagonal); envuelve la malla: %s"
+            % (d, d / diag, "si" if envuelve else "no"),
+            "NO es regla, y no puede serlo: 'la colision envuelve la malla' la "
+            "cumplen 102 de 3.126 archivos vanilla (3,3 %), o sea que "
+            "reprobaria al 96,7 % del corpus. La distancia entre centros "
+            "tampoco da umbral: p50 2,24 u, p90 89,80 u, maximo 3.848 u. Para "
+            "saber si una colision quedo donde debia hace falta un original "
+            "contra que comparar: eso es --fiel"))
+
     fuera.append((
         "colision",
         "tipos_bhk=%s layer=%s"
@@ -545,13 +579,117 @@ def modo_identico(ruta):
     return 1 if difs else 0
 
 
+TOLERANCIA_FIEL = 0.05          # unidades de Skyrim: medio milimetro
+
+
+def _cajas(ruta):
+    """{'shapes': {nombre: caja}, 'colision': caja} en espacio de mundo."""
+    nif = parser_nif.Nif(ruta)
+    shapes = {}
+    for sh in parser_colision.cajas_de_shapes(nif):
+        if sh.get("caja"):
+            shapes[sh["nombre"]] = sh["caja"]
+    puntos = []
+    tipos = []
+    for fc in parser_colision.formas_de_colision(nif):
+        if not fc.get("caja"):
+            continue
+        tipos.append(fc["tipo"])
+        c = fc["caja"]
+        puntos += [(c[0][i], c[1][j], c[2][k])
+                   for i in (0, 1) for j in (0, 1) for k in (0, 1)]
+    return {"shapes": shapes,
+            "colision": parser_colision.caja(puntos) if puntos else None,
+            "tipos_colision": sorted(tipos)}
+
+
+def _delta(a, b):
+    """Peor diferencia entre dos cajas, por coordenada."""
+    if a is None or b is None:
+        return None
+    return max(max(abs(a[i][0] - b[i][0]), abs(a[i][1] - b[i][1]))
+               for i in range(3))
+
+
+def modo_fiel(original, exportado):
+    """Compara COLOCACION entre dos NIF del mismo asset.
+
+    El contrato mide que un archivo este bien formado. Esto mide otra cosa: que
+    el exportado siga estando DONDE ESTABA. Son dos propiedades distintas y
+    hacen falta las dos.
+
+    Existe porque dos casos independientes mostraron el hueco: en el barrido de
+    1.857 estaticos por PyNifly, 112 mallas (6,03 %) quedaron en otro lugar y
+    56 de 615 colisiones se movieron -- y el contrato daba verde sobre todas.
+    """
+    print("FIDELIDAD")
+    print("  original : %s" % original)
+    print("  exportado: %s" % exportado)
+    print("")
+    try:
+        a, b = _cajas(original), _cajas(exportado)
+    except Exception as e:
+        print("  no se pudo leer: %s: %s" % (type(e).__name__, e))
+        return 1
+
+    fallas = []
+
+    faltan = sorted(set(a["shapes"]) - set(b["shapes"]))
+    sobran = sorted(set(b["shapes"]) - set(a["shapes"]))
+    if faltan:
+        fallas.append("faltan shapes: %s" % faltan)
+        print("  [NO] shapes que desaparecieron: %s" % faltan)
+    if sobran:
+        print("  [--] shapes nuevos (no reprueba): %s" % sobran)
+
+    for nombre in sorted(set(a["shapes"]) & set(b["shapes"])):
+        d = _delta(a["shapes"][nombre], b["shapes"][nombre])
+        ok = d is not None and d <= TOLERANCIA_FIEL
+        print("  [%s] %-24s peor desvio %.4f u" % ("ok" if ok else "NO",
+                                                   nombre, d))
+        if not ok:
+            fallas.append("%s se movio %.3f u" % (nombre, d))
+
+    if a["tipos_colision"] != b["tipos_colision"]:
+        fallas.append("cambio la colision: %s -> %s"
+                      % (a["tipos_colision"], b["tipos_colision"]))
+        print("  [NO] tipos de colision: %s -> %s"
+              % (a["tipos_colision"] or "(ninguna)",
+                 b["tipos_colision"] or "(ninguna)"))
+    elif a["colision"] is None:
+        print("  [--] ninguno de los dos tiene colision decodificable")
+    else:
+        d = _delta(a["colision"], b["colision"])
+        ok = d is not None and d <= TOLERANCIA_FIEL
+        print("  [%s] %-24s peor desvio %.4f u" % ("ok" if ok else "NO",
+                                                   "colision", d))
+        if not ok:
+            fallas.append("la colision se movio %.3f u" % d)
+
+    print("")
+    if fallas:
+        print("  NO es fiel: %d diferencia(s)" % len(fallas))
+        for f in fallas:
+            print("     %s" % f)
+        return 1
+    print("  Fiel: nada se movio mas de %.2f unidades." % TOLERANCIA_FIEL)
+    return 0
+
+
 def main():
     a = sys.argv[1:]
-    if len(a) < 2 or a[0] not in ("--contrato", "--identico"):
+    if len(a) < 2 or a[0] not in ("--contrato", "--identico", "--fiel"):
         print(__doc__)
         raise SystemExit(2)
     if not os.path.exists(a[1]):
         raise SystemExit("no existe: %s" % a[1])
+    if a[0] == "--fiel":
+        if len(a) < 3:
+            print("Uso: --fiel <original.nif> <exportado.nif>")
+            raise SystemExit(2)
+        if not os.path.exists(a[2]):
+            raise SystemExit("no existe: %s" % a[2])
+        raise SystemExit(modo_fiel(a[1], a[2]))
     if a[0] == "--identico":
         raise SystemExit(modo_identico(a[1]))
     raiz = a[2] if len(a) > 2 else None
