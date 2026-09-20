@@ -101,6 +101,14 @@ TIPOS_SHAPE = ("BSTriShape", "BSDynamicTriShape", "BSSubIndexTriShape")
 # porque el sufijo enganaba y rompia 123 archivos de muebles.
 # BSRangeNode: 0 bloques en el corpus. No lo ejercita nada; va en las
 # tres listas para que no vuelvan a separarse.
+# Las dos skin instances de SSE. El censo las cuenta desde siempre
+# (es_skinneado); lo que se agrega aca es leer su CABECERA -- los cuatro
+# refs y la lista de huesos -- que es lo unico que hace falta para saber
+# que hueso mueve que pieza. El recorrido del NiSkinPartition (vertices,
+# pesos, triangulos) sigue SIN implementarse en la skill: vive en
+# census/parser_uv.py, validado contra 42.243 particiones.
+TIPOS_SKIN = ("BSDismemberSkinInstance", "NiSkinInstance")
+
 TIPOS_NODO = {
     "NiNode", "BSFadeNode", "BSLeafAnimNode", "BSTreeNode",
     "BSOrderedNode", "BSValueNode", "BSMultiBoundNode",
@@ -222,6 +230,85 @@ class Nif(object):
             fuera.append((nombre, tri, ver))
         return fuera
 
+    def _ref_valida(self, r):
+        return 0 <= r < len(self.bloques)
+
+    def _skin_de_shape(self, o):
+        """Indice de bloque de la skin instance del shape en `o`, o None.
+
+        Los tres refs (skin, shader, alpha) van juntos despues de la esfera
+        envolvente. Los offsets son los mismos que usa trishapes() y los
+        mismos que census/parser_nif.py: si se corren, los dos se enteran.
+        """
+        p, _nombre = self._saltar_niavobject(o)
+        p += 16                                     # esfera envolvente
+        if self.bs >= 151:
+            p += 24
+        skin_idx, _shader, _alpha = struct.unpack_from("<3i", self.d, p)
+        if not self._ref_valida(skin_idx):
+            return None
+        if self.bloques[skin_idx][0] not in TIPOS_SKIN:
+            return None
+        return skin_idx
+
+    def _lee_skin_instance(self, skin_idx):
+        """(huesos, body_parts) de una skin instance.
+
+        NiSkinInstance: data(ref) partition(ref) raiz(ptr) numBones(u32)
+                        bones(ptr * numBones)
+        BSDismemberSkinInstance agrega: numParticiones(u32) y por particion
+                        (flags u16, body_part u16).
+
+        Un hueso es un NiNode referenciado desde aca. Si la ref no cae en un
+        nodo se devuelve "?<indice>" en vez de descartarla: un hueso que no
+        resuelve es justo lo que hay que ver, no algo que esconder.
+        """
+        tipo, o, _s = self.bloques[skin_idx]
+        nodos = self.nodos()
+        p = o
+        _data, _part, _raiz, n_huesos = struct.unpack_from("<4i", self.d, p)
+        p += 16
+        huesos = []
+        if n_huesos > 0:
+            refs = struct.unpack_from("<%di" % n_huesos, self.d, p)
+            p += 4 * n_huesos
+            huesos = [nodos[b]["nombre"] if b in nodos else "?%d" % b
+                      for b in refs]
+        partes = []
+        if tipo == "BSDismemberSkinInstance":
+            n_part, = struct.unpack_from("<I", self.d, p); p += 4
+            for _ in range(n_part):
+                _flags, body_part = struct.unpack_from("<2H", self.d, p)
+                p += 4
+                partes.append(body_part)
+        return huesos, partes
+
+    def skin_por_shape(self):
+        """{nombre de shape: {"huesos": [...], "body_parts": [...]}}.
+
+        POR SHAPE Y NO GLOBAL, a proposito. El total de huesos del archivo no
+        dice cual pieza perdio una atadura, y perder una atadura NO da error:
+        steamcenturion.nif reparte 20 huesos entre 15 piezas, y doce de esas
+        piezas usan uno solo -- pero SteamLFoot y SteamRFoot usan tres, y
+        SteamCenturion usa cuatro, dos de ellos los parpados. Quedarse con el
+        conteo global no distingue "20 huesos bien repartidos" de "20 huesos
+        con el parpado colgando del torso".
+        """
+        fuera = {}
+        for _b, (tipo, o, _s) in enumerate(self.bloques):
+            if tipo not in TIPOS_SHAPE:
+                continue
+            _p, nombre = self._saltar_niavobject(o)
+            skin_idx = self._skin_de_shape(o)
+            if skin_idx is None:
+                fuera[nombre] = {"huesos": [], "body_parts": [],
+                                 "skin": None}
+                continue
+            huesos, partes = self._lee_skin_instance(skin_idx)
+            fuera[nombre] = {"huesos": huesos, "body_parts": partes,
+                             "skin": self.bloques[skin_idx][0]}
+        return fuera
+
     def nodos(self):
         n = {}
         for b, (tipo, o, _) in enumerate(self.bloques):
@@ -299,7 +386,26 @@ AUTOTEST = [
       "bloques": {"NiNode": 21, "BSTriShape": 15,
                   "BSDismemberSkinInstance": 15, "NiSkinData": 15,
                   "NiSkinPartition": 15, "BSLightingShaderProperty": 15,
-                  "NiAlphaProperty": 15, "BSShaderTextureSet": 1}}),
+                  "NiAlphaProperty": 15, "BSShaderTextureSet": 1},
+      # Abierto en NifSkope antes de escribir el parser. Doce piezas con un
+      # hueso, dos pies con tres y el torso con cuatro: el reparto desparejo
+      # es el punto -- un parser que devolviera "1 hueso" para todas pasaria
+      # un promedio y fallaria esto.
+      "huesos_por_shape": {
+          "SteamRForearm": 1, "SteamLPauldron": 1, "SteamRPauldron": 1,
+          "SteamLFoot": 3, "SteamRFoot": 3, "SteamLCalf": 1,
+          "SteamRCalf": 1, "SteamRThigh": 1, "SteamLThigh": 1,
+          "SteamPelvis": 1, "SteamSpine": 1, "SteamCenturion": 4,
+          "SteamLUpperarm": 1, "SteamLForearm": 1, "SteamRUpperarm": 1},
+      "huesos_de": {
+          "SteamLFoot": ["NPC L Calf [LClf]", "NPC L Foot [Ltft ]",
+                         "NPC L Toe0 [LToe]"],
+          "SteamCenturion": ["NPC Spine2 [Spn2]", "NPC UpperLid",
+                             "NPC LowerLid", "NPC LowerJaw"]},
+      "body_parts": [32]}),
+    ("actors/character/character assets/childbody.nif",
+     {"raiz": "NiNode", "skinneado": True,
+      "huesos_por_shape": {"BODY": 24}, "body_parts": [32]}),
     ("actors/dwarvensteamcenturion/dwarvensteamcenturion.nif",
      {"raiz": "BSFadeNode", "n_bloques": 9, "bsxflags": 130,
       "skinneado": False, "triangulos_inline": 6154}),
@@ -342,11 +448,35 @@ def autotest(raiz):
             falta += 1
             continue
         n = Nif(ruta)
+        sk = n.skin_por_shape()
         real = {"n_bloques": len(n.bloques), "raiz": n.raiz(),
                 "bsxflags": n.bsxflags(), "bloques": n.cuenta_tipos(),
                 "skinneado": n.es_skinneado(),
-                "triangulos_inline": sum(t for _, t, _ in n.trishapes())}
+                "triangulos_inline": sum(t for _, t, _ in n.trishapes()),
+                "huesos_por_shape": {k: len(v["huesos"])
+                                     for k, v in sk.items()},
+                "huesos_de": {k: v["huesos"] for k, v in sk.items()},
+                "body_parts": sorted({p for v in sk.values()
+                                      for p in v["body_parts"]})}
         for campo, valor in esperado.items():
+            if campo not in real:
+                fallo += 1
+                print("  [FALLA]  %s :: campo desconocido %r"
+                      % (os.path.basename(rel), campo))
+                continue
+            if campo == "huesos_de":
+                # Solo los shapes declarados; el resto ya lo cubre
+                # huesos_por_shape. Un shape declarado que no exista es fallo.
+                sub = {k: real[campo].get(k) for k in valor}
+                if sub == valor:
+                    ok += 1
+                else:
+                    fallo += 1
+                    print("  [FALLA]  %s :: %s"
+                          % (os.path.basename(rel), campo))
+                    print("           esperado %r" % (valor,))
+                    print("           obtenido %r" % (sub,))
+                continue
             if real[campo] == valor:
                 ok += 1
             else:

@@ -58,6 +58,11 @@ RAIZ_NOMBRE = "RaizDePrueba"
 HIJO_NOMBRE = "HijoDePrueba"
 BSX_NOMBRE = "BSX"
 MARCADOR_NOMBRE = "MarcadorMueble"
+
+PIEZA_NOMBRE = "PiezaDePrueba"
+HUESOS_NOMBRE = ("HuesoA", "HuesoB")
+HUESOS_TRASLACION = ((1.0, 2.0, 3.0), (4.0, 5.0, 6.0))
+BODY_PART = 32          # el unico valor que aparece en steamcenturion.nif
 BSX_VALOR = 203
 HIJO_TRASLACION = (10.0, 20.0, 30.0)
 
@@ -106,6 +111,51 @@ def _marcador_trampa(nombre_idx):
     struct.pack_into("<I", b, 4, 1)                  # numPositions
     struct.pack_into("<I", b, 76, 0xFFFFFFF0)        # la mina
     return bytes(b)
+
+
+def _avobject_sin_hijos(nombre_idx, traslacion):
+    """Solo NiObjectNET + NiAVObject: lo que comparten nodos y shapes.
+
+    Un BSTriShape NO es un NiNode: no lleva children ni effects. Escribirle
+    esos campos correria todo lo que viene despues (esfera envolvente, refs de
+    skin) y el parser leeria basura sin dar error.
+    """
+    p = struct.pack("<i", nombre_idx)
+    p += struct.pack("<I", 0)                        # numExtraData
+    p += struct.pack("<i", -1)                       # controller
+    p += struct.pack("<I", 14)                       # flags
+    p += struct.pack("<3f", *traslacion)
+    p += struct.pack("<9f", *IDENTIDAD)
+    p += struct.pack("<f", 1.0)                      # escala
+    p += struct.pack("<i", -1)                       # collision object
+    return p
+
+
+def _trishape(nombre_idx, skin_ref):
+    """BSTriShape skinneado: sin geometria inline, con ref a la skin instance.
+
+    numTriangles = numVertices = dataSize = 0 no es un atajo del fixture: es
+    como se ve un shape skinneado en SSE de verdad. La geometria vive en el
+    NiSkinPartition (ver la cabecera de censo_nif.py).
+    """
+    p = _avobject_sin_hijos(nombre_idx, (0.0, 0.0, 0.0))
+    p += struct.pack("<4f", 0.0, 0.0, 0.0, 0.0)      # esfera envolvente
+    p += struct.pack("<3i", skin_ref, -1, -1)        # skin, shader, alpha
+    p += struct.pack("<Q", 0x0000000000000004)       # vertexDesc
+    p += struct.pack("<H", 0)                        # numTriangles
+    p += struct.pack("<H", 0)                        # numVertices
+    p += struct.pack("<I", 0)                        # dataSize
+    return p
+
+
+def _dismember(bone_refs, body_parts):
+    """BSDismemberSkinInstance: los cuatro refs, los huesos, las particiones."""
+    p = struct.pack("<4i", -1, -1, 0, len(bone_refs))
+    p += b"".join(struct.pack("<i", r) for r in bone_refs)
+    p += struct.pack("<I", len(body_parts))
+    for bp in body_parts:
+        p += struct.pack("<2H", 0, bp)
+    return p
 
 
 def construir(raiz_tipo="BSFadeNode"):
@@ -169,5 +219,81 @@ def construir(raiz_tipo="BSFadeNode"):
         "nombre_marcador": MARCADOR_NOMBRE,
         "hijo_en_mundo": HIJO_TRASLACION,
         "cola_esperada": 0,
+    }
+    return datos, esperado
+
+
+def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,
+                        huesos=HUESOS_NOMBRE,
+                        traslaciones=HUESOS_TRASLACION,
+                        body_parts=(BODY_PART,), bloque_extra=False):
+    """Un NIF skinneado minimo, con TODO parametrizado para poder torcerlo.
+
+    Va aparte de construir() y no como un flag suyo para no tocar el
+    `esperado` que ya usan los tests del parser: un fixture que cambia de
+    forma segun un flag obliga a leer el flag para saber que se esta
+    comprobando.
+
+    Cada parametro existe porque hay un control que tiene que reprobar cuando
+    cambia: el nombre de la pieza, el juego de huesos, donde esta cada hueso,
+    las particiones de dismember y la cuenta de bloques. Un fixture que solo
+    se pueda construir bien no puede falsificar nada.
+
+        0  raiz (raiz_tipo)          hijos: la pieza y los huesos
+        1  BSTriShape  <pieza>       skin -> 2
+        2  BSDismemberSkinInstance   huesos -> 3, 4, ...
+        3+ NiNode  <hueso>
+        ultimo (opcional) NiNode suelto, para mover la cuenta de bloques
+    """
+    if len(huesos) != len(traslaciones):
+        raise ValueError("un hueso, una traslacion")
+    tipos = [raiz_tipo, "BSTriShape", "BSDismemberSkinInstance", "NiNode"]
+    strings = [RAIZ_NOMBRE, nombre_pieza] + list(huesos)
+
+    n_huesos = len(huesos)
+    idx_huesos = list(range(3, 3 + n_huesos))
+    hijos = [1] + idx_huesos
+    bloques = [_avobject(0, [], (0.0, 0.0, 0.0), hijos),
+               _trishape(1, 2),
+               _dismember(idx_huesos, body_parts)]
+    tipo_de = [0, 1, 2]
+    for i, t in enumerate(traslaciones):
+        bloques.append(_avobject(2 + i, [], t, []))
+        tipo_de.append(3)
+    if bloque_extra:
+        strings.append("NodoDeMas")
+        bloques.append(_avobject(len(strings) - 1, [], (0.0, 0.0, 0.0), []))
+        tipo_de.append(3)
+
+    h = bytearray(CABECERA)
+    h += struct.pack("<I", VERSION)
+    h += struct.pack("<B", 1)
+    h += struct.pack("<I", USER)
+    h += struct.pack("<I", len(bloques))
+    h += struct.pack("<I", BS)
+    h += _corta("") + _corta("") + _corta("")
+    h += struct.pack("<H", len(tipos))
+    for t in tipos:
+        h += _larga(t)
+    for k in tipo_de:
+        h += struct.pack("<H", k)
+    for b in bloques:
+        h += struct.pack("<I", len(b))
+    h += struct.pack("<I", len(strings))
+    h += struct.pack("<I", max(len(s) for s in strings))
+    for s in strings:
+        h += _larga(s)
+    h += struct.pack("<I", 0)
+
+    datos = bytes(h) + b"".join(bloques)
+    esperado = {
+        "n_bloques": len(bloques),
+        "raiz": raiz_tipo,
+        "nombre_raiz": RAIZ_NOMBRE,
+        "skinneado": True,
+        "pieza": nombre_pieza,
+        "huesos": list(huesos),
+        "body_parts": list(body_parts),
+        "huesos_en_mundo": {n: t for n, t in zip(huesos, traslaciones)},
     }
     return datos, esperado

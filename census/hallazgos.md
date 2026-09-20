@@ -134,3 +134,38 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **N**: 3.126 archivos.
 **EXCEPCIONES ENCONTRADAS**: el caso más extremo es `actors/atronachfrost/character assets/shield.nif`, con los centros a 13,9 diagonales de distancia. **Esta entrada existe para impedir una regla**: "la colisión tiene que envolver la malla" parece obvia, la viola el propio escudo de vidrio de Bethesda —su colisión es 1,2 unidades más corta que la malla en Y— y reprobaría al 96,7 % del corpus. Saber si una colisión quedó donde debía exige un original contra qué comparar, que es lo que hace `comparar.py --fiel`.
 
+
+### 22. (#21) "Cada hueso dentro de la caja de su pieza" es falso en el 75,9 %
+
+**AFIRMACIÓN**: De **27.927** shapes skinneados con huesos y caja calculable, solo **6.719 (24,1 %)** tienen **todos** sus huesos dentro de su propia caja envolvente; de los **114.751** pares (pieza, hueso), el **64,8 %** cae adentro. Aflojar el criterio no lo salva: aceptando que el peor hueso se salga hasta **una diagonal entera** de la caja, siguen fallando **467 shapes (1,7 %)**.
+**CONSULTA QUE LA PRODUJO**: para cada `BSTriShape`/`BSDynamicTriShape` skinneado, la lista de huesos de su skin instance contra la caja de sus vértices en espacio de mundo (`parser_colision.cajas_de_shapes`).
+**N**: 7.103 archivos con skin, 27.927 shapes, 114.751 pares.
+**EXCEPCIONES ENCONTRADAS**: las peores son bocas — `mouthwerewolf.nif::NeutralMouth` a **18.323 u** de su caja, y las `MouthKhajiit` de facegen a 17.241 u. **Esta entrada existe para impedir una regla**: SKILL.md la nombra como control del paso 8b, y escribirla en forma absoluta habría reprobado a tres de cada cuatro mallas vanilla — el mismo error que "la colisión envuelve la malla" (entrada 21) y que "toda ruta de textura empieza con `textures\`". Lo que sí sirve es su forma **relativa**: que la distancia del hueso a la caja no crezca respecto del original.
+
+### 23. (#21) El nodo raíz lleva el nombre del archivo
+
+**AFIRMACIÓN**: En **2.786 de 3.000** archivos de una muestra aleatoria (**92,9 %**) el nodo raíz se llama igual que el `.nif` que lo contiene, con o sin extensión.
+**CONSULTA QUE LA PRODUJO**: nombre del bloque 0 contra el basename, sobre `random.sample(rutas, 3000)` con semilla fija.
+**N**: 3.000 archivos, 0 errores de lectura, 0 sin nodo raíz.
+**EXCEPCIONES ENCONTRADAS**: 214 (7,1 %) con otro nombre, casi siempre el del asset del que se derivó: `werewolfhead3.nif` → `WerewolfStaff3`, `rustymaceofmolagbal.nif` → `RustyMaceLow`, `1stpersonskullofcorruption.nif` → `Staff`. **Consecuencia práctica**: comparar el juego de nombres de nodo entre dos archivos sin sacar la raíz es comparar nombres de archivo. Reprobaba **1.198 de los 1.216** pares `_0.nif`/`_1.nif` —el mismo asset— y dejaba a los LOD, que traen un solo nodo, sin ningún nodo en común.
+
+### 24. (#21) Las posiciones de hueso del mismo asset son idénticas
+
+**AFIRMACIÓN**: Entre el mismo asset a peso 0 y a peso 100 (`_0.nif` / `_1.nif`), **21.641 de 21.683** comparaciones de posición de nodo en mundo dan el valor **idéntico**. Los **42** desacuerdos son **todos** `InvMarker`, el marcador de cámara del inventario, que no mueve geometría. Dentro de `actors/character/character assets/` —569 archivos sobre el mismo esqueleto humano— **2.108 de 2.112** son idénticas y las 4 restantes difieren en exactamente **0,010**, que es el redondeo a dos decimales del lector.
+**CONSULTA QUE LA PRODUJO**: `nif_nodos.mundo()` sobre 1.166 pares `_0`/`_1` y sobre la carpeta de character assets.
+**N**: 21.683 + 2.112 comparaciones.
+**EXCEPCIONES ENCONTRADAS**: 42 `InvMarker` y 4 de redondeo. Esto es lo que da la tolerancia de **0,01 u** de `verificar_export.py`: no es un umbral elegido, es la unidad más chica que el lector distingue. Y está muy por debajo de lo que tiene que atrapar — ponerle a `childbody.nif` el esqueleto de `frostgiant2.nif` mueve los 10 huesos comparables, el que menos **57,34 u**.
+
+### 25. (#21) Vanilla no es consistente consigo mismo entre `_0` y `_1`
+
+**AFIRMACIÓN**: De los **1.216** pares `_0.nif`/`_1.nif`, **1.164 (95,7 %)** pasan la comparación completa de `verificar_export.py`. Los **52** que no son diferencias reales de contenido de Bethesda, no artefactos del lector.
+**CONSULTA QUE LA PRODUJO**: `verificar_export.comparar(a, b)` sobre cada par.
+**N**: 1.216 pares.
+**EXCEPCIONES ENCONTRADAS**: 47 difieren en nombres de pieza — `dragonhelm_0.nif` llama a las suyas `DragonHood:0`/`:1` y `dragonhelm_1.nif` las llama `Plane02:0`/`:1`—, 15 en cuenta de bloques —`1stpersondraugrarmormale_0.nif` tiene 17 `NiNode` y el `_1` tiene 16— y 1 en huesos por pieza. Verificado contra `parser_nif` en los dos casos citados.
+
+### 26. (#21) La esfera envolvente de un shape skinneado está en cero
+
+**AFIRMACIÓN**: En un `BSTriShape` skinneado, la esfera envolvente que precede a los refs de skin viene **centro (0,0,0) radio 0**, igual que `numTriangles`, `numVertices` y `dataSize`.
+**CONSULTA QUE LA PRODUJO**: los 4 floats en el offset de la esfera contra la caja real de los vértices, en `childbody.nif`.
+**N**: 1 archivo para determinar; no se barrió el corpus.
+**EXCEPCIONES ENCONTRADAS**: sin medir. **Queda declarado como no barrido**: se anota para que nadie use la esfera como atajo a la caja de la pieza —que es lo que se intentó— sin medirla antes.
