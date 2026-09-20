@@ -168,6 +168,14 @@ class Nif(object):
         for b in range(n_bloques):
             self.bloques.append((tipos[idx[b]], o, tam[b]))
             o += tam[b]
+        # Los bytes no cambian despues de esto, asi que los dos recorridos
+        # caros se calculan una vez. Sin cache, un comparar() hacia SEIS
+        # recorridos de jerarquia --mundo(), mundo_shapes() y
+        # nombres_repetidos() por archivo-- y 38 lecturas de nodos() en
+        # steamcenturion, una por skin instance. Mismo patron que
+        # census/parser_nif.py, que ya trae _nodos_cache.
+        self._nodos_cache = None
+        self._mundo_cache = None
 
     def raiz(self):
         return self.bloques[0][0] if self.bloques else None
@@ -337,6 +345,8 @@ class Nif(object):
         return nombre, tr, rot, esc, p + 4          # +4: collision object
 
     def nodos(self):
+        if self._nodos_cache is not None:
+            return self._nodos_cache
         n = {}
         for b, (tipo, o, _) in enumerate(self.bloques):
             if tipo not in TIPOS_NODO:
@@ -347,6 +357,7 @@ class Nif(object):
             n[b] = {"tipo": tipo, "nombre": nombre,
                     "tr": tr, "rot": rot, "esc": esc,
                     "hijos": [h for h in hijos if h >= 0]}
+        self._nodos_cache = n
         return n
 
     def _recorrer_mundo(self):
@@ -370,6 +381,8 @@ class Nif(object):
           porque no tienen nombre, y indexar por nombre los reducia a UNO.
           Quien compara por nombre necesita saberlo.
         """
+        if self._mundo_cache is not None:
+            return self._mundo_cache
         nodos = self.nodos()
         shapes = {}
         for b, (tipo, o, _s) in enumerate(self.bloques):
@@ -423,7 +436,8 @@ class Nif(object):
         for b, v in shapes.items():
             if b not in vistos:
                 anotar(pos_s, v["nombre"], v["tr"], v["esc"])
-        return pos_n, pos_s, sorted(set(repetidos))
+        self._mundo_cache = (pos_n, pos_s, sorted(set(repetidos)))
+        return self._mundo_cache
 
     def mundo(self):
         return self._recorrer_mundo()[0]

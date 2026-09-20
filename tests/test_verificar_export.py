@@ -341,6 +341,29 @@ class LaJerarquiaPuedeVenirRotaTests(unittest.TestCase):
         self.assertEqual([], n.nombres_repetidos())
 
 
+class LosRecorridosCarosSeHacenUnaVezTests(unittest.TestCase):
+    """Un comparar() hacia SEIS recorridos de jerarquia --mundo(),
+    mundo_shapes() y nombres_repetidos(), por archivo-- y 34 lecturas de
+    nodos() sobre steamcenturion, una por skin instance. Medido sobre un NIF
+    sintetico de 240 piezas: 0,1299 s sin cache contra 0,0151 s con ella."""
+
+    def test_nodos_y_el_recorrido_de_mundo_se_cachean(self):
+        datos, _e = nif_sintetico.construir_skinneado()
+        n = censo_nif.Nif(_archivo(datos, self))
+        self.assertIs(n.nodos(), n.nodos())
+        self.assertIs(n._recorrer_mundo(), n._recorrer_mundo())
+
+    def test_pero_dos_archivos_distintos_no_comparten_cache(self):
+        """El par: una cache a nivel de modulo daria lo mismo para los dos y
+        haria pasar cualquier comparacion."""
+        a, _e = nif_sintetico.construir_skinneado()
+        b, _e2 = nif_sintetico.construir_skinneado(
+            traslaciones=((9.0, 9.0, 9.0), (4.0, 5.0, 6.0)))
+        na = censo_nif.Nif(_archivo(a, self))
+        nb = censo_nif.Nif(_archivo(b, self))
+        self.assertNotEqual(na.mundo(), nb.mundo())
+
+
 class ElLectorDeLaSkillNoSePuedeSepararDelCensoTests(unittest.TestCase):
     """censo_nif.py duplica a proposito lo que census/parser_nif.py ya lee: la
     skill se empaqueta sola y no puede importar census/. La duplicacion ya
