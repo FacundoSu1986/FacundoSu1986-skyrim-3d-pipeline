@@ -386,6 +386,13 @@ class Nif(object):
           `_resourcepack/landscape/trees/mugopine01.nif` los dos se llaman "?"
           porque no tienen nombre, y indexar por nombre los reducia a UNO.
           Quien compara por nombre necesita saberlo.
+
+          Ante un repetido gana el PRIMERO, igual que nif_nodos.mundo() y que
+          nif_nodos.matrices(). Antes ganaba el ultimo, y eso hacia que los
+          dos lectores de este repo dieran respuestas distintas sobre el mismo
+          archivo: medido, 13 de 1.200 archivos del corpus --los que repiten
+          InvMarker con transformadas distintas--. No se veia en ninguna de
+          las dos suites por separado; aparecio al probar la combinacion.
         """
         if self._mundo_cache is not None:
             return self._mundo_cache
@@ -415,6 +422,7 @@ class Nif(object):
                  round(t[2], DECIMALES_MUNDO), round(s, DECIMALES_ESCALA))
             if nombre in destino:
                 repetidos.append(nombre)
+                return          # gana el PRIMERO, ver abajo
             destino[nombre] = v
             # La ORIENTACION va aparte de la posicion: un hueso hoja girado en
             # su lugar tiene la misma posicion y arrastra la malla con el. Sin

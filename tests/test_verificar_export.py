@@ -339,6 +339,19 @@ class NombresRepetidosNoSePuedenCompararTests(unittest.TestCase):
         self.assertEqual(["HuesoA"], n.nombres_repetidos())
         self.assertEqual(1, sum(1 for k in n.mundo() if k == "HuesoA"))
 
+    def test_ante_un_repetido_gana_el_PRIMERO(self):
+        """No es un detalle: nif_nodos.mundo() y nif_nodos.matrices() se
+        quedan con el primero, y este lector se quedaba con el ultimo. Sobre
+        los 13 de 1.200 archivos del corpus que repiten InvMarker con
+        transformadas distintas, los dos lectores del repo daban respuestas
+        distintas del mismo archivo. Que gane uno u otro importa menos que
+        que sea EL MISMO."""
+        dup, _e = nif_sintetico.construir_skinneado(
+            huesos=("HuesoA", "HuesoA"),
+            traslaciones=((1.0, 2.0, 3.0), (99.0, 99.0, 99.0)))
+        n = censo_nif.Nif(_archivo(dup, self))
+        self.assertEqual((1.0, 2.0, 3.0, 1.0), n.mundo()["HuesoA"])
+
     def test_sin_repetidos_no_hay_falla(self):
         """El par: si `comparables` reprobara siempre, no distinguiria."""
         datos, _e = nif_sintetico.construir_skinneado()
