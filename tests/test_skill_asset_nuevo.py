@@ -19,6 +19,7 @@ from _paths import preparar_path, RAIZ
 
 preparar_path()
 
+import censo_nif  # noqa: E402
 import esl  # noqa: E402
 import nif_nodos  # noqa: E402
 import nif_sintetico  # noqa: E402
@@ -249,6 +250,66 @@ class ElMarcoDelNodoDeAnclajeTests(unittest.TestCase):
             for i in range(3):
                 self.assertAlmostEqual(p[i], M[nombre][i][3], places=2,
                                        msg=nombre)
+
+
+class LosDosLectoresDeMundoNoSePuedenSeparaTests(unittest.TestCase):
+    """El repo tiene DOS lectores de jerarquia: `nif_nodos.mundo()` --que se
+    empaqueta con las skills-- y `censo_nif.Nif.mundo()` --que usa el censo--.
+    Tienen que dar lo mismo sobre el mismo archivo.
+
+    Este test existe porque no lo daban, y ninguna de las dos suites lo veia:
+    la divergencia estaba entre un archivo de una rama y un archivo de la
+    otra, y solo aparecio al probar la combinacion en un merge local antes de
+    mergear. Medido entonces: 13 de 1.200 archivos del corpus daban respuestas
+    distintas segun cual se usara -- los que repiten InvMarker con
+    transformadas distintas, como armor/daedric/daedricbootsf_1.nif.
+    """
+
+    def _comparar(self, datos):
+        ruta = _archivo(datos, self)
+        a = censo_nif.Nif(ruta).mundo()
+        b, _prof = nif_nodos.mundo(nif_nodos.leer(ruta))
+        self.assertEqual(a, b)
+
+    def test_sobre_el_fixture_normal(self):
+        datos, _e = nif_sintetico.construir()
+        self._comparar(datos)
+
+    def test_y_sobre_uno_con_un_NOMBRE_REPETIDO(self):
+        """El caso donde divergian: uno se quedaba con el primer nodo de cada
+        nombre y el otro con el ultimo."""
+        self._comparar(_nif_con_repetidos())
+
+    def test_y_con_un_subarbol_compartido(self):
+        """El otro caso donde el orden del recorrido decide: un bloque al que
+        llegan dos padres."""
+        NS = nif_sintetico
+        bloques = [NS._avobject(0, [], (0.0, 0.0, 0.0), [1, 2]),
+                   NS._avobject(1, [], (1.0, 0.0, 0.0), [3]),
+                   NS._avobject(2, [], (0.0, 1.0, 0.0), [3]),
+                   NS._avobject(3, [], (0.0, 0.0, 1.0), [])]
+        strings = ["Raiz", "A", "B", "Compartido"]
+        h = bytearray(NS.CABECERA)
+        h += struct.pack("<I", NS.VERSION) + struct.pack("<B", 1)
+        h += struct.pack("<I", NS.USER) + struct.pack("<I", len(bloques))
+        h += struct.pack("<I", NS.BS)
+        h += NS._corta("") + NS._corta("") + NS._corta("")
+        h += struct.pack("<H", 1) + NS._larga("NiNode")
+        for _b in bloques:
+            h += struct.pack("<H", 0)
+        for b in bloques:
+            h += struct.pack("<I", len(b))
+        h += struct.pack("<I", len(strings))
+        h += struct.pack("<I", max(len(x) for x in strings))
+        for x in strings:
+            h += NS._larga(x)
+        h += struct.pack("<I", 0)
+        self._comparar(bytes(h) + b"".join(bloques))
+
+    def test_las_dos_listas_de_TIPOS_NODO_son_la_misma(self):
+        """Si divergieran, los dos lectores verian juegos de nodos distintos
+        y el test de arriba fallaria por otra razon que la que dice."""
+        self.assertEqual(set(censo_nif.TIPOS_NODO), set(nif_nodos.TIPOS_NODO))
 
 
 class EslFallaCerradoTests(unittest.TestCase):
