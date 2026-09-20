@@ -23,6 +23,7 @@ MODULOS_PUROS = [
     "generar_reporte",  # census/  (importa agregados)
     "censo_nif",       # skills/modelo-ia-a-skyrim/scripts/
     "nif_nodos",       # skills/modelo-ia-a-skyrim/scripts/
+    "verificar_export",  # skills/...  (importa censo_nif)
 ]
 
 
