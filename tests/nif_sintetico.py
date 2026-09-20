@@ -81,7 +81,7 @@ def _larga(texto):
     return struct.pack("<I", len(b)) + b
 
 
-def _avobject(nombre_idx, extra_refs, traslacion, hijos):
+def _avobject(nombre_idx, extra_refs, traslacion, hijos, escala=1.0):
     """NiObjectNET + NiAVObject + los campos de NiNode, en ese orden."""
     p = struct.pack("<i", nombre_idx)
     p += struct.pack("<I", len(extra_refs))
@@ -90,7 +90,7 @@ def _avobject(nombre_idx, extra_refs, traslacion, hijos):
     p += struct.pack("<I", 14)                       # flags
     p += struct.pack("<3f", *traslacion)
     p += struct.pack("<9f", *IDENTIDAD)
-    p += struct.pack("<f", 1.0)                      # escala
+    p += struct.pack("<f", escala)
     p += struct.pack("<i", -1)                       # collision object
     p += struct.pack("<I", len(hijos))
     p += b"".join(struct.pack("<i", h) for h in hijos)
@@ -113,7 +113,7 @@ def _marcador_trampa(nombre_idx):
     return bytes(b)
 
 
-def _avobject_sin_hijos(nombre_idx, traslacion):
+def _avobject_sin_hijos(nombre_idx, traslacion, escala=1.0):
     """Solo NiObjectNET + NiAVObject: lo que comparten nodos y shapes.
 
     Un BSTriShape NO es un NiNode: no lleva children ni effects. Escribirle
@@ -126,19 +126,19 @@ def _avobject_sin_hijos(nombre_idx, traslacion):
     p += struct.pack("<I", 14)                       # flags
     p += struct.pack("<3f", *traslacion)
     p += struct.pack("<9f", *IDENTIDAD)
-    p += struct.pack("<f", 1.0)                      # escala
+    p += struct.pack("<f", escala)
     p += struct.pack("<i", -1)                       # collision object
     return p
 
 
-def _trishape(nombre_idx, skin_ref):
+def _trishape(nombre_idx, skin_ref, traslacion=(0.0, 0.0, 0.0), escala=1.0):
     """BSTriShape skinneado: sin geometria inline, con ref a la skin instance.
 
     numTriangles = numVertices = dataSize = 0 no es un atajo del fixture: es
     como se ve un shape skinneado en SSE de verdad. La geometria vive en el
     NiSkinPartition (ver la cabecera de censo_nif.py).
     """
-    p = _avobject_sin_hijos(nombre_idx, (0.0, 0.0, 0.0))
+    p = _avobject_sin_hijos(nombre_idx, traslacion, escala)
     p += struct.pack("<4f", 0.0, 0.0, 0.0, 0.0)      # esfera envolvente
     p += struct.pack("<3i", skin_ref, -1, -1)        # skin, shader, alpha
     p += struct.pack("<Q", 0x0000000000000004)       # vertexDesc
@@ -148,13 +148,22 @@ def _trishape(nombre_idx, skin_ref):
     return p
 
 
-def _dismember(bone_refs, body_parts):
-    """BSDismemberSkinInstance: los cuatro refs, los huesos, las particiones."""
+def _dismember(bone_refs, body_parts, con_particiones=True):
+    """La skin instance: los cuatro refs, los huesos y --solo en la variante
+    dismember-- las particiones de body-part.
+
+    `con_particiones=False` da un `NiSkinInstance` pelado. Hace falta porque
+    el corpus tiene 11.644 bloques `NiSkinInstance` contra 16.368
+    `BSDismemberSkinInstance` (el 41,6 %), y ni el fixture ni las dos entradas
+    skinneadas del AUTOTEST --steamcenturion y childbody, las dos dismember--
+    tocaban esa rama.
+    """
     p = struct.pack("<4i", -1, -1, 0, len(bone_refs))
     p += b"".join(struct.pack("<i", r) for r in bone_refs)
-    p += struct.pack("<I", len(body_parts))
-    for bp in body_parts:
-        p += struct.pack("<2H", 0, bp)
+    if con_particiones:
+        p += struct.pack("<I", len(body_parts))
+        for bp in body_parts:
+            p += struct.pack("<2H", 0, bp)
     return p
 
 
@@ -226,7 +235,11 @@ def construir(raiz_tipo="BSFadeNode"):
 def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,
                         huesos=HUESOS_NOMBRE,
                         traslaciones=HUESOS_TRASLACION,
-                        body_parts=(BODY_PART,), bloque_extra=False):
+                        body_parts=(BODY_PART,), bloque_extra=False,
+                        tr_pieza=(0.0, 0.0, 0.0), esc_pieza=1.0,
+                        skin_tipo="BSDismemberSkinInstance",
+                        nombre_raiz=None, tr_raiz=(0.0, 0.0, 0.0),
+                        esc_raiz=1.0, escalas=None):
     """Un NIF skinneado minimo, con TODO parametrizado para poder torcerlo.
 
     Va aparte de construir() y no como un flag suyo para no tocar el
@@ -247,18 +260,24 @@ def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,
     """
     if len(huesos) != len(traslaciones):
         raise ValueError("un hueso, una traslacion")
-    tipos = [raiz_tipo, "BSTriShape", "BSDismemberSkinInstance", "NiNode"]
-    strings = [RAIZ_NOMBRE, nombre_pieza] + list(huesos)
+    if skin_tipo not in ("BSDismemberSkinInstance", "NiSkinInstance"):
+        raise ValueError("skin instance desconocida: %r" % skin_tipo)
+    tipos = [raiz_tipo, "BSTriShape", skin_tipo, "NiNode"]
+    strings = [nombre_raiz or RAIZ_NOMBRE, nombre_pieza] + list(huesos)
 
     n_huesos = len(huesos)
     idx_huesos = list(range(3, 3 + n_huesos))
     hijos = [1] + idx_huesos
-    bloques = [_avobject(0, [], (0.0, 0.0, 0.0), hijos),
-               _trishape(1, 2),
-               _dismember(idx_huesos, body_parts)]
+    dismember = skin_tipo == "BSDismemberSkinInstance"
+    escalas = tuple(escalas) if escalas else (1.0,) * n_huesos
+    if len(escalas) != n_huesos:
+        raise ValueError("un hueso, una escala")
+    bloques = [_avobject(0, [], tr_raiz, hijos, esc_raiz),
+               _trishape(1, 2, tr_pieza, esc_pieza),
+               _dismember(idx_huesos, body_parts, dismember)]
     tipo_de = [0, 1, 2]
     for i, t in enumerate(traslaciones):
-        bloques.append(_avobject(2 + i, [], t, []))
+        bloques.append(_avobject(2 + i, [], t, [], escalas[i]))
         tipo_de.append(3)
     if bloque_extra:
         strings.append("NodoDeMas")
@@ -289,11 +308,14 @@ def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,
     esperado = {
         "n_bloques": len(bloques),
         "raiz": raiz_tipo,
-        "nombre_raiz": RAIZ_NOMBRE,
+        "nombre_raiz": nombre_raiz or RAIZ_NOMBRE,
+        "raiz_en_mundo": tuple(tr_raiz) + (esc_raiz,),
         "skinneado": True,
+        "skin_tipo": skin_tipo,
         "pieza": nombre_pieza,
+        "pieza_en_mundo": tuple(tr_pieza) + (esc_pieza,),
         "huesos": list(huesos),
-        "body_parts": list(body_parts),
+        "body_parts": list(body_parts) if dismember else [],
         "huesos_en_mundo": {n: t for n, t in zip(huesos, traslaciones)},
     }
     return datos, esperado

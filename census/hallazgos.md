@@ -142,6 +142,8 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **N**: 7.103 archivos con skin, 27.927 shapes, 114.751 pares.
 **EXCEPCIONES ENCONTRADAS**: las peores son bocas — `mouthwerewolf.nif::NeutralMouth` a **18.323 u** de su caja, y las `MouthKhajiit` de facegen a 17.241 u. **Esta entrada existe para impedir una regla**: SKILL.md la nombra como control del paso 8b, y escribirla en forma absoluta habría reprobado a tres de cada cuatro mallas vanilla — el mismo error que "la colisión envuelve la malla" (entrada 21) y que "toda ruta de textura empieza con `textures\`". Lo que sí sirve es su forma **relativa**: que la distancia del hueso a la caja no crezca respecto del original.
 
+> **Y el 24,1 % no es un accidente de Bethesda: la comparación está mal construida.** El origen de un hueso no es un punto de la malla. Un peso en la manga se articula en el codo, y el codo puede caer fuera de la caja de la manga sin que nada esté mal. Las bocas del hombre lobo y de los khajiit son el caso extremo del mismo efecto: huesos de cara compartidos, cuyo origen está en otra parte de la cabeza. Dicho así, la regla no es "falsa el 76 % de las veces" — es **la comparación equivocada por construcción**, que es un argumento más fuerte para no escribirla nunca.
+
 ### 23. (#21) El nodo raíz lleva el nombre del archivo
 
 **AFIRMACIÓN**: En **2.786 de 3.000** archivos de una muestra aleatoria (**92,9 %**) el nodo raíz se llama igual que el `.nif` que lo contiene, con o sin extensión.
@@ -158,10 +160,10 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 ### 25. (#21) Vanilla no es consistente consigo mismo entre `_0` y `_1`
 
-**AFIRMACIÓN**: De los **1.216** pares `_0.nif`/`_1.nif`, **1.164 (95,7 %)** pasan la comparación completa de `verificar_export.py`. Los **52** que no son diferencias reales de contenido de Bethesda, no artefactos del lector.
+**AFIRMACIÓN**: De los **1.216** pares `_0.nif`/`_1.nif`, **1.163 (95,6 %)** pasan la comparación completa de `verificar_export.py`. Los **52** que no son diferencias reales de contenido de Bethesda, no artefactos del lector.
 **CONSULTA QUE LA PRODUJO**: `verificar_export.comparar(a, b)` sobre cada par.
 **N**: 1.216 pares.
-**EXCEPCIONES ENCONTRADAS**: 47 difieren en nombres de pieza — `dragonhelm_0.nif` llama a las suyas `DragonHood:0`/`:1` y `dragonhelm_1.nif` las llama `Plane02:0`/`:1`—, 15 en cuenta de bloques —`1stpersondraugrarmormale_0.nif` tiene 17 `NiNode` y el `_1` tiene 16— y 1 en huesos por pieza. Verificado contra `parser_nif` en los dos casos citados.
+**EXCEPCIONES ENCONTRADAS**: 1 es `tfxbloodshirt_0.nif`, que repite **15 nombres de hueso** dentro del archivo y por eso no se puede comparar por nombre (ver entrada 27); 47 difieren en nombres de pieza — `dragonhelm_0.nif` llama a las suyas `DragonHood:0`/`:1` y `dragonhelm_1.nif` las llama `Plane02:0`/`:1`—, 15 en cuenta de bloques —`1stpersondraugrarmormale_0.nif` tiene 17 `NiNode` y el `_1` tiene 16— y 1 en huesos por pieza. Verificado contra `parser_nif` en los dos casos citados.
 
 ### 26. (#21) La esfera envolvente de un shape skinneado está en cero
 
@@ -169,3 +171,24 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **CONSULTA QUE LA PRODUJO**: los 4 floats en el offset de la esfera contra la caja real de los vértices, en `childbody.nif`.
 **N**: 1 archivo para determinar; no se barrió el corpus.
 **EXCEPCIONES ENCONTRADAS**: sin medir. **Queda declarado como no barrido**: se anota para que nadie use la esfera como atajo a la caja de la pieza —que es lo que se intentó— sin medirla antes.
+
+### 27. (#21) Nombres repetidos dentro de un mismo archivo
+
+**AFIRMACIÓN**: **557 de 22.394** archivos (**2,49 %**) tienen al menos un nombre de nodo repetido, y **222 (0,99 %)** tienen dos o más shapes con el mismo nombre.
+**CONSULTA QUE LA PRODUJO**: `Counter` sobre los nombres de `nodos()` y sobre los de los bloques de `TIPOS_SHAPE`, en los 22.394 archivos.
+**N**: 22.394 archivos, 0 errores de lectura.
+**EXCEPCIONES ENCONTRADAS**: el nodo repetido es casi siempre `InvMarker`. En los shapes el caso típico es distinto y peor: en `_resourcepack/landscape/trees/mugopine01.nif` los dos shapes **no tienen nombre**, los dos caen en la clave `"?"`, y una estructura indexada por nombre los reduce a **uno**. **Consecuencia práctica**: cualquier comparación por nombre —la de `verificar_export.py` entre otras— no puede decidir nada sobre esos archivos, y una pieza perdida sería invisible. Se reprueba en vez de comparar mal. El caso más extremo es `tfxbloodshirt_0.nif`, con 15 nombres de hueso repetidos.
+
+### 28. (#21) Ningún hueso vanilla apunta fuera de la jerarquía de nodos
+
+**AFIRMACIÓN**: De **115.766** referencias de hueso en los `Bones[]` de las skin instances del corpus, **115.766 (100 %)** resuelven a un bloque que está en `TIPOS_NODO`. Cero apuntan a `-1` o a un tipo que la tabla no reconozca.
+**CONSULTA QUE LA PRODUJO**: barrido de `Bones[]` de los 28.012 bloques `NiSkinInstance`/`BSDismemberSkinInstance`, contra `nodos()`.
+**N**: 22.394 archivos, 28.012 skin instances, 115.766 refs.
+**EXCEPCIONES ENCONTRADAS**: 0. Esto **acota un desacuerdo conocido entre los dos lectores**: ante un ref que no resuelve, `censo_nif.skin_por_shape()` devuelve `"?N"` y `parser_nif._parse_dismember_instances()` lo descarta. Sobre el corpus la diferencia no se puede manifestar, pero la entrada del vanilla no es la única del pipeline —el archivo a verificar lo escribe un exportador—, así que la divergencia queda **declarada en el test que ata a los dos lectores** en vez de quedar tapada por un fixture que solo emite refs resolubles.
+
+### 29. (#21) La esfera envolvente como ancla, no como medida
+
+**AFIRMACIÓN**: complemento de la entrada 26. La esfera envolvente de un `BSTriShape` se usa en el lector **solo como ancla de offset** (`p += 16` para llegar a los refs de skin), nunca como caja de la pieza.
+**CONSULTA QUE LA PRODUJO**: lectura del código de `_skin_de_shape` y `trishapes`.
+**N**: no aplica — es una aclaración sobre el uso, no una medición.
+**EXCEPCIONES ENCONTRADAS**: ninguna. Se anota porque la entrada 26 mide la esfera con **N=1** y sin barrido; quien la lea dentro de seis meses podría tomarla como la caja disponible. No lo es: para la caja de una pieza hay que leer la geometría, que está en `census/parser_uv.py`.

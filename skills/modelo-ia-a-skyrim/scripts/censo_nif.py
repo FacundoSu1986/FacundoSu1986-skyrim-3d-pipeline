@@ -109,6 +109,14 @@ TIPOS_SHAPE = ("BSTriShape", "BSDynamicTriShape", "BSSubIndexTriShape")
 # census/parser_uv.py, validado contra 42.243 particiones.
 TIPOS_SKIN = ("BSDismemberSkinInstance", "NiSkinInstance")
 
+# mundo() redondea a esta cantidad de decimales. Esta nombrado porque
+# verificar_export.TOLERANCIA se DERIVA de este numero: si alguien cambia el
+# redondeo, la tolerancia tiene que moverse con el. Antes eran dos constantes
+# en archivos distintos sin nada que las atara -- y mover cualquiera de las
+# dos dejaba la suite en verde.
+DECIMALES_MUNDO = 2
+DECIMALES_ESCALA = 4
+
 TIPOS_NODO = {
     "NiNode", "BSFadeNode", "BSLeafAnimNode", "BSTreeNode",
     "BSOrderedNode", "BSValueNode", "BSMultiBoundNode",
@@ -309,34 +317,71 @@ class Nif(object):
                              "skin": self.bloques[skin_idx][0]}
         return fuera
 
+    def _avobject_transform(self, o):
+        """(nombre, tr, rot, esc) de un bloque con layout NiAVObject.
+
+        _saltar_niavobject pasa POR ENCIMA de estos campos sin leerlos. Un
+        BSTriShape los tiene igual que un NiNode -- y son los que dicen donde
+        quedo la pieza. No leerlos hacia que, sobre un estatico, comparar un
+        NIF con el shape corrido 140 unidades diera CERO fallas.
+        """
+        p = o
+        nombre_i, = struct.unpack_from("<i", self.d, p); p += 4
+        n_ed, = struct.unpack_from("<I", self.d, p); p += 4 + 4 * n_ed
+        p += 4 + 4                                  # controller, flags
+        tr = struct.unpack_from("<3f", self.d, p); p += 12
+        rot = struct.unpack_from("<9f", self.d, p); p += 36
+        esc, = struct.unpack_from("<f", self.d, p); p += 4
+        nombre = (self.strings[nombre_i]
+                  if 0 <= nombre_i < len(self.strings) else "?")
+        return nombre, tr, rot, esc, p + 4          # +4: collision object
+
     def nodos(self):
         n = {}
         for b, (tipo, o, _) in enumerate(self.bloques):
             if tipo not in TIPOS_NODO:
                 continue
-            p = o
-            nombre_i, = struct.unpack_from("<i", self.d, p); p += 4
-            n_ed, = struct.unpack_from("<I", self.d, p); p += 4 + 4 * n_ed
-            p += 4 + 4
-            tr = struct.unpack_from("<3f", self.d, p); p += 12
-            rot = struct.unpack_from("<9f", self.d, p); p += 36
-            esc, = struct.unpack_from("<f", self.d, p); p += 4
-            p += 4
+            nombre, tr, rot, esc, p = self._avobject_transform(o)
             n_h, = struct.unpack_from("<I", self.d, p); p += 4
             hijos = struct.unpack_from("<%di" % n_h, self.d, p) if n_h else ()
-            n[b] = {"tipo": tipo,
-                    "nombre": (self.strings[nombre_i]
-                               if 0 <= nombre_i < len(self.strings) else "?"),
+            n[b] = {"tipo": tipo, "nombre": nombre,
                     "tr": tr, "rot": rot, "esc": esc,
                     "hijos": [h for h in hijos if h >= 0]}
         return n
 
-    def mundo(self):
+    def _recorrer_mundo(self):
+        """(posiciones de nodo, posiciones de shape, nombres repetidos).
+
+        Un solo recorrido para los dos: un BSTriShape es hijo de un NiNode y
+        su transformada se compone igual, solo que no tiene hijos propios.
+
+        Tres cosas que antes no hacia:
+
+        - Coloca los SHAPES. Sin esto, sobre un estatico --donde el unico nodo
+          es la raiz-- no quedaba ni una posicion que comparar.
+        - Lleva `vistos`, asi un ciclo en la jerarquia no la cuelga y un
+          subarbol compartido no se recorre dos veces (sin memo, el recorrido
+          es exponencial).
+        - Devuelve los nombres REPETIDOS en vez de dejar que el ultimo tape al
+          primero. Medido sobre el corpus: 557 de 22.394 archivos (2,49 %)
+          tienen un nombre de nodo repetido --casi siempre `InvMarker`-- y 222
+          (0,99 %) tienen dos shapes con el mismo nombre; en
+          `_resourcepack/landscape/trees/mugopine01.nif` los dos se llaman "?"
+          porque no tienen nombre, y indexar por nombre los reducia a UNO.
+          Quien compara por nombre necesita saberlo.
+        """
         nodos = self.nodos()
+        shapes = {}
+        for b, (tipo, o, _s) in enumerate(self.bloques):
+            if tipo in TIPOS_SHAPE:
+                nombre, tr, rot, esc, _p = self._avobject_transform(o)
+                shapes[b] = {"nombre": nombre, "tr": tr, "rot": rot,
+                             "esc": esc}
         hijos = set()
         for v in nodos.values():
             hijos.update(v["hijos"])
-        fuera = {}
+
+        pos_n, pos_s, repetidos = {}, {}, []
 
         def mul(Ma, ta, sa, Mb, tb, sb):
             M = [sum(Ma[r * 3 + k] * Mb[k * 3 + c] for k in range(3))
@@ -345,18 +390,52 @@ class Nif(object):
                       for r in range(3))
             return M, t, sa * sb
 
+        def anotar(destino, nombre, t, s):
+            v = (round(t[0], DECIMALES_MUNDO), round(t[1], DECIMALES_MUNDO),
+                 round(t[2], DECIMALES_MUNDO), round(s, DECIMALES_ESCALA))
+            if nombre in destino:
+                repetidos.append(nombre)
+            destino[nombre] = v
+
+        vistos = set()
+
         def bajar(b, M, t, s):
+            if b in vistos:
+                return
+            vistos.add(b)
+            if b in shapes:
+                v = shapes[b]
+                _M2, t2, s2 = mul(M, t, s, v["rot"], v["tr"], v["esc"])
+                anotar(pos_s, v["nombre"], t2, s2)
+                return
             v = nodos[b]
             M2, t2, s2 = mul(M, t, s, v["rot"], v["tr"], v["esc"])
-            fuera[v["nombre"]] = (round(t2[0], 2), round(t2[1], 2),
-                                  round(t2[2], 2), round(s2, 4))
+            anotar(pos_n, v["nombre"], t2, s2)
             for h in v["hijos"]:
-                if h in nodos:
+                if h in nodos or h in shapes:
                     bajar(h, M2, t2, s2)
 
+        I = [1, 0, 0, 0, 1, 0, 0, 0, 1]
         for r in [b for b in nodos if b not in hijos]:
-            bajar(r, [1, 0, 0, 0, 1, 0, 0, 0, 1], (0.0, 0.0, 0.0), 1.0)
-        return fuera
+            bajar(r, I, (0.0, 0.0, 0.0), 1.0)
+        # Un shape que no cuelga de ninguna raiz se coloca con su transformada
+        # local. Se compara igual; lo que no se puede es inventarle un padre.
+        for b, v in shapes.items():
+            if b not in vistos:
+                anotar(pos_s, v["nombre"], v["tr"], v["esc"])
+        return pos_n, pos_s, sorted(set(repetidos))
+
+    def mundo(self):
+        return self._recorrer_mundo()[0]
+
+    def mundo_shapes(self):
+        """{nombre de shape: (x, y, z, escala)} en espacio de mundo."""
+        return self._recorrer_mundo()[1]
+
+    def nombres_repetidos(self):
+        """Nombres que aparecen mas de una vez. Comparar por nombre no puede
+        decidir nada sobre ellos, asi que quien compare tiene que saberlo."""
+        return self._recorrer_mundo()[2]
 
     def fila(self, base=""):
         tri = self.trishapes()
