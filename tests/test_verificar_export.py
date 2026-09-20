@@ -51,6 +51,11 @@ TORCEDURAS = [
     ("posiciones", {"traslaciones": ((1.0, 2.0, 3.0), (4.0, 99.0, 6.0))}),
     ("posiciones", {"traslaciones": ((1.0, 2.0, 3.0), (4.0, 5.0, 99.0))}),
     ("posiciones", {"escalas": (1.0, 0.33)}),     # la escala, no la posicion
+    # Un hueso HOJA girado: MISMA posicion, otros ejes. Sin este caso, dos
+    # huesos girados 90 grados daban "pasa: 0 fallas sobre 8 comprobaciones".
+    ("orientacion", {"rot_huesos": (nif_sintetico.IDENTIDAD,
+                                    nif_sintetico.CUARTO_DE_VUELTA)}),
+    ("orientacion", {"rot_pieza": nif_sintetico.CUARTO_DE_VUELTA}),
     ("piezas", {"nombre_pieza": "OtraPieza"}),
     ("colocacion", {"tr_pieza": (0.0, 140.0, 0.0)}),
     ("colocacion", {"esc_pieza": 0.72}),
@@ -179,11 +184,12 @@ class CeroComparacionesNoEsPasarTests(unittest.TestCase):
         El numero es exacto y no un `> 0`: con `> 0` bastaba con que contara
         los tipos de bloque, y dejar de contar las posiciones pasaba la suite.
         Para este fixture: 3 tipos de bloque + 3 nodos (raiz y dos huesos)
-        + 1 pieza colocada + 1 pieza con sus huesos = 8."""
+        + 3 orientaciones de nodo + 1 orientacion de pieza + 1 pieza colocada
+        + 1 pieza con sus huesos = 12."""
         datos, _e = nif_sintetico.construir_skinneado()
         r = _archivo(datos, self)
         _f, _n, n_comp = V.comparar(r, _archivo(datos, self))
-        self.assertEqual(3 + 3 + 1 + 1, n_comp)
+        self.assertEqual(3 + 3 + 3 + 1 + 1 + 1, n_comp)
 
     def test_y_crece_con_lo_que_hay_para_comparar(self):
         """Un hueso mas es una comparacion mas: el conteo sigue a los datos,
@@ -193,7 +199,45 @@ class CeroComparacionesNoEsPasarTests(unittest.TestCase):
             traslaciones=((1.0, 0.0, 0.0), (2.0, 0.0, 0.0), (3.0, 0.0, 0.0)))
         r = _archivo(datos, self)
         _f, _n, n_comp = V.comparar(r, _archivo(datos, self))
-        self.assertEqual(3 + 4 + 1 + 1, n_comp)
+        self.assertEqual(3 + 4 + 4 + 1 + 1 + 1, n_comp)
+
+    def test_un_nif_ilegible_no_sale_por_un_traceback(self):
+        """falsificar() ya tenia esta guarda y main() no. Un archivo que el
+        lector no puede abrir NO es un detalle de implementacion: es el
+        resultado, y sale por exit 1 con una linea que se entiende."""
+        import contextlib
+        import io as _io
+        import sys
+        datos, _e = nif_sintetico.construir_skinneado()
+        sano = _archivo(datos, self)
+        roto = _archivo(b"no soy un nif", self)
+        argv = sys.argv
+        try:
+            sys.argv = ["verificar_export.py", sano, roto]
+            with contextlib.redirect_stdout(_io.StringIO()) as salida:
+                codigo = V.main()
+        finally:
+            sys.argv = argv
+        self.assertEqual(1, codigo, salida.getvalue())
+        self.assertIn("no se pudo leer", salida.getvalue())
+
+    def test_pero_dos_NIF_legibles_no_disparan_esa_guarda(self):
+        """El par: si main() devolviera 1 ante cualquier cosa, el de arriba
+        pasaria con el codigo roto."""
+        import contextlib
+        import io as _io
+        import sys
+        datos, _e = nif_sintetico.construir_skinneado()
+        a = _archivo(datos, self)
+        b = _archivo(datos, self)
+        argv = sys.argv
+        try:
+            sys.argv = ["verificar_export.py", a, b]
+            with contextlib.redirect_stdout(_io.StringIO()) as salida:
+                codigo = V.main()
+        finally:
+            sys.argv = argv
+        self.assertEqual(0, codigo, salida.getvalue())
 
     def test_el_mismo_archivo_dos_veces_no_es_una_verificacion(self):
         import contextlib
@@ -343,9 +387,10 @@ class LaJerarquiaPuedeVenirRotaTests(unittest.TestCase):
 
 class LosRecorridosCarosSeHacenUnaVezTests(unittest.TestCase):
     """Un comparar() hacia SEIS recorridos de jerarquia --mundo(),
-    mundo_shapes() y nombres_repetidos(), por archivo-- y 34 lecturas de
-    nodos() sobre steamcenturion, una por skin instance. Medido sobre un NIF
-    sintetico de 240 piezas: 0,1299 s sin cache contra 0,0151 s con ella."""
+    mundo_shapes() y nombres_repetidos(), por archivo-- y 38 lecturas de
+    nodos() sobre steamcenturion, una por skin instance. Con cache los mismos
+    dos numeros son 2 y 2, uno por archivo. Medido sobre un NIF sintetico de
+    240 piezas: 0,1299 s sin cache contra 0,0151 s con ella."""
 
     def test_nodos_y_el_recorrido_de_mundo_se_cachean(self):
         datos, _e = nif_sintetico.construir_skinneado()
@@ -417,7 +462,7 @@ class ElLectorDeLaSkillNoSePuedeSepararDelCensoTests(unittest.TestCase):
     def test_la_busqueda_de_archivos_no_se_reimplementa(self):
         """La copia que habia perdia la guarda de ambiguedad de censo_nif."""
         self.assertIs(censo_nif._buscar, V.censo_nif._buscar)
-        d = tempfile.mkdtemp()
+        d = self.enterContext(tempfile.TemporaryDirectory())
         for sub in ("a", "b"):
             os.makedirs(os.path.join(d, sub, "x"))
             open(os.path.join(d, sub, "x", "y.nif"), "wb").close()
@@ -440,7 +485,10 @@ class FalsificacionTests(unittest.TestCase):
         llegar a la guarda de 'cero comprobaciones no es exito'."""
         import contextlib
         import io as _io
-        d = tempfile.mkdtemp()
+        # TemporaryDirectory y no mkdtemp: los .nif que este test escribe
+        # quedaban en el tmp del sistema, y en un sandbox llegaron a hacer que
+        # `--falsificar /tmp` reportara [ilegible] en vez de [falta].
+        d = self.enterContext(tempfile.TemporaryDirectory())
         for rel_n, rel_v, _e in V.FALSIFICACION:
             for rel in (rel_n, rel_v):
                 ruta = os.path.join(d, rel.replace("/", os.sep))
@@ -462,7 +510,7 @@ class FalsificacionTests(unittest.TestCase):
             self.assertTrue(rel_v.lower().endswith(".nif"))
             self.assertTrue(esperado, "%s no declara nada" % rel_n)
             for clave in esperado:
-                self.assertIn(clave, ("fallas", "posiciones",
+                self.assertIn(clave, ("fallas", "posiciones", "orientacion",
                                       "comparaciones_min"))
 
     def test_hay_al_menos_un_caso_que_pasa_y_uno_que_revienta(self):

@@ -27,6 +27,7 @@ sobren inventadas.
   REGLA  raiz           mismo TIPO de raiz (el nombre es observacion)
   REGLA  nodos          mismo juego de nombres de nodo, sin la raiz
   REGLA  posiciones     cada nodo comun, posicion y escala, la raiz incluida
+  REGLA  orientacion    cada nodo y cada pieza, sus ejes
   REGLA  piezas         mismo juego de nombres de shape
   REGLA  colocacion     cada pieza comun, donde quedo y con que escala
   REGLA  huesos/pieza   cada pieza, con el mismo juego de huesos
@@ -65,7 +66,11 @@ LO QUE **NO** COMPRUEBA, DECLARADO
    de donde sale casi toda; el resto (rutas, nombres de controller) no.
 2. **UV y capa de color por pieza.** No estan medidos aca. Viven en la
    geometria, que este script no lee.
-3. **"Cada hueso dentro de la caja de la pieza que lo usa"**, que ESTA
+3. **Un bloque colgado de DOS padres.** El recorrido se queda con el primero
+   que lo visita y no avisa. Medido sobre 3.000 archivos del corpus: **0**
+   tienen un bloque referenciado por dos padres, asi que no es un bug vivo --
+   pero la entrada de este script la escribe un exportador, no Bethesda.
+4. **"Cada hueso dentro de la caja de la pieza que lo usa"**, que ESTA
    REFUTADO como regla absoluta. Medido: de 27.927 shapes skinneados, solo
    6.719 (24,1 %) tienen TODOS sus huesos dentro de su propia caja, y de
    114.751 pares (pieza, hueso) solo el 64,8 % cae adentro. Escribirla habria
@@ -92,6 +97,11 @@ import censo_nif  # noqa: E402
 # mutaciones TOLERANCIA=0.5 y TOLERANCIA=0.0001 sobrevivian la suite entera.
 TOLERANCIA = 10.0 ** -censo_nif.DECIMALES_MUNDO
 TOLERANCIA_ESCALA = 10.0 ** -censo_nif.DECIMALES_ESCALA
+# La orientacion se compara EXACTA, al redondeo del lector. Medido sobre los
+# 1.216 pares `_0.nif`/`_1.nif`: 22.151 de 22.179 rotaciones identicas, y las
+# 28 que no son todas de InvMarker, que ya esta eximido. Un umbral aca seria
+# inventado: el corpus no pide ninguno.
+TOLERANCIA_ROTACION = 10.0 ** -censo_nif.DECIMALES_ROTACION
 
 # 42 de 42 desacuerdos entre `_0.nif` y `_1.nif` del mismo asset son este nodo,
 # que es el marcador de camara del inventario y no mueve geometria. Se informa
@@ -121,7 +131,8 @@ def _nombre_raiz(nif):
 # fallar. Agregar una regla sin ese caso es agregar una garantia que no se sabe
 # si puede fallar -- el modo de error mas caro que tuvo este repo.
 REGLAS = ("comparables", "bloques", "raiz", "nodos", "posiciones",
-          "piezas", "colocacion", "huesos/pieza", "body parts", "skin")
+          "orientacion", "piezas", "colocacion", "huesos/pieza",
+          "body parts", "skin")
 
 
 class Falla(object):
@@ -238,6 +249,30 @@ def comparar(ruta_nuevo, ruta_vanilla):
                                 "%s con escala %.4f, vanilla %.4f"
                                 % (nom, mn[nom][3], mv[nom][3])))
 
+    # --- orientacion --------------------------------------------------------
+    # Un hueso HOJA girado en su lugar tiene la MISMA posicion y arrastra la
+    # malla con el. `mundo()` da posicion y escala, no ejes: dos huesos
+    # girados 90 grados daban "pasa: 0 fallas sobre 8 comprobaciones". Un giro
+    # en un nodo con hijos si se veia, porque mueve a los hijos -- el agujero
+    # era exactamente el de las hojas.
+    rn, rv2 = nuevo.rotaciones(), van.rotaciones()
+    for nom in sorted(set(rn) & set(rv2)):
+        if nom in NODOS_NO_HUESO:
+            continue
+        n_comp += 1
+        d = max(abs(x - y) for x, y in zip(rn[nom], rv2[nom]))
+        if d > TOLERANCIA_ROTACION:
+            fallas.append(Falla("orientacion",
+                                "%s girado (peor componente %.4f)" % (nom, d)))
+    sn_rot, sv_rot = nuevo.rotaciones_shapes(), van.rotaciones_shapes()
+    for nom in sorted(set(sn_rot) & set(sv_rot)):
+        n_comp += 1
+        d = max(abs(x - y) for x, y in zip(sn_rot[nom], sv_rot[nom]))
+        if d > TOLERANCIA_ROTACION:
+            fallas.append(Falla("orientacion",
+                                "la pieza %s esta girada (peor componente "
+                                "%.4f)" % (nom, d)))
+
     # --- piezas y donde quedaron --------------------------------------------
     sn, sv = nuevo.skin_por_shape(), van.skin_por_shape()
     for nom in sorted(set(sv) - set(sn)):
@@ -328,23 +363,24 @@ def comparar(ruta_nuevo, ruta_vanilla):
 #               los 10 mal, el que menos 57,34 unidades.
 #   werebear    18 comparables, los 18 mal, el que menos 10,56.
 #   manekin     EL PAR: el maniqui usa el MISMO esqueleto humano. 22 huesos
-#               comparables, los 22 a 0,00. Reprueba por bloques y piezas
-#               --es otra malla-- pero por posiciones NO. Sin este caso,
-#               "revienta con el esqueleto equivocado" seria compatible con
-#               "revienta con cualquier cosa".
+#               comparables, los 22 a 0,00 Y con los mismos ejes. Reprueba por
+#               bloques y piezas --es otra malla-- pero por posiciones y por
+#               orientacion NO. Sin este caso, "revienta con el esqueleto
+#               equivocado" seria compatible con "revienta con cualquier cosa".
 FALSIFICACION = [
     ("actors/character/character assets/childbody.nif",
      "actors/character/character assets/childbody.nif",
-     {"fallas": 0, "posiciones": 0, "comparaciones_min": 34}),
+     {"fallas": 0, "posiciones": 0, "orientacion": 0,
+      "comparaciones_min": 60}),
     ("actors/dlc01/frostgiant/frostgiant2.nif",
      "actors/character/character assets/childbody.nif",
-     {"posiciones": 10}),
+     {"posiciones": 10, "orientacion": 6}),
     ("actors/dlc02/werebear/werebear.nif",
      "actors/character/character assets/childbody.nif",
-     {"posiciones": 18}),
+     {"posiciones": 18, "orientacion": 18}),
     ("actors/manekin/manekin.nif",
      "actors/character/character assets/childbody.nif",
-     {"posiciones": 0, "fallas": 12}),
+     {"posiciones": 0, "orientacion": 0, "fallas": 12}),
 ]
 
 
@@ -391,6 +427,8 @@ def falsificar(raiz):
         real = {"fallas": len(fallas),
                 "posiciones": sum(1 for f in fallas
                                   if f.regla == "posiciones"),
+                "orientacion": sum(1 for f in fallas
+                                   if f.regla == "orientacion"),
                 "comparaciones": n_comp}
         for campo, valor in esperado.items():
             if campo == "comparaciones_min":
@@ -440,7 +478,14 @@ def main():
         print("nuevo y vanilla son EL MISMO archivo: no hay nada que "
               "verificar")
         return 2
-    fallas, notas, n_comp = comparar(nuevo, vanilla)
+    try:
+        fallas, notas, n_comp = comparar(nuevo, vanilla)
+    except Exception as e:
+        # falsificar() ya tenia esta guarda y main() no: un NIF ilegible salia
+        # por un traceback crudo. No poder leer un archivo no es un detalle de
+        # implementacion, es el resultado: no se pudo verificar.
+        print("no se pudo leer: %s: %s" % (type(e).__name__, str(e)[:120]))
+        return 1
     print("nuevo   : %s" % nuevo)
     print("vanilla : %s" % vanilla)
     print("")

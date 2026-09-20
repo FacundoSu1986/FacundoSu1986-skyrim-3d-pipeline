@@ -67,6 +67,10 @@ BSX_VALOR = 203
 HIJO_TRASLACION = (10.0, 20.0, 30.0)
 
 IDENTIDAD = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+# Un cuarto de vuelta alrededor de Z. Un nodo HOJA con esto puesto queda en la
+# MISMA posicion de mundo y con otros ejes: es la unica forma de torcer la
+# orientacion sin tocar la posicion, y por eso hace falta.
+CUARTO_DE_VUELTA = (0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
 
 
 def _corta(texto):
@@ -81,7 +85,8 @@ def _larga(texto):
     return struct.pack("<I", len(b)) + b
 
 
-def _avobject(nombre_idx, extra_refs, traslacion, hijos, escala=1.0):
+def _avobject(nombre_idx, extra_refs, traslacion, hijos, escala=1.0,
+              rot=IDENTIDAD):
     """NiObjectNET + NiAVObject + los campos de NiNode, en ese orden."""
     p = struct.pack("<i", nombre_idx)
     p += struct.pack("<I", len(extra_refs))
@@ -89,7 +94,7 @@ def _avobject(nombre_idx, extra_refs, traslacion, hijos, escala=1.0):
     p += struct.pack("<i", -1)                       # controller
     p += struct.pack("<I", 14)                       # flags
     p += struct.pack("<3f", *traslacion)
-    p += struct.pack("<9f", *IDENTIDAD)
+    p += struct.pack("<9f", *rot)
     p += struct.pack("<f", escala)
     p += struct.pack("<i", -1)                       # collision object
     p += struct.pack("<I", len(hijos))
@@ -113,7 +118,7 @@ def _marcador_trampa(nombre_idx):
     return bytes(b)
 
 
-def _avobject_sin_hijos(nombre_idx, traslacion, escala=1.0):
+def _avobject_sin_hijos(nombre_idx, traslacion, escala=1.0, rot=IDENTIDAD):
     """Solo NiObjectNET + NiAVObject: lo que comparten nodos y shapes.
 
     Un BSTriShape NO es un NiNode: no lleva children ni effects. Escribirle
@@ -125,20 +130,21 @@ def _avobject_sin_hijos(nombre_idx, traslacion, escala=1.0):
     p += struct.pack("<i", -1)                       # controller
     p += struct.pack("<I", 14)                       # flags
     p += struct.pack("<3f", *traslacion)
-    p += struct.pack("<9f", *IDENTIDAD)
+    p += struct.pack("<9f", *rot)
     p += struct.pack("<f", escala)
     p += struct.pack("<i", -1)                       # collision object
     return p
 
 
-def _trishape(nombre_idx, skin_ref, traslacion=(0.0, 0.0, 0.0), escala=1.0):
+def _trishape(nombre_idx, skin_ref, traslacion=(0.0, 0.0, 0.0), escala=1.0,
+              rot=IDENTIDAD):
     """BSTriShape skinneado: sin geometria inline, con ref a la skin instance.
 
     numTriangles = numVertices = dataSize = 0 no es un atajo del fixture: es
     como se ve un shape skinneado en SSE de verdad. La geometria vive en el
     NiSkinPartition (ver la cabecera de censo_nif.py).
     """
-    p = _avobject_sin_hijos(nombre_idx, traslacion, escala)
+    p = _avobject_sin_hijos(nombre_idx, traslacion, escala, rot)
     p += struct.pack("<4f", 0.0, 0.0, 0.0, 0.0)      # esfera envolvente
     p += struct.pack("<3i", skin_ref, -1, -1)        # skin, shader, alpha
     p += struct.pack("<Q", 0x0000000000000004)       # vertexDesc
@@ -239,7 +245,8 @@ def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,
                         tr_pieza=(0.0, 0.0, 0.0), esc_pieza=1.0,
                         skin_tipo="BSDismemberSkinInstance",
                         nombre_raiz=None, tr_raiz=(0.0, 0.0, 0.0),
-                        esc_raiz=1.0, escalas=None):
+                        esc_raiz=1.0, escalas=None, rot_pieza=IDENTIDAD,
+                        rot_huesos=None):
     """Un NIF skinneado minimo, con TODO parametrizado para poder torcerlo.
 
     Va aparte de construir() y no como un flag suyo para no tocar el
@@ -272,12 +279,15 @@ def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,
     escalas = tuple(escalas) if escalas else (1.0,) * n_huesos
     if len(escalas) != n_huesos:
         raise ValueError("un hueso, una escala")
+    rot_huesos = tuple(rot_huesos) if rot_huesos else (IDENTIDAD,) * n_huesos
+    if len(rot_huesos) != n_huesos:
+        raise ValueError("un hueso, una rotacion")
     bloques = [_avobject(0, [], tr_raiz, hijos, esc_raiz),
-               _trishape(1, 2, tr_pieza, esc_pieza),
+               _trishape(1, 2, tr_pieza, esc_pieza, rot_pieza),
                _dismember(idx_huesos, body_parts, dismember)]
     tipo_de = [0, 1, 2]
     for i, t in enumerate(traslaciones):
-        bloques.append(_avobject(2 + i, [], t, [], escalas[i]))
+        bloques.append(_avobject(2 + i, [], t, [], escalas[i], rot_huesos[i]))
         tipo_de.append(3)
     if bloque_extra:
         strings.append("NodoDeMas")

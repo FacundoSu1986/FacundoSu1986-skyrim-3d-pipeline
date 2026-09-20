@@ -116,6 +116,11 @@ TIPOS_SKIN = ("BSDismemberSkinInstance", "NiSkinInstance")
 # dos dejaba la suite en verde.
 DECIMALES_MUNDO = 2
 DECIMALES_ESCALA = 4
+# Las componentes de una rotacion son cosenos directores, en [-1, 1]. Cuatro
+# decimales son ~0,006 grados. Medido sobre los 1.216 pares `_0.nif`/`_1.nif`
+# --el mismo asset-- 22.151 de 22.179 rotaciones de nodo son IDENTICAS con ese
+# redondeo, y las 28 que no son TODAS de `InvMarker`, que no es un hueso.
+DECIMALES_ROTACION = 4
 
 TIPOS_NODO = {
     "NiNode", "BSFadeNode", "BSLeafAnimNode", "BSTreeNode",
@@ -172,7 +177,8 @@ class Nif(object):
         # caros se calculan una vez. Sin cache, un comparar() hacia SEIS
         # recorridos de jerarquia --mundo(), mundo_shapes() y
         # nombres_repetidos() por archivo-- y 38 lecturas de nodos() en
-        # steamcenturion, una por skin instance. Mismo patron que
+        # steamcenturion, una por skin instance. Con cache, los mismos dos
+        # numeros son 2 y 2: uno por archivo. Mismo patron que
         # census/parser_nif.py, que ya trae _nodos_cache.
         self._nodos_cache = None
         self._mundo_cache = None
@@ -361,7 +367,7 @@ class Nif(object):
         return n
 
     def _recorrer_mundo(self):
-        """(posiciones de nodo, posiciones de shape, nombres repetidos).
+        """{nodos, shapes, repetidos, rot_nodos, rot_shapes}.
 
         Un solo recorrido para los dos: un BSTriShape es hijo de un NiNode y
         su transformada se compone igual, solo que no tiene hijos propios.
@@ -395,6 +401,7 @@ class Nif(object):
             hijos.update(v["hijos"])
 
         pos_n, pos_s, repetidos = {}, {}, []
+        rot_n, rot_s = {}, {}
 
         def mul(Ma, ta, sa, Mb, tb, sb):
             M = [sum(Ma[r * 3 + k] * Mb[k * 3 + c] for k in range(3))
@@ -403,12 +410,16 @@ class Nif(object):
                       for r in range(3))
             return M, t, sa * sb
 
-        def anotar(destino, nombre, t, s):
+        def anotar(destino, rotes, nombre, M, t, s):
             v = (round(t[0], DECIMALES_MUNDO), round(t[1], DECIMALES_MUNDO),
                  round(t[2], DECIMALES_MUNDO), round(s, DECIMALES_ESCALA))
             if nombre in destino:
                 repetidos.append(nombre)
             destino[nombre] = v
+            # La ORIENTACION va aparte de la posicion: un hueso hoja girado en
+            # su lugar tiene la misma posicion y arrastra la malla con el. Sin
+            # esto, dos huesos girados 90 grados daban "pasa, 0 fallas".
+            rotes[nombre] = tuple(round(x, DECIMALES_ROTACION) for x in M)
 
         vistos = set()
 
@@ -418,12 +429,12 @@ class Nif(object):
             vistos.add(b)
             if b in shapes:
                 v = shapes[b]
-                _M2, t2, s2 = mul(M, t, s, v["rot"], v["tr"], v["esc"])
-                anotar(pos_s, v["nombre"], t2, s2)
+                M2, t2, s2 = mul(M, t, s, v["rot"], v["tr"], v["esc"])
+                anotar(pos_s, rot_s, v["nombre"], M2, t2, s2)
                 return
             v = nodos[b]
             M2, t2, s2 = mul(M, t, s, v["rot"], v["tr"], v["esc"])
-            anotar(pos_n, v["nombre"], t2, s2)
+            anotar(pos_n, rot_n, v["nombre"], M2, t2, s2)
             for h in v["hijos"]:
                 if h in nodos or h in shapes:
                     bajar(h, M2, t2, s2)
@@ -435,21 +446,32 @@ class Nif(object):
         # local. Se compara igual; lo que no se puede es inventarle un padre.
         for b, v in shapes.items():
             if b not in vistos:
-                anotar(pos_s, v["nombre"], v["tr"], v["esc"])
-        self._mundo_cache = (pos_n, pos_s, sorted(set(repetidos)))
+                anotar(pos_s, rot_s, v["nombre"], list(v["rot"]), v["tr"],
+                       v["esc"])
+        self._mundo_cache = {"nodos": pos_n, "shapes": pos_s,
+                             "repetidos": sorted(set(repetidos)),
+                             "rot_nodos": rot_n, "rot_shapes": rot_s}
         return self._mundo_cache
 
     def mundo(self):
-        return self._recorrer_mundo()[0]
+        return self._recorrer_mundo()["nodos"]
 
     def mundo_shapes(self):
         """{nombre de shape: (x, y, z, escala)} en espacio de mundo."""
-        return self._recorrer_mundo()[1]
+        return self._recorrer_mundo()["shapes"]
+
+    def rotaciones(self):
+        """{nombre de nodo: 9 cosenos directores} en espacio de mundo."""
+        return self._recorrer_mundo()["rot_nodos"]
+
+    def rotaciones_shapes(self):
+        """{nombre de shape: 9 cosenos directores} en espacio de mundo."""
+        return self._recorrer_mundo()["rot_shapes"]
 
     def nombres_repetidos(self):
         """Nombres que aparecen mas de una vez. Comparar por nombre no puede
         decidir nada sobre ellos, asi que quien compare tiene que saberlo."""
-        return self._recorrer_mundo()[2]
+        return self._recorrer_mundo()["repetidos"]
 
     def fila(self, base=""):
         tri = self.trishapes()

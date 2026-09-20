@@ -160,10 +160,10 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 ### 25. (#21) Vanilla no es consistente consigo mismo entre `_0` y `_1`
 
-**AFIRMACIÓN**: De los **1.216** pares `_0.nif`/`_1.nif`, **1.163 (95,6 %)** pasan la comparación completa de `verificar_export.py`. Los **52** que no son diferencias reales de contenido de Bethesda, no artefactos del lector.
+**AFIRMACIÓN**: De los **1.216** pares `_0.nif`/`_1.nif`, **1.163 (95,6 %)** pasan la comparación completa de `verificar_export.py`. Los **53** que no son diferencias reales de contenido de Bethesda, no artefactos del lector.
 **CONSULTA QUE LA PRODUJO**: `verificar_export.comparar(a, b)` sobre cada par.
 **N**: 1.216 pares.
-**EXCEPCIONES ENCONTRADAS**: 1 es `tfxbloodshirt_0.nif`, que repite **15 nombres de hueso** dentro del archivo y por eso no se puede comparar por nombre (ver entrada 27); 47 difieren en nombres de pieza — `dragonhelm_0.nif` llama a las suyas `DragonHood:0`/`:1` y `dragonhelm_1.nif` las llama `Plane02:0`/`:1`—, 15 en cuenta de bloques —`1stpersondraugrarmormale_0.nif` tiene 17 `NiNode` y el `_1` tiene 16— y 1 en huesos por pieza. Verificado contra `parser_nif` en los dos casos citados.
+**EXCEPCIONES ENCONTRADAS**: los conteos por regla que siguen **no son disjuntos** —un par puede fallar por varias a la vez, y suman 65 sobre 53 pares—. 1 es `tfxbloodshirt_0.nif`, que repite **15 nombres de hueso** dentro del archivo y por eso no se puede comparar por nombre (ver entrada 27); 47 difieren en nombres de pieza — `dragonhelm_0.nif` llama a las suyas `DragonHood:0`/`:1` y `dragonhelm_1.nif` las llama `Plane02:0`/`:1`—, 15 en cuenta de bloques —`1stpersondraugrarmormale_0.nif` tiene 17 `NiNode` y el `_1` tiene 16— y 1 en huesos por pieza. Verificado contra `parser_nif` en los dos casos citados.
 
 ### 26. (#21) La esfera envolvente de un shape skinneado está en cero
 
@@ -192,3 +192,19 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **CONSULTA QUE LA PRODUJO**: lectura del código de `_skin_de_shape` y `trishapes`.
 **N**: no aplica — es una aclaración sobre el uso, no una medición.
 **EXCEPCIONES ENCONTRADAS**: ninguna. Se anota porque la entrada 26 mide la esfera con **N=1** y sin barrido; quien la lea dentro de seis meses podría tomarla como la caja disponible. No lo es: para la caja de una pieza hay que leer la geometría, que está en `census/parser_uv.py`.
+
+### 30. (#21) Las rotaciones de nodo del mismo asset son idénticas
+
+**AFIRMACIÓN**: Entre `_0.nif` y `_1.nif` del mismo asset, **22.151 de 22.179** rotaciones de nodo en espacio de mundo son **idénticas** al redondeo de cuatro decimales (99,874 %).
+**CONSULTA QUE LA PRODUJO**: composición de la cadena de rotaciones desde la raíz, sobre los 1.216 pares.
+**N**: 22.179 comparaciones.
+**EXCEPCIONES ENCONTRADAS**: **28 de 28** son `InvMarker`, el mismo nodo que ya aparece en la entrada 24 como único desacuerdo de posición. Cero nodos que sean huesos difieren. **Consecuencia práctica**: la orientación se puede comparar **exacta**, sin umbral — el corpus no pide ninguno, y la regla no produce un solo falso positivo sobre los 1.216 pares.
+
+> **Por qué hacía falta medirlo**: `mundo()` devuelve posición y escala, no ejes. Un hueso **hoja** girado en su lugar tiene la misma posición y arrastra la malla con él, así que `verificar_export.py` daba "pasa: 0 fallas" con dos huesos girados 90°. Un giro en un nodo **con hijos** sí se veía, porque mueve a los hijos: el agujero era exactamente el de las hojas.
+
+### 31. (#21) Ningún bloque vanilla cuelga de dos padres
+
+**AFIRMACIÓN**: De **3.000** archivos de una muestra aleatoria, **0** tienen un bloque referenciado como hijo por dos nodos distintos.
+**CONSULTA QUE LA PRODUJO**: `Counter` sobre las listas de hijos de todos los nodos de cada archivo.
+**N**: 3.000 archivos, 0 errores de lectura.
+**EXCEPCIONES ENCONTRADAS**: 0. Se mide porque el recorrido de `censo_nif` se queda con el **primer** padre que visita y no avisa; sobre entrada vanilla eso no puede manifestarse, pero el archivo que `verificar_export.py` recibe lo escribe un exportador. Queda declarado en la cabecera del script, no arreglado.
