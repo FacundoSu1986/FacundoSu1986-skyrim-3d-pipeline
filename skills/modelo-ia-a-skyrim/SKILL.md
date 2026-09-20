@@ -72,7 +72,7 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
 6. **Riggear** — grupos de vértices por hueso, particiones de body-part.
 7. **Texturas** — PBR → convención de Skyrim, a DDS con mipmaps.
 8. **Exportar y verificar** — reimportar el archivo generado y compararlo
-   contra el vanilla.
+   contra el vanilla: `scripts/verificar_export.py <nuevo.nif> <vanilla.nif>`.
 
 ## Las tres cosas que hay que pedirle a la IA 3D
 
@@ -108,6 +108,8 @@ siempre reimporta el NIF generado** y lo compara contra el vanilla:
 
 - mismos tipos y cantidades de bloque, misma tabla de strings;
 - las posiciones de hueso contra el `skeleton.nif` — desvío esperado 0,0;
+- **dónde quedó cada pieza**, que es lo que se rompe cuando el exportador
+  desarma el modelo;
 - cada pieza con el mismo juego de huesos que su equivalente vanilla, más su
   partición, su UV y su capa de color;
 - cada hueso dentro de la caja de la pieza que lo usa.
@@ -115,6 +117,32 @@ siempre reimporta el NIF generado** y lo compara contra el vanilla:
 Ese último control encontró un NIF completamente desarmado —las piezas
 desplazadas una por una— que visualmente ya se daba por bueno. Sin él se habría
 instalado.
+
+**Pero el cuarto de esa lista no es una regla absoluta, y medirlo lo demostró.**
+De 27.927 piezas skinneadas del corpus vanilla, solo el **24,1 %** tiene todos
+sus huesos dentro de su propia caja; de 114.751 pares (pieza, hueso), el
+**64,8 %**. Escrito en forma absoluta, ese control reprobaría a tres de cada
+cuatro mallas de Bethesda. Lo que sirve es su forma **relativa** —que la
+distancia del hueso a la caja no crezca respecto del original—, y eso exige la
+geometría de la pieza: la compara `fixtures/comparar.py --fiel`. Ver la entrada
+22 de `census/hallazgos.md`.
+
+**De los otros, `scripts/verificar_export.py` hace la mayor parte, no todo.**
+Lee los bytes y no abre Blender. Compara bloques, tipo de raíz, nombres y
+posiciones de nodo, nombres y **colocación** de cada pieza, y sus huesos,
+particiones y tipo de skin instance. Lo que **no** hace, y conviene saberlo
+antes de darlo por cubierto:
+
+| del control | lo cubre |
+|---|---|
+| tabla de strings completa | **no** — solo los nombres de nodo y de pieza |
+| UV y capa de color por pieza | **no** — están en la geometría, que no lee |
+| desvío exactamente 0,0 | **no** — usa 0,01, que es el redondeo del lector; el propio vanilla difiere en 0,010 en 4 de 2.112 comparaciones |
+| hueso dentro de la caja | **no**, y a propósito: ver arriba |
+
+Para lo que falta: `fixtures/comparar.py --fiel` compara la colocación contra
+un original con la geometría en la mano. **No se empaqueta con la skill**:
+vive en el repo.
 
 **Y un chequeo tiene que poder fallar.** Si un control pasa siempre, no prueba
 nada. Alimentalo a propósito con datos equivocados (por ejemplo, las posiciones
@@ -167,6 +195,30 @@ pieza que mañana pierda una atadura.
   skinneado tiene `numTriangles = 0`** — la geometría está en el
   `NiSkinPartition`. Contar triángulos de la forma obvia da cero para toda
   criatura y toda armadura.
+- **`scripts/verificar_export.py`** — el paso 8b: compara el NIF exportado
+  contra el vanilla y **devuelve exit 1 si no pasa**. Diez reglas — nombres
+  comparables, bloques, tipo de raíz, juego de nodos, posición y escala de
+  cada nodo, juego de piezas, **dónde quedó cada pieza**, y sus huesos,
+  particiones y tipo de skin instance. No abre Blender: lee los bytes, porque
+  el exportador es justo lo que está bajo sospecha.
+
+  **Exit 1 también cuando no comparó nada.** Un NIF de 73 bytes —solo
+  cabecera— parsea sin dar error, y un veredicto de 0 fallas sobre 0
+  comparaciones no es un `[ok]`.
+
+  Cada regla lleva atrás su medición del corpus, y las que el corpus refutó
+  **no están**: ver arriba. La tolerancia de posición es **0,01 unidades**, que
+  no es un umbral elegido sino el redondeo del lector — medido sobre 1.166
+  pares `_0.nif`/`_1.nif` del mismo asset, 21.641 de 21.683 posiciones son
+  idénticas y los 42 desacuerdos son todos `InvMarker`.
+
+  **Y está falsificado**: `--falsificar <carpeta meshes>` corre cuatro casos
+  vanilla reales. Ponerle a `childbody.nif` el esqueleto de `frostgiant2.nif`
+  da 10 fallas sobre 10 huesos comparables (la menor, 57,34 u de desvío), y el
+  de `werebear.nif` da 18 de 18. El cuarto caso es el que hace que los otros
+  valgan: `manekin.nif` usa el **mismo** esqueleto humano y da **cero** fallas
+  de posición, aunque falle por bloques y por piezas. Sin él, "revienta con el
+  esqueleto equivocado" sería compatible con "revienta con cualquier cosa".
 - **`scripts/medir_parte.py`** — mide un GLB/FBX/OBJ recién llegado: triángulos,
   UV, texturas, proporción, aristas de borde (canonicalizadas por posición),
   cuántos cuerpos sueltos trae. Correlo **siempre** antes de trabajar con un
