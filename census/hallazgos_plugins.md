@@ -130,3 +130,26 @@ entendemos.
 - **El camino de compresión en los STAT.** 0 de 12.626 STAT lo usan; en otros
   tipos sí aparece, y la pasada de subrecords del autotest los descomprime y
   verifica, pero el censo no mide cuántos ni de qué tipos.
+
+### 7. (#21) `ARMA`: cuántas razas adicionales lleva un equipable
+
+**AFIRMACIÓN**: De **1.170** records `ARMA`, la cantidad de razas adicionales (subrecords `MODL` repetidos) se reparte así: **234 (20,0 %) no tienen ninguna**, 232 (19,8 %) tienen una, y **215 (18,4 %) tienen 23**, que es el valor más frecuente por encima de 1. El máximo observado es 30.
+**CONSULTA**: recorrido de los subrecords de cada `ARMA` de los 10 plugins.
+**N**: 1.170 records.
+**EXCEPCIONES**: los **234 sin ninguna raza son todos criaturas** —`NakedSkeletonArmor1AA`, `DLC1GargoyleVariantBossAA`, `DLC1_NakedChaurusFlyer2AA`—, **ninguno es un escudo**. De los **45** `ARMA` cuyo `EDID` contiene "Shield", el rango va de **1 a 30** y **ninguno está en 0**: `AurielsShieldAA` 30, `DwarvenShieldAA` 23, `AtronachFrostShieldAA` 4, `DLC1KeeperDragonplateShieldAA` 1.
+
+> **Esto convierte un `[OBSERVED]` con N=1 en una regla con su población.** La skill `asset-nuevo-skyrim` decía "el `DwarvenShieldAA` lista 23 razas" y un lector podía leer "poné 23". El 23 es correcto para ese record y no es el número: es la lista del vanilla equivalente, que para un escudo humano nunca está vacía y para una criatura muchas veces sí.
+
+### 8. (#21) El núcleo mínimo de `ARMO` y de `ARMA`
+
+**AFIRMACIÓN**: En `ARMO`, **`EDID+OBND+RNAM+MODL+DATA+DNAM+BOD2`** aparece en **3.905 de 3.915** records. En `ARMA`, la combinación mínima observada es **`EDID+RNAM+DNAM+BODT`** —1 record— y la habitual es `EDID+RNAM+DNAM+MOD2+MODL+BODT`, en 730.
+**CONSULTA**: presencia de subrecords de núcleo en cada `ARMO` y cada `ARMA`.
+**N**: 3.915 `ARMO`, 1.170 `ARMA`.
+**EXCEPCIONES**: los **10** `ARMO` restantes usan el `BODT` viejo en vez de `BOD2`. En `ARMA`, `MOD2` (la ruta del modelo masculino) está en el 99,6 % y `MODL` —que en este record **no** es una ruta de modelo sino la lista de razas— en el 80,0 %.
+
+### 9. (#21) Dos recorridos de plugin independientes dan el mismo número
+
+**AFIRMACIÓN**: El recorrido de `esl.py` —que entra a los `GRUP` sin usar su tamaño— y el de `census/parser_esm.py` —que comprueba la identidad en tres niveles— cuentan **exactamente los mismos records** en los **10 de 10** plugins: **1.188.811** en total.
+**CONSULTA**: `len(esl.recorrer_formids(d))` contra el recorrido de `Plugin` para cada archivo.
+**N**: 10 plugins, 1.188.811 records.
+**EXCEPCIONES**: 0. Lo que el cruce **no** cubre: `esl.py` nunca lee el tamaño de un `GRUP`, así que un `GRUP` con el tamaño inflado no le cambia el resultado. Su comprobación de cierre es la cadena de records, no las tres identidades.

@@ -11,10 +11,15 @@ import sys
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CENSUS = os.path.join(RAIZ, "census")
 SKILL_SCRIPTS = os.path.join(RAIZ, "skills", "modelo-ia-a-skyrim", "scripts")
+SKILL_ASSET = os.path.join(RAIZ, "skills", "asset-nuevo-skyrim", "scripts")
+
+# nif_nodos.py esta en las DOS carpetas de skill, byte a byte igual (lo exige
+# tests/test_skill_asset_nuevo.py). El orden de aca decide cual se importa:
+# gana la de modelo-ia-a-skyrim, que es la canonica.
 
 
 def preparar_path():
-    """Agrega census/ y los scripts de la skill a sys.path (idempotente)."""
-    for d in (CENSUS, SKILL_SCRIPTS):
+    """Agrega census/ y los scripts de las skills a sys.path (idempotente)."""
+    for d in (CENSUS, SKILL_ASSET, SKILL_SCRIPTS):
         if d not in sys.path:
             sys.path.insert(0, d)
