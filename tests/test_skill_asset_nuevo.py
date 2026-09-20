@@ -22,6 +22,7 @@ preparar_path()
 import esl  # noqa: E402
 import nif_nodos  # noqa: E402
 import nif_sintetico  # noqa: E402
+import parser_esm  # noqa: E402
 import plugin_sintetico  # noqa: E402
 
 CANONICO = os.path.join(RAIZ, "skills", "modelo-ia-a-skyrim", "scripts",
@@ -36,6 +37,51 @@ def _archivo(datos, caso, suf=".nif"):
         fh.write(datos)
     caso.addCleanup(lambda: os.path.exists(ruta) and os.unlink(ruta))
     return ruta
+
+
+def _correr(script, *args):
+    import subprocess
+    import sys
+    p = subprocess.run([sys.executable, script] + list(args),
+                       capture_output=True, text=True)
+    return p.returncode, p.stdout + p.stderr
+
+
+def _correr_esl(caso, datos, *flags):
+    import subprocess
+    import sys
+    ruta = _archivo(datos, caso, ".esp")
+    script = os.path.join(RAIZ, "skills", "asset-nuevo-skyrim", "scripts",
+                          "esl.py")
+    p = subprocess.run([sys.executable, script, ruta] + list(flags),
+                       capture_output=True, text=True)
+    caso.addCleanup(lambda: os.path.exists(ruta + ".bak")
+                    and os.unlink(ruta + ".bak"))
+    with open(ruta, "rb") as fh:
+        return p.returncode, p.stdout, fh.read(), ruta
+
+
+def _plugin_con_formid(form_id):
+    """El fixture de plugin con el FormID del STAT cambiado.
+
+    El offset lo da el PARSER. `datos.index(b"STAT")` encuentra la ETIQUETA
+    del GRUP, no el record -- el mismo error que ya se colo una vez en
+    tests/test_parser_esm.py y dejo un test verde que no probaba nada.
+    """
+    import tempfile as _tf
+    datos, _e = plugin_sintetico.construir()
+    fd, ruta = _tf.mkstemp(suffix=".esp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(datos)
+        p = parser_esm.Plugin(ruta)
+        i = next(o for t, o, _s, _pr in p.recorrer() if t == "STAT")
+    finally:
+        if os.path.exists(ruta):
+            os.unlink(ruta)
+    b = bytearray(datos)
+    struct.pack_into("<I", b, i + 12, form_id)
+    return bytes(b)
 
 
 def _nif_con_rotacion(grados, nombre="ANCLA"):
@@ -80,6 +126,31 @@ def _nif_con_rotacion(grados, nombre="ANCLA"):
     h += struct.pack("<I", len(bloques[0]))
     h += struct.pack("<I", 1) + struct.pack("<I", len(nombre))
     h += NS._larga(nombre)
+    h += struct.pack("<I", 0)
+    return bytes(h) + b"".join(bloques)
+
+
+def _nif_con_repetidos(nombre="Dup"):
+    """raiz -> dos hijos con el MISMO nombre, en lugares distintos."""
+    NS = nif_sintetico
+    bloques = [NS._avobject(0, [], (0.0, 0.0, 0.0), [1, 2]),
+               NS._avobject(1, [], (10.0, 0.0, 0.0), []),
+               NS._avobject(1, [], (0.0, 0.0, 99.0), [])]
+    strings = ["Raiz", nombre]
+    h = bytearray(NS.CABECERA)
+    h += struct.pack("<I", NS.VERSION) + struct.pack("<B", 1)
+    h += struct.pack("<I", NS.USER) + struct.pack("<I", len(bloques))
+    h += struct.pack("<I", NS.BS)
+    h += NS._corta("") + NS._corta("") + NS._corta("")
+    h += struct.pack("<H", 1) + NS._larga("NiNode")
+    for _b in bloques:
+        h += struct.pack("<H", 0)
+    for b in bloques:
+        h += struct.pack("<I", len(b))
+    h += struct.pack("<I", len(strings))
+    h += struct.pack("<I", max(len(x) for x in strings))
+    for x in strings:
+        h += NS._larga(x)
     h += struct.pack("<I", 0)
     return bytes(h) + b"".join(bloques)
 
@@ -156,12 +227,28 @@ class ElMarcoDelNodoDeAnclajeTests(unittest.TestCase):
         el marco seria plausible y la posicion otra."""
         datos, _e = nif_sintetico.construir()
         nif = nif_nodos.leer(_archivo(datos, self))
+        self._coinciden(nif)
+
+    def test_y_TAMBIEN_ante_un_nombre_repetido(self):
+        """El caso que el test de arriba no cubria y donde SI divergian:
+        mundo() no llevaba `vistos` y se quedaba con el ULTIMO nodo de cada
+        nombre, matrices() con el PRIMERO. Con dos nodos "Dup" en (10,0,0) y
+        (0,0,99) una devolvia (0,0,99) y la otra (10,0,0). En el corpus no se
+        veia porque el 2,49 % de archivos con nombre repetido lo repiten en
+        InvMarker, con la misma transformada."""
+        nif = nif_nodos.leer(_archivo(_nif_con_repetidos(), self))
+        self._coinciden(nif)
+        pos, _p = nif_nodos.mundo(nif)
+        self.assertEqual((10.0, 0.0, 0.0, 1.0), pos["Dup"])
+
+    def _coinciden(self, nif):
         pos, _prof = nif_nodos.mundo(nif)
         M = nif_nodos.matrices(nif)
+        self.assertEqual(set(pos), set(M))
         for nombre, p in pos.items():
-            self.assertAlmostEqual(p[0], M[nombre][0][3], places=2, msg=nombre)
-            self.assertAlmostEqual(p[1], M[nombre][1][3], places=2, msg=nombre)
-            self.assertAlmostEqual(p[2], M[nombre][2][3], places=2, msg=nombre)
+            for i in range(3):
+                self.assertAlmostEqual(p[i], M[nombre][i][3], places=2,
+                                       msg=nombre)
 
 
 class EslFallaCerradoTests(unittest.TestCase):
@@ -225,6 +312,103 @@ class EslFallaCerradoTests(unittest.TestCase):
         self.assertIn("cero records", salida.lower())
 
 
+class ElRangoDeEslEstaMedidoTests(unittest.TestCase):
+    """El script exigia 0x800 <= indice <= 0xFFF a TODOS los records no-TES4.
+    Medido sobre los 3 `.esl` de una instalacion, eso esta mal dos veces."""
+
+    def test_un_override_no_entra_en_la_cuenta_del_rango(self):
+        """Un record cuyo indice de mod apunta a un master conserva el FormID
+        del master. `ccQDRSSE001-SurvivalMode.esl` --un ESL que el juego
+        carga-- trae 165, y todos se reportaban como fuera de rango."""
+        nuevos, over = esl.clasificar([0x00000001, 0x01000002, 0x05000800], 5)
+        self.assertEqual([0x05000800], nuevos)
+        self.assertEqual([0x00000001, 0x01000002], over)
+
+    def test_sin_masters_no_hay_overrides(self):
+        """El par: si clasificar() mandara todo a overrides, el rango no se
+        comprobaria nunca."""
+        nuevos, over = esl.clasificar([0x00000001, 0x00000002], 0)
+        self.assertEqual(2, len(nuevos))
+        self.assertEqual([], over)
+
+    def test_el_piso_del_creation_kit_no_bloquea(self):
+        """`_ResourcePack.esl` trae 368 records propios por debajo de 0x800 y
+        el juego lo carga: el piso es del CK, no del motor."""
+        self.assertLess(esl.PISO_CREATION_KIT, esl.TECHO_ESL)
+        datos = _plugin_con_formid(0x00000001)
+        codigo, salida, _d, _r = _correr_esl(self, datos, "--marcar")
+        self.assertEqual(0, codigo, salida)
+        self.assertIn("por debajo", salida)
+
+    def test_pero_el_techo_SI_bloquea(self):
+        """El par del de arriba, y el unico limite que el motor impone."""
+        datos = _plugin_con_formid(0x00001000)
+        codigo, salida, despues, _r = _correr_esl(self, datos, "--marcar")
+        self.assertEqual(1, codigo, salida)
+        self.assertEqual(datos, despues, "escribio con un record fuera")
+
+    def test_los_MAST_se_leen_del_TES4(self):
+        """Con NOMBRES, no la lista vacia. La primera version de este test
+        afirmaba `== []` sobre un fixture sin masters: pasaba con masters()
+        devolviendo siempre [], que es justo el bug que tendria que atajar.
+        La bateria de mutaciones lo delato."""
+        datos, esperado = plugin_sintetico.construir(
+            masters=("Skyrim.esm", "Update.esm", "Dawnguard.esm"))
+        self.assertEqual(esperado["masters"], esl.masters(bytearray(datos)))
+
+    def test_y_sin_masters_da_la_lista_vacia(self):
+        """El par: si masters() inventara nombres, esto lo veria."""
+        datos, _e = plugin_sintetico.construir()
+        self.assertEqual([], esl.masters(bytearray(datos)))
+
+    def test_con_masters_un_record_de_indice_bajo_es_override(self):
+        """La cadena entera: los MAST del TES4 deciden que se clasifica como
+        override, y un override no entra en la comprobacion de rango."""
+        datos, _e = plugin_sintetico.construir(
+            masters=("Skyrim.esm", "Update.esm"))
+        ids, cerro = esl.recorrer_formids(bytearray(datos))
+        self.assertTrue(cerro)
+        nuevos, over = esl.clasificar(ids, len(esl.masters(bytearray(datos))))
+        self.assertEqual(2, len(over), ids)
+        self.assertEqual([], nuevos)
+
+
+class LosCliNoRevientanTests(unittest.TestCase):
+    """Un archivo que no se puede leer no es un detalle de implementacion: es
+    el resultado. Los dos scripts salian por traceback."""
+
+    def test_nif_nodos_con_un_archivo_que_no_existe(self):
+        codigo, salida = _correr(os.path.join(
+            RAIZ, "skills", "asset-nuevo-skyrim", "scripts", "nif_nodos.py"),
+            os.path.join(tempfile.gettempdir(), "no_existe_xyz.nif"))
+        self.assertEqual(1, codigo)
+        self.assertIn("no se pudo leer", salida)
+        self.assertNotIn("Traceback", salida)
+
+    def test_nif_nodos_con_un_archivo_que_no_es_un_nif(self):
+        ruta = _archivo(b"no soy un nif", self)
+        codigo, salida = _correr(os.path.join(
+            RAIZ, "skills", "asset-nuevo-skyrim", "scripts", "nif_nodos.py"),
+            ruta)
+        self.assertEqual(1, codigo)
+        self.assertNotIn("Traceback", salida)
+
+    def test_pero_con_un_nif_sano_sale_0(self):
+        """El par: si devolviera 1 siempre, los de arriba no probarian nada."""
+        datos, _e = nif_sintetico.construir()
+        codigo, salida = _correr(os.path.join(
+            RAIZ, "skills", "asset-nuevo-skyrim", "scripts", "nif_nodos.py"),
+            _archivo(datos, self))
+        self.assertEqual(0, codigo, salida)
+
+    def test_esl_con_una_cabecera_truncada(self):
+        ruta = _archivo(b"TES4", self, ".esp")
+        codigo, salida = _correr(os.path.join(
+            RAIZ, "skills", "asset-nuevo-skyrim", "scripts", "esl.py"), ruta)
+        self.assertEqual(1, codigo)
+        self.assertNotIn("Traceback", salida)
+
+
 class LasTablasDeAutotestDeclaranAlgoTests(unittest.TestCase):
 
     def test_esl_sin_carpeta_no_es_exito(self):
@@ -243,9 +427,23 @@ class LasTablasDeAutotestDeclaranAlgoTests(unittest.TestCase):
 
     def test_esl_declara_conteos(self):
         self.assertTrue(esl.AUTOTEST)
-        for nombre, n in esl.AUTOTEST:
+        for nombre, esperado in esl.AUTOTEST:
             self.assertTrue(nombre.lower().endswith((".esm", ".esp", ".esl")))
-            self.assertGreater(n, 0, nombre)
+            self.assertTrue(esperado, "%s no declara nada" % nombre)
+            for clave in esperado:
+                self.assertIn(clave, ("records", "masters", "nuevos",
+                                      "overrides", "sobre_el_techo",
+                                      "bajo_el_piso_del_ck"))
+
+    def test_y_al_menos_un_ESL_real_con_overrides(self):
+        """Un ESL que el juego carga y que TIENE overrides es lo unico que
+        prueba que el rango no se les aplica. Sin esa entrada, la correccion
+        no esta anclada a ningun archivo."""
+        con_over = [e for _n, e in esl.AUTOTEST if e.get("overrides", 0) > 0]
+        self.assertTrue(con_over, "falta un ESL con overrides en la tabla")
+        bajo = [e for _n, e in esl.AUTOTEST
+                if e.get("bajo_el_piso_del_ck", 0) > 0]
+        self.assertTrue(bajo, "falta el ESL que vive por debajo de 0x800")
 
     def test_nif_nodos_declara_valores_y_un_contraejemplo(self):
         """La tabla tiene que traer al menos un esqueleto donde el SHIELD NO

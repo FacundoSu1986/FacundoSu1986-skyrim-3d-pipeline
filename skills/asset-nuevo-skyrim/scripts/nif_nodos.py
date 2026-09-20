@@ -120,11 +120,21 @@ def leer(ruta):
 
 
 def mundo(nif):
-    """Acumula transformadas desde la raiz. Devuelve {nombre: (x,y,z,escala)}."""
+    """Acumula transformadas desde la raiz. Devuelve {nombre: (x,y,z,escala)}.
+
+    Lleva `vistos` y se queda con el PRIMER nodo que ve para cada nombre, igual
+    que matrices() y que censo_nif. Antes no lo hacia, y ante un nombre
+    repetido las dos funciones de ESTE MISMO archivo daban respuestas
+    distintas: con dos nodos "Dup" en (10,0,0) y (0,0,99), mundo() devolvia el
+    segundo y matrices() el primero. En el corpus no se manifestaba porque los
+    2,49 % de archivos con nombre repetido lo repiten en InvMarker, con la
+    misma transformada -- que es justo el caso en que un desacuerdo no se ve.
+    """
     nodos = nif["nodos"]
     hijos_de_alguien = {h for n in nodos.values() for h in n["hijos"]}
     raices = [b for b in nodos if b not in hijos_de_alguien]
     fuera, prof = {}, {}
+    vistos = set()
 
     def mul(Ma, ta, sa, Mb, tb, sb):
         """(Ma,ta,sa) padre compuesto con (Mb,tb,sb) hijo."""
@@ -135,11 +145,14 @@ def mundo(nif):
         return M, t, sa * sb
 
     def bajar(b, M, t, s, d):
+        if b in vistos:
+            return
+        vistos.add(b)
         n = nodos[b]
         M2, t2, s2 = mul(M, t, s, n["rot"], n["tr"], n["esc"])
-        fuera[n["nombre"]] = (round(t2[0], 2), round(t2[1], 2),
-                              round(t2[2], 2), round(s2, 4))
-        prof[n["nombre"]] = d
+        fuera.setdefault(n["nombre"], (round(t2[0], 2), round(t2[1], 2),
+                                       round(t2[2], 2), round(s2, 4)))
+        prof.setdefault(n["nombre"], d)
         for h in n["hijos"]:
             if h in nodos:
                 bajar(h, M2, t2, s2, d + 1)
@@ -333,8 +346,12 @@ def autotest(raiz):
             print("  [falta]  %s" % rel)
             falta += 1
             continue
-        nif = leer(ruta)
-        M = matrices(nif)
+        try:
+            M = matrices(leer(ruta))
+        except Exception as e:
+            fallo += 1
+            print("  [ilegible] %s :: %s" % (rel, type(e).__name__))
+            continue
         real = {"n_nodos": len(M)}
         for nodo, grados in esperado.get("angulos", {}).items():
             if nodo not in M:
@@ -411,22 +428,41 @@ def _buscar(raiz, rel):
     return encontrados[0] if encontrados else None
 
 
+def _leer_o_avisar(ruta):
+    """El NIF, o None con una linea que se entiende.
+
+    Un archivo que no existe salia por FileNotFoundError y uno que no es un
+    NIF por "ValueError: subsection not found". No poder leer un archivo no es
+    un detalle de implementacion: es el resultado.
+    """
+    try:
+        return leer(ruta)
+    except Exception as e:
+        print("no se pudo leer %s: %s: %s"
+              % (ruta, type(e).__name__, str(e)[:100]))
+        return None
+
+
 def main():
     a = sys.argv[1:]
     if len(a) == 2 and a[0] == "--autotest":
         return 0 if autotest(a[1]) else 1
     if len(a) >= 3 and a[1] == "--relativo-a":
-        return relativo_a(leer(a[0]), a[2], a[3:])
+        nif = _leer_o_avisar(a[0])
+        return 1 if nif is None else relativo_a(nif, a[2], a[3:])
     if not a:
         print(__doc__)
         return 2
-    _volcar(a)
-    return 0
+    return _volcar(a)
 
 
 def _volcar(rutas):
+    malos = 0
     for ruta in rutas:
-        nif = leer(ruta)
+        nif = _leer_o_avisar(ruta)
+        if nif is None:
+            malos += 1
+            continue
         pos, prof = mundo(nif)
         print("=== %s  (bloques=%d, BS=%d, nodos=%d)" % (
             nif["archivo"], nif["n_bloques"], nif["bs"], len(pos)))
@@ -434,6 +470,7 @@ def _volcar(rutas):
             print("   %s%-28s %9.2f %9.2f %9.2f  esc=%.3f" % (
                 "  " * prof[nom], nom, p[0], p[1], p[2], p[3]))
         print()
+    return 1 if malos else 0
 
 
 if __name__ == "__main__":

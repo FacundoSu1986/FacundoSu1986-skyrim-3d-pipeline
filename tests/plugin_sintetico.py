@@ -52,7 +52,7 @@ def _grupo(etiqueta, contenido, tipo_grupo=0):
             + struct.pack("<I", 0) + struct.pack("<I", 0) + contenido)
 
 
-def construir(comprimir_stat=False, con_escape=False):
+def construir(comprimir_stat=False, con_escape=False, masters=()):
     """Devuelve (bytes, esperado).
 
     `esperado` es la verdad declarada: lo que cualquier parser correcto tiene
@@ -83,6 +83,13 @@ def construir(comprimir_stat=False, con_escape=False):
     cab = _sub(b"HEDR", struct.pack("<fiI", 1.7, 2, 0x00000803))
     cab += _sub(b"CNAM", _cstr(AUTOR))
     cab += _sub(b"SNAM", _cstr(DESCRIPCION))
+    # Cada master va como MAST + DATA, en ese orden, como en los plugins
+    # reales. La cantidad de MAST es lo que separa un record NUEVO de un
+    # OVERRIDE: si el indice de mod del FormID es menor, el record modifica
+    # uno del master y conserva su FormID.
+    for m in masters:
+        cab += _sub(b"MAST", _cstr(m))
+        cab += _sub(b"DATA", struct.pack("<Q", 0))
     tes4 = _record(b"TES4", cab, 0)
 
     datos = tes4 + cuerpo
@@ -98,5 +105,6 @@ def construir(comprimir_stat=False, con_escape=False):
             "obnd": OBND_STAT,
         },
         "autor": AUTOR,
+        "masters": list(masters),
     }
     return datos, esperado

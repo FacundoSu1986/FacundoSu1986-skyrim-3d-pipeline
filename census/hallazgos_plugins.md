@@ -153,3 +153,17 @@ entendemos.
 **CONSULTA**: `len(esl.recorrer_formids(d))` contra el recorrido de `Plugin` para cada archivo.
 **N**: 10 plugins, 1.188.811 records.
 **EXCEPCIONES**: 0. Lo que el cruce **no** cubre: `esl.py` nunca lee el tamaño de un `GRUP`, así que un `GRUP` con el tamaño inflado no le cambia el resultado. Su comprobación de cierre es la cadena de records, no las tres identidades.
+
+### 10. (#21) El piso de 0x800 para FormIDs de ESL es del Creation Kit, no del motor
+
+**AFIRMACIÓN**: De los **3 archivos `.esl`** de una instalación SE —todos marcados como ESL y cargados por el juego— los **1.032** records propios tienen índices de objeto de **0x001 a 0xD9A**, y **ninguno** supera **0xFFF**. En `_ResourcePack.esl`, **368 de 373** están **por debajo de 0x800**.
+**CONSULTA**: clasificación de cada FormID por índice de mod contra la cantidad de `MAST` del `TES4`, y el índice de objeto de los propios.
+**N**: 3 archivos, 1.197 records, 1.032 propios.
+**EXCEPCIONES**: ninguna por encima del techo. **Esto refuta una regla que este repo tenía escrita**: `esl.py` exigía `0x800 ≤ índice ≤ 0xFFF` y habría rechazado a `_ResourcePack.esl`, que Bethesda distribuye y el juego carga. El techo de **0xFFF** sí es del motor —son 12 bits en el espacio `FE:xxx`— y es el único que bloquea; el piso se informa con su medición.
+
+### 11. (#21) Los overrides de un ESL no entran en la cuenta del rango
+
+**AFIRMACIÓN**: `ccQDRSSE001-SurvivalMode.esl` trae **165 records override** —índice de mod menor que sus 5 masters— y **508 propios**. Un override conserva el FormID del master, así que el rango de ESL no lo toca.
+**CONSULTA**: `clasificar(formids, len(masters(d)))` sobre cada `.esl`.
+**N**: 3 archivos; 165 overrides en uno, 0 en los otros dos.
+**EXCEPCIONES**: la versión anterior de `esl.py` reportaba **los 165 como "fuera de rango"** y se habría negado a marcar un ESL que el juego ya carga. La comprobación se aplicaba a *todos* los records no-`TES4` y el informe los llamaba "records propios", que es otra cosa.

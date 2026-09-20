@@ -80,7 +80,7 @@ pasa la parte del cuerpo que tu asset tiene que tocar**. Ver
 ## El flujo
 
 Pasos numerados, cada uno reejecutable solo y con su reporte JSON
-(ver `modelo-ia-a-skyrim` y [[pipeline-assets-skyrim]] para la convención):
+(ver `modelo-ia-a-skyrim` y `README.md` del repo para la convención):
 
 0. **Medir el vanilla equivalente** — extraerlo del BSA, volcar su NIF, anotar
    su envoltorio, su material de colisión, sus flags de alfa, su presupuesto de
@@ -96,7 +96,7 @@ Pasos numerados, cada uno reejecutable solo y con su reporte JSON
 9. **Plugin**: ARMO + ARMA, con las razas adicionales copiadas del vanilla.
 10. **Render de pose** — el asset ya colgado del nodo, con el hueso dibujado.
 11. **ESL**, si el mod es chico.
-20. **Armar e instalar** el mod.
+12. **Armar e instalar** el mod.
 
 ## El plugin: estar en el inventario no es equiparse
 

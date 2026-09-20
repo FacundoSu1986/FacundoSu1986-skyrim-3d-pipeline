@@ -10,12 +10,28 @@ QUE HACE. Enciende el bit 0x200 en los flags del record TES4 de cabecera (offset
 8 del archivo). Nada mas. NO renombra a .esl: un .esp con el flag puesto funciona
 igual y asi no hay que retocar el gestor de mods ni el orden de carga.
 
-EL REQUISITO QUE NADIE TE AVISA. Un ESL solo puede tener FormIDs nuevos cuyo
-indice de objeto caiga entre 0x800 y 0xFFF. Con uno fuera de rango el juego NO
-da error al cargar: lo remapea, y el objeto aparece corrupto o directamente no
-aparece. Por eso esto se comprueba ANTES de escribir, y si falla no toca nada.
-El Creation Kit tiende a asignar indices bajos (0x000D62 esta bien, 0x000001 no),
-asi que la comprobacion falla de verdad a veces.
+EL REQUISITO QUE NADIE TE AVISA. Un ESL se carga en el espacio FE:xxx, donde el
+indice de objeto tiene 12 bits: **0xFFF es el techo**. Con un record nuevo por
+encima el juego NO da error al cargar: lo remapea, y el objeto aparece corrupto
+o directamente no aparece. Por eso esto se comprueba ANTES de escribir, y si
+falla no toca nada.
+
+DOS COSAS QUE ESTE SCRIPT AFIRMABA Y EL CORPUS REFUTO
+
+1. **El piso de 0x800 no es del motor, es del Creation Kit.** `_ResourcePack.esl`
+   --un ESL que Bethesda distribuye y el juego carga-- tiene sus 373 records
+   propios con indices de **0x001 a 0xD6A**, y **368 de ellos estan por debajo
+   de 0x800**. Exigir 0x800 rechazaba un plugin valido. Ahora el piso se INFORMA
+   con su medicion y no bloquea; lo que bloquea es el techo.
+
+2. **Los OVERRIDES no cuentan.** Un record cuyo indice de mod apunta a un master
+   no es nuevo: modifica uno del master y conserva su FormID, asi que el rango
+   no lo toca. `ccQDRSSE001-SurvivalMode.esl` --otro ESL que el juego carga--
+   trae **165** de esos, y la version anterior de este script los reportaba a
+   todos como "fuera de rango".
+
+Medido sobre los 3 `.esl` de una instalacion SE: **1.032 records propios, 0 por
+encima de 0xFFF**.
 
 LO QUE ROMPE. Al pasar a ESL el plugin deja de cargarse con indice 01 y pasa a
 FE:XXX, asi que el FormID de cada objeto cambia de 01xxxxxx a FExxxxxx. Una
@@ -33,6 +49,9 @@ Uso:
   python esl.py <plugin.esp> --marcar     pone el flag (deja .bak)
   python esl.py <plugin.esp> --quitar     lo saca (deja .bak)
   python esl.py --autotest <carpeta Data> reproduce los conteos medidos
+
+Exit 0 si esta todo bien, 1 si no se puede leer, no cierra el recorrido, o hay
+un record nuevo por encima del techo.
 """
 
 import argparse
@@ -43,7 +62,43 @@ import sys
 
 BANDERA_ESL = 0x200
 BANDERA_ESM = 0x1
-RANGO_ESL = (0x800, 0xFFF)
+# El techo es del motor: 12 bits de indice de objeto en el espacio FE:xxx.
+# Medido: 1.032 records propios de los 3 .esl de una instalacion, 0 por encima.
+TECHO_ESL = 0xFFF
+# El piso es una convencion del Creation Kit, NO del motor: _ResourcePack.esl
+# trae 368 records propios por debajo y el juego lo carga. Se informa, no
+# bloquea.
+PISO_CREATION_KIT = 0x800
+
+
+def masters(d):
+    """Nombres de los masters, leidos de los MAST del TES4 de cabecera.
+
+    Hace falta para distinguir un record NUEVO de un OVERRIDE: si el indice de
+    mod del FormID (el byte alto) es menor que la cantidad de masters, el
+    record modifica uno del master y conserva su FormID. El rango de ESL no lo
+    toca.
+    """
+    if d[0:4] != b"TES4":
+        return []
+    tam, = struct.unpack_from("<I", d, 4)
+    fin = 24 + tam
+    fuera, i = [], 24
+    while i + 6 <= fin:
+        tipo = bytes(d[i:i + 4])
+        largo, = struct.unpack_from("<H", d, i + 4)
+        if tipo == b"MAST":
+            fuera.append(bytes(d[i + 6:i + 6 + largo]).rstrip(b"\x00")
+                         .decode("cp1252", "replace"))
+        i += 6 + largo
+    return fuera
+
+
+def clasificar(formids, n_masters):
+    """(nuevos, overrides). Un override tiene indice de mod < n_masters."""
+    nuevos = [f for f in formids if (f >> 24) >= n_masters]
+    over = [f for f in formids if (f >> 24) < n_masters]
+    return nuevos, over
 
 
 def recorrer_formids(d):
@@ -85,12 +140,23 @@ def recorrer_formids(d):
 # 10, 1.188.811 records en total. La tabla existe para que si alguien toca el
 # recorrido, el desacuerdo aparezca aca y no en el plugin de un usuario.
 AUTOTEST = [
-    ("Skyrim.esm", 869687),
-    ("Dragonborn.esm", 178715),
-    ("Dawnguard.esm", 95718),
-    ("HearthFires.esm", 18036),
-    ("Update.esm", 16387),
-    ("_ResourcePack.esl", 373),
+    ("Skyrim.esm", {"records": 869687}),
+    ("Dragonborn.esm", {"records": 178715}),
+    ("Dawnguard.esm", {"records": 95718}),
+    ("HearthFires.esm", {"records": 18036}),
+    ("Update.esm", {"records": 16387}),
+    # Los tres .esl de la instalacion: son ESL que el juego CARGA, asi que
+    # cualquier cosa que este script rechace en ellos esta rechazando de mas.
+    # Ninguno tiene un record propio por encima del techo -- 1.032 en total.
+    ("_ResourcePack.esl",
+     {"records": 373, "masters": 3, "nuevos": 373, "overrides": 0,
+      "sobre_el_techo": 0, "bajo_el_piso_del_ck": 368}),
+    ("ccBGSSSE037-Curios.esl",
+     {"records": 151, "masters": 5, "nuevos": 151, "overrides": 0,
+      "sobre_el_techo": 0, "bajo_el_piso_del_ck": 0}),
+    ("ccQDRSSE001-SurvivalMode.esl",
+     {"records": 673, "masters": 5, "nuevos": 508, "overrides": 165,
+      "sobre_el_techo": 0, "bajo_el_piso_del_ck": 0}),
 ]
 
 
@@ -103,18 +169,39 @@ def autotest(carpeta):
             print("  [falta]  %s" % nombre)
             falta += 1
             continue
-        with open(ruta, "rb") as fh:
-            ids, cerro = recorrer_formids(bytearray(fh.read()))
+        try:
+            with open(ruta, "rb") as fh:
+                d = bytearray(fh.read())
+            ids, cerro = recorrer_formids(d)
+        except Exception as e:
+            fallo += 1
+            print("  [ilegible] %s :: %s" % (nombre, type(e).__name__))
+            continue
         if not cerro:
             fallo += 1
             print("  [FALLA]  %s :: el recorrido no cierra" % nombre)
             continue
-        if len(ids) == esperado:
-            ok += 1
-        else:
-            fallo += 1
-            print("  [FALLA]  %s :: esperado %d records, obtenido %d"
-                  % (nombre, esperado, len(ids)))
+        mast = masters(d)
+        nuevos, over = clasificar(ids, len(mast))
+        real = {"records": len(ids), "masters": len(mast),
+                "nuevos": len(nuevos), "overrides": len(over),
+                "sobre_el_techo": sum(1 for f in nuevos
+                                      if (f & 0xFFFFFF) > TECHO_ESL),
+                "bajo_el_piso_del_ck": sum(1 for f in nuevos
+                                           if (f & 0xFFFFFF)
+                                           < PISO_CREATION_KIT)}
+        for campo, valor in esperado.items():
+            if campo not in real:
+                fallo += 1
+                print("  [FALLA]  %s :: campo desconocido %r"
+                      % (nombre, campo))
+                continue
+            if real[campo] == valor:
+                ok += 1
+            else:
+                fallo += 1
+                print("  [FALLA]  %s :: %s esperado %d, obtenido %d"
+                      % (nombre, campo, valor, real[campo]))
     print("")
     print("  %d comprobaciones ok, %d fallidas, %d archivos no encontrados"
           % (ok, fallo, falta))
@@ -144,9 +231,17 @@ def main():
         print("No existe %s" % args.plugin)
         return 1
 
-    d = bytearray(open(args.plugin, "rb").read())
-    if d[0:4] != b"TES4":
-        print("No parece un plugin: falta la cabecera TES4.")
+    try:
+        with open(args.plugin, "rb") as fh:
+            d = bytearray(fh.read())
+    except OSError as e:
+        print("No se pudo leer %s: %s" % (args.plugin, e))
+        return 1
+    # 24 bytes es la cabecera de un record. Menos que eso no alcanza ni para
+    # leer los flags, y salia por un struct.error crudo.
+    if len(d) < 24 or d[0:4] != b"TES4":
+        print("No parece un plugin: hacen falta 24 bytes de cabecera TES4 y "
+              "hay %d." % len(d))
         return 1
 
     flags = struct.unpack_from("<I", d, 8)[0]
@@ -155,15 +250,25 @@ def main():
           % (flags, bool(flags & BANDERA_ESL), bool(flags & BANDERA_ESM)))
 
     formids, cerro = recorrer_formids(d)
-    fuera = [f for f in formids
-             if not (RANGO_ESL[0] <= (f & 0xFFFFFF) <= RANGO_ESL[1])]
-    print("  %d records propios: %s"
-          % (len(formids), ", ".join("%08X" % f for f in formids) or "(ninguno)"))
+    n_mast = len(masters(d))
+    nuevos, overrides = clasificar(formids, n_mast)
+    fuera = [f for f in nuevos if (f & 0xFFFFFF) > TECHO_ESL]
+    bajos = [f for f in nuevos if (f & 0xFFFFFF) < PISO_CREATION_KIT]
+    print("  %d record(s) no-TES4: %d nuevo(s) y %d override(s) de los %d "
+          "master(s)" % (len(formids), len(nuevos), len(overrides), n_mast))
+    print("  nuevos: %s"
+          % (", ".join("%08X" % f for f in nuevos[:12]) or "(ninguno)"))
     if not cerro:
         print("  El recorrido NO cierra en el fin del archivo: el plugin esta "
               "truncado o algun tamano miente.")
+    if bajos:
+        print("  %d nuevo(s) con indice por debajo de 0x%03X. Eso es la "
+              "convencion del Creation Kit, NO un requisito del motor: "
+              "_ResourcePack.esl trae 368 asi y el juego lo carga. Se informa."
+              % (len(bajos), PISO_CREATION_KIT))
     if fuera:
-        print("  FUERA del rango ESL (indice de objeto 0x800-0xFFF):")
+        print("  POR ENCIMA del techo de ESL (indice de objeto > 0x%03X):"
+              % TECHO_ESL)
         for f in fuera:
             print("     %08X  (indice 0x%06X)" % (f, f & 0xFFFFFF))
 
@@ -179,8 +284,8 @@ def main():
               "comprobacion de rango no vio todos los records.")
         return 1
     if not formids and args.marcar:
-        print("  NO se marca: cero records propios. Un plugin sin nada que "
-              "convertir no es un plugin listo, es uno que no se leyo.")
+        print("  NO se marca: cero records. Un plugin sin nada que convertir "
+              "no es un plugin listo, es uno que no se leyo.")
         return 1
 
     if fuera and args.marcar:
