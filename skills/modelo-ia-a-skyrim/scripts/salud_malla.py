@@ -48,15 +48,31 @@ Decimando 14 shapes vanilla al 25 % de sus triangulos, de las dos formas:
                        y las dos cerradas pasaron de 0 a 956 y a 544 bordes
 
   REGLA  borde        el numero de aristas de borde no puede aumentar
-  OBS    ratio        tri/vert soldado (~2 = cerrada, ~1 = sopa de triangulos)
-  OBS    piezas       componentes conexas por posicion soldada
-  OBS    no_manifold  aristas usadas por 3 triangulos o mas
-  OBS    winding      aristas que sus dos triangulos recorren en el mismo
+  REGLA  piezas       las componentes conexas por posicion soldada no pueden
+                      crecer (salvo si crece la cantidad de shapes: puede ser
+                      reparto por material, y ahi se informa)
+  OBS    ratio         tri/vert soldado (~2 = cerrada, ~1 = sopa de
+                      triangulos; OJO: un tetraedro tambien da 1,0 -- el ratio
+                      ABSOLUTO nunca seria regla, por eso es observacion)
+  OBS    no_manifold   aristas usadas por 3 triangulos o mas
+  OBS    winding       aristas que sus dos triangulos recorren en el mismo
                       sentido (una de las dos caras queda invisible)
 
-Las cuatro OBSERVACIONES se informan y no reprueban: no estan medidas sobre el
-corpus con la densidad que hace falta para bloquear. Medirlas es trabajo
-pendiente, no una regla implicita.
+POR QUE 'PIEZAS' SUBIO DE OBSERVACION A REGLA (y las otras tres no)
+
+El borde es un conteo NETO: puede BAJAR mientras la malla se parte. Detectado
+por el review de Codex sobre el PR #40: un grid abierto de 20x20 tiene 76
+aristas de borde, y la misma malla convertida en 12 triangulos sueltos tiene
+36 -- menos que el origen. Con la regla de borde sola, ese resultado
+destrozado salia con exit 0. La cantidad de piezas, en cambio, no puede crecer
+decimando BIEN: soldar junta, colapsar fusiona, y fusionar no parte. Por eso la
+segunda regla es estructural y no necesita medir el corpus para sostenerse;
+las otras tres observaciones siguen informandose y no reprueban porque para
+ellas SI hace falta la medicion que no esta hecha.
+
+La excepcion teorica conocida --un colapso que corta dos parches pegados en un
+unico vertice-- es una union no-manifold: si bloquea un asset real, ahi se
+mide y se afloja, no antes.
 
 POR QUE SE SUELDA ANTES DE CONTAR
 
@@ -205,7 +221,11 @@ def total(medidas):
 
 
 def comparar(antes, despues):
-    """(fallas, notas). La REGLA: el borde no puede aumentar."""
+    """(fallas, notas). Dos REGLAS: el borde no puede aumentar y las piezas
+    tampoco. La de piezas existe porque la de borde es un conteo NETO: puede
+    BAJAR mientras la malla se parte, y ese resultado Severamente roto pasaba
+    (lo mostro el review de Codex sobre el PR #40: un grid abierto de 20x20
+    tiene 76 aristas de borde; partido en 12 triangulos sueltos, 36)."""
     fallas, notas = [], []
     if antes is None or despues is None:
         fallas.append("no hubo nada que medir en uno de los dos archivos")
@@ -222,6 +242,24 @@ def comparar(antes, despues):
             "antes de decimar nunca aumento el borde (peor caso x0,70); "
             "decimar directo lo multiplico hasta x25,5."
             % (despues["borde"], antes["borde"], cuanto))
+    if (despues["piezas"] > antes["piezas"]
+            and despues["shapes"] <= antes["shapes"]):
+        # soldar junta, la decimacion colapsa (fusiona vertices), y fusionar
+        # no parte: el numero de piezas NO puede crecer decimando bien. Si
+        # crece, lo que crecieron son parches sueltos -- el defecto del hacha
+        # en su forma pura. Cuando ademas crece la cantidad de shapes, el
+        # aumento puede ser reparto por material del exportador y ahi se
+        # informa en vez de reprobar; la salvedad teorica (un colapso que corta
+        # dos parches pegados en un UNICO vertice) es una union no-manifold:
+        # si bloquea un asset real, se mide y se afloja entonces, no antes.
+        fallas.append(
+            "REGLA piezas: %d piezas sueltas contra %d del origen, con la "
+            "misma cantidad de shapes (%d->%d). La malla se RASGO en parches. "
+            "Que el borde no crezca no salva: el conteo de borde es NETO y "
+            "puede bajar mientras la malla se parte (20x20 abierto: 76 bordes; "
+            "12 triangulos sueltos: 36)."
+            % (despues["piezas"], antes["piezas"],
+               antes["shapes"], despues["shapes"]))
     for campo, texto in (("piezas", "piezas sueltas"),
                          ("no_manifold", "aristas no-manifold"),
                          ("winding", "aristas con winding incoherente")):
@@ -485,6 +523,54 @@ def autotest():
     f, _ = comparar(cerrada, None)
     exigir(f, "contra un archivo sin nada medible: la REGLA no reprobo")
 
+    # --- la segunda REGLA: el caso que encontro Codex ------------------------
+    # Un grid abierto de 20x20 tiene 76 aristas de borde; "decimado" a 12
+    # triangulos sueltos tiene 36: el numero NETO de borde BAJA y la primera
+    # REGLA no lo ve. Las piezas (1 -> 12) no pueden fingir eso.
+    def _grid(n):
+        gp = [(float(i), float(j), 0.0) for i in range(n) for j in range(n)]
+        gt = []
+        for i in range(n - 1):
+            for j in range(n - 1):
+                a = i * n + j
+                gt.append((a, a + 1, a + n))
+                gt.append((a + 1, a + n + 1, a + n))
+        return gp, gt
+
+    def _sueltos(k):
+        sp, st = [], []
+        for q in range(k):
+            b = q * 3
+            sp += [(float(q * 10), 0.0, 0.0), (float(q * 10) + 1, 0.0, 0.0),
+                   (float(q * 10), 0.0, 1.0)]
+            st.append((b, b + 1, b + 2))
+        return sp, st
+
+    grid = total([salud(*_grid(20), 1)])
+    sueltos = total([salud(*_sueltos(12), 1)])
+    exigir(grid["borde"] == 76 and sueltos["borde"] == 36,
+           "el caso Codex tiene que BAJAR el borde neto (76 -> 36); si no, "
+           "no prueba nada: borde %d -> %d" % (grid["borde"], sueltos["borde"]))
+    f, _ = comparar(grid, sueltos)
+    exigir(f and any("REGLA piezas" in x for x in f),
+           "grid -> 12 parches sueltos: la REGLA piezas no reprobo")
+
+    # decimar BIEN el mismo grid (20x20 -> 10x10, soldado, una pieza): menos
+    # borde, menos tri, MISMA cantidad de piezas -> pasa. Sin margen: un criterio
+    # que reprobara la decimacion buena no es un criterio.
+    f, _ = comparar(grid, total([salud(*_grid(10), 1)]))
+    exigir(not f, "grid decimado correctamente: la REGLA piezas reprobo")
+
+    # el reparto por material del exportador: misma geometria, mas shapes. Las
+    # piezas suben por el corte, y ahi la REGLA piezas NO reprueba (se informa).
+    # OJO el borde SI sube (por shape se pierden las soldaduras entre tramos):
+    # esa limitacion es anterior y queda documentada en la cabecera.
+    f2, _ = comparar(total([salud(pos, tris, 1)]),
+                     total([salud(pos, tris[:6], 1), salud(pos, tris[6:], 1)]))
+    exigir(not any("REGLA piezas" in x for x in f2),
+           "cubo partido en 2 shapes (material): la REGLA piezas no debia "
+           "reprobar y dijo: %s" % f2)
+
     print("autotest: %d comprobaciones, %d fallas"
           % (n_comprobaciones[0], len(fallas)))
     for x in fallas:
@@ -625,7 +711,10 @@ def falsificar(raiz):
                 fallas.append("%s / %s: %s no crecio (%d -> %d)"
                               % (os.path.basename(ruta), nombre, campo,
                                  m[campo], m2[campo]))
-            if campo == "borde":
+            if campo in ("borde", "piezas"):
+                # las dos REGLAS duras tienen que pescar sus mutaciones.
+                # "duplicar al lado" mueve piezas; si la REGLA de piezas no
+                # lo ve, el banco tiene que decirlo.
                 f, _ = comparar(base_total, total([m2]))
                 if not f:
                     fallas.append("%s / %s: la REGLA no reprobo"

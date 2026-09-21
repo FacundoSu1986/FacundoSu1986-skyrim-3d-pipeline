@@ -540,6 +540,14 @@ quien automatiza no confunda "no le entendí" con "falló" — y corre sobre los
 `.obj` de Preparar, antes de Montar: sobre un `.nif` skinneado no hay geometría
 inline que medir, y eso es aviso, no reproche.
 
+**Son dos números duros, no uno:** el borde **y** las piezas sueltas. El review
+de Codex sobre este PR mostró el hueco de mirar solo el borde: es un conteo
+NETO, y puede **bajar** mientras la malla se parte — un grid abierto de 20×20
+tiene 76 aristas de borde, partido en 12 triangulos sueltos quedan 36 y con
+una sola regla ese resultado salía con exit 0. Las piezas no pueden crecer
+decimando bien (colapsar fusiona, fusionar no parte); si crecen con la misma
+cantidad de shapes, la malla se rasgó.
+
 **Lo que NO se puede exigir:** que la malla esté cerrada. `[MEASURED]` Solo el
 **15,1 %** de los shapes vanilla lo están; la mediana tiene el 15,4 % de sus
 aristas al aire y `architecture` el 24,7 %. La ropa, los carteles y las láminas
