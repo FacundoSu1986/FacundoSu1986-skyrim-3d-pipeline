@@ -298,8 +298,22 @@ Herramienta: `texconv.exe` (de DirectXTex).
 **Dos cosas que sorprenden:**
 
 1. **El alfa del normal map es la especularidad**, no la transparencia. Un
-   normal con alfa en negro da un asset completamente mate. Ponelo en blanco si
-   no sabés qué querés.
+   normal con alfa en negro da un asset completamente mate.
+
+   **Corrección (medido).** Este punto decía "ponelo en blanco si no sabés qué
+   querés", y ese consejo es justo el que produce el defecto: el hacha de
+   Tencent llegó al juego con el **99,7 %** de su máscara en blanco y se veía
+   de plástico, con la malla y el color ya correctos. `[MEASURED]` Las **140**
+   texturas `_n` de malla de arma del corpus están todas por debajo del
+   **6,9 %** de bloques en blanco; en objetos portables la mediana es
+   **0,00 %** y el p90 **0,34 %**.
+
+   Blanco entero no es un default neutro: es "todo brilla al máximo". Si no
+   sabés qué querés, sacala de la rugosidad del modelo PBR
+   (brillo = 1 − rugosidad) y calibrala; lo comprueba
+   `scripts/mascara_especular.py`. Las 59 texturas vanilla que **sí** están
+   saturadas son materiales mate —ropa, comida, carbón— donde el brillo lo
+   apaga `Specular Strength` del shader.
 2. **La máscara `_m` no es metalicidad de PBR.** Controla cuánto se refleja el
    cubemap del shader `Environment_Map`. Al convertir de PBR, el canal de
    **metalicidad** del mapa ORM es la mejor fuente, pero conviene expandir el

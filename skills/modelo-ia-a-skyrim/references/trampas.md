@@ -578,6 +578,55 @@ inversión, 0 y 8.299.
 escribirse solo se ve cuando el resto ya está bien. Cuanto más tarde aparece,
 más caro es el paso que se sospecha primero.
 
+### 30. Cómo NO medir la convención del canal verde {#30}
+
+**Síntoma:** el relieve sale al revés —los remaches hundidos, las incisiones
+sobresaliendo— y no hay forma de decidir por qué. El archivo es válido, el
+juego lo carga, y las dos hipótesis parecen igual de plausibles.
+
+**La práctica, primero:** **no inviertas el verde.** Es el valor por defecto
+del bake de Blender (`bake.normal_g = POS_Y`), y coincide con un control
+renderizado sobre un asset vanilla.
+
+**Y ahora las dos formas en que intenté medirlo y fallé**, porque las dos son
+tentadoras y cuestan tiempo:
+
+1. **Comparar la normal reconstruida contra la normal suave del vértice.**
+   Es **simétrico por construcción**: con `P = T·tx + B·ty + N·tz` y `T`, `B`
+   perpendiculares a `N`, el producto `dot(P, N)` depende sólo de `tz`, y `tz`
+   no cambia al invertir el verde. `[MEASURED]` Sobre dos mallas dio **0,8222
+   contra 0,8222**, idéntico hasta el último decimal.
+
+   La señal de alarma es esa: si un test devuelve el **mismo número** para las
+   dos hipótesis, no está midiendo la hipótesis. Vale la pena comprobar eso
+   antes de correrlo sobre el corpus.
+
+2. **Coincidencia a través de una costura de UV.** Los dos lados de una
+   costura tienen marcos tangentes distintos y la misma superficie física, así
+   que la normal reconstruida debería coincidir; invertir el verde rompe esa
+   coincidencia asimétricamente. `[MEASURED]` Sobre 40 mallas vanilla dio
+   0,839 contra 0,801 y ganó "tal cual" en **31 de 40**.
+
+   Parecía servir. **No sirve**: sobre `elvenbattleaxe.nif` —el único archivo
+   con respuesta independiente— el mismo método vota **27 a 37 por invertido**,
+   lo contrario del control. Y se mueve con detalles que no deberían importar:
+   muestrear un 15 % hacia adentro de la isla lo lleva a 22 contra 41.
+
+**Por qué es difícil:** el marco tangente se deriva de las UV, así que la **V y
+el verde están acoplados**. Invertir la V cambia `T` y `B`, y eso es
+indistinguible de invertir el verde. Medir uno presupone el otro ya fijado.
+
+**Lo que sí funciona: un control vanilla renderizado.** Tomá un asset de
+Bethesda con su propia textura, renderizalo **sin textura de color** y con luz
+rasante desde arriba, con el verde tal cual y con el verde invertido. Mirá algo
+cuya forma no admita discusión —un remache, una cabeza de clavo— y fijate en
+cuál de los dos sobresale.
+
+**La lección general:** un promedio favorable sobre 40 archivos **no rescata**
+un método que contradice la verdad conocida en el único caso donde la verdad se
+conoce. Cuando hay un caso con respuesta independiente, ese caso manda sobre el
+agregado.
+
 ## Proceso
 
 ### 19. La vista "de frente" de tu render puede estar mostrando la espalda {#19}
