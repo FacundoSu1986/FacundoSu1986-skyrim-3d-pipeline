@@ -166,6 +166,68 @@ class ReglaTests(unittest.TestCase):
         fallas, _ = salud_malla.comparar(None, None)
         self.assertTrue(fallas)
 
+    # --- el caso que encontro el review de Codex (P1 sobre #40) --------------
+
+    def _grid(self, n):
+        pos = [(float(i), float(j), 0.0) for i in range(n) for j in range(n)]
+        tris = []
+        for i in range(n - 1):
+            for j in range(n - 1):
+                a = i * n + j
+                tris.append((a, a + 1, a + n))
+                tris.append((a + 1, a + n + 1, a + n))
+        return pos, tris
+
+    def _sueltos(self, k):
+        pos, tris = [], []
+        for q in range(k):
+            b = q * 3
+            pos += [(float(q * 10), 0.0, 0.0), (float(q * 10) + 1.0, 0.0, 0.0),
+                    (float(q * 10), 0.0, 1.0)]
+            tris.append((b, b + 1, b + 2))
+        return pos, tris
+
+    def test_borde_que_baja_con_la_malla_rasgada_reprueba_por_piezas(self):
+        """Un grid abierto de 20x20 tiene 76 aristas de borde; partido en 12
+        triangulos sueltos, 36: el conteo NETO BAJA y con la regla de borde
+        sola ese resultado destrozado salia con exit 0. La cantidad de piezas
+        (1 -> 12) es lo que el rasgado no puede fingir."""
+        grid = self._t(*self._grid(20))
+        sueltos = self._t(*self._sueltos(12))
+        self.assertEqual(grid["borde"], 76)
+        self.assertEqual(sueltos["borde"], 36)
+        self.assertLess(sueltos["borde"], grid["borde"],
+                        "la premisa del caso es que el borde BAJE; si eso "
+                        "cambia, este test deja de probar lo que dice")
+        fallas, _ = salud_malla.comparar(grid, sueltos)
+        self.assertTrue(any("REGLA piezas" in f for f in fallas), fallas)
+
+    def test_decimacion_correcta_del_grid_pasa_sin_margen(self):
+        """20x20 soldado -> 10x10 soldado: menos borde, menos tri, una pieza.
+        Un criterio que reprobara la decimacion buena no es un criterio, y no
+        lleva margen: la regla de piezas es estructural (colapsar fusiona,
+        fusionar no parte), no statistica."""
+        fallas, _ = salud_malla.comparar(self._t(*self._grid(20)),
+                                         self._t(*self._grid(10)))
+        self.assertFalse(fallas)
+
+    def test_reparto_por_material_no_la_corta_la_regra_de_piezas(self):
+        """El exportador parte un mesh en shapes por material: las piezas
+        crecen por el corte, no por rasgado. La guarda es la cantidad de
+        shapes: ahi se informa y no reprueba. (El BORDE si sube en este caso,
+        cada tramo pierde sus soldaduras entre shapes: esa limitacion es
+        anterior a la regla de piezas y queda documentada, no tapada.)"""
+        antes = self._t(CUBO_POS, CUBO_TRIS)
+        despues = salud_malla.total([
+            salud_malla.salud(CUBO_POS, CUBO_TRIS[:6], 1),
+            salud_malla.salud(CUBO_POS, CUBO_TRIS[6:], 1)])
+        self.assertGreater(despues["shapes"], antes["shapes"])
+        self.assertGreater(despues["piezas"], antes["piezas"],
+                           "si el cubo partido no sube piezas, el subTest "
+                           "de arriba no esta discriminando nada")
+        fallas, _ = salud_malla.comparar(antes, despues)
+        self.assertFalse(any("REGLA piezas" in f for f in fallas), fallas)
+
 
 class ReglaUvTests(unittest.TestCase):
     """REGLA del paso 4b [INVARIANT]: rehacer las UV no cambia la geometria
@@ -183,15 +245,14 @@ class ReglaUvTests(unittest.TestCase):
         self.assertIn("8 -> 36", notas[0])
 
     def test_caras_agregadas_despues_reprueban(self):
-        """Un Solidify aplicado despues de desplegar (trampa 32): el borde
-        no crece --la regla de la decimacion lo dejaba pasar-- pero los
-        triangulos si."""
-        pos2 = CUBO_POS + [(x + 10, y, z) for x, y, z in CUBO_POS]
-        tris2 = CUBO_TRIS + [(a + 8, b + 8, c + 8) for a, b, c in CUBO_TRIS]
-        antes, despues = self._t(CUBO_POS, CUBO_TRIS), self._t(pos2, tris2)
+        """Caras que CIERRAN un hueco despues de desplegar (un Solidify sobre
+        una cascara, trampa 32): el borde baja y las piezas no cambian, asi
+        que las reglas de la decimacion lo dejan pasar. Los triangulos no."""
+        antes = self._t(CUBO_POS, CUBO_TRIS[2:])
+        despues = self._t(CUBO_POS, CUBO_TRIS)
         self.assertEqual(salud_malla.comparar(antes, despues)[0], [])
         fallas, _ = salud_malla.comparar_uv(antes, despues)
-        self.assertTrue(any("REGLA uv tris: 24 contra 12" in f
+        self.assertTrue(any("REGLA uv tris: 12 contra 10" in f
                             for f in fallas), fallas)
 
     def test_una_cara_de_menos_reprueba(self):
