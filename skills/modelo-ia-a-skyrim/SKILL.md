@@ -238,6 +238,19 @@ pieza que mañana pierda una atadura.
 - **`scripts/preparar_parte.py`** — soldar, decimar a un presupuesto y, si se lo
   pedís con `--girar-180`, orientar. No gira por defecto a propósito: una
   rotación es destructiva y no debe dispararse por una heurística.
+- **`scripts/mascara_especular.py`** — el alfa del `_n` es la máscara
+  especular, y saturada deja el asset de plástico (el hacha llegó al juego con
+  el 99,7 % de su máscara en blanco). Lee el alfa **sin decodificar**: en
+  DXT5/BC3, `alpha0 == alpha1` en un bloque significa alfa constante.
+
+  REGLA **solo para armas** (`--arma`): como mucho 10 % de bloques en blanco;
+  las 140 texturas `_n` de arma del corpus están por debajo del 6,9 %. Para el
+  resto informa, porque 59 de 1.201 objetos portables vanilla la tienen
+  saturada y son materiales mate —ropa, comida, carbón—, donde el brillo lo
+  apaga el shader.
+
+  Un `_n` en BC7 **no se puede medir** con este lector, y lo dice como límite
+  de la herramienta en vez de darlo por bueno.
 - **`scripts/verificar_uv.py`** — compara las UV del OBJ de origen contra las
   del NIF exportado y exige que la **V esté invertida**. Aparea por posición
   normalizada por la caja de cada lado, así que tolera la escala y la
