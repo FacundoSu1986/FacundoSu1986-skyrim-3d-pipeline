@@ -238,6 +238,20 @@ pieza que mañana pierda una atadura.
 - **`scripts/preparar_parte.py`** — soldar, decimar a un presupuesto y, si se lo
   pedís con `--girar-180`, orientar. No gira por defecto a propósito: una
   rotación es destructiva y no debe dispararse por una heurística.
+- **`scripts/proporciones_arma.py`** — mide largo, grosor, ancho y empuñadura
+  de un arma **en coordenadas de mundo** y los compara contra el rango de su
+  **clase** (medido sobre 199 armas vanilla en 9 clases). REGLA: caer dentro
+  del `[min, max]` de la clase. OBSERVACIÓN: en qué percentil cae cada medida.
+
+  El rango vanilla es **ancho**, así que esto es una red de seguridad y no una
+  regla de gusto: el mango del hacha de Tencent medía 0,1124 del largo y el
+  rango de su clase es [0,0369, 0,1854] — la regla **no lo marcaba**, aunque a
+  ojo se veía grueso. El número que le pone palabras a "se ve grueso" es el
+  percentil.
+
+  `--censo <carpeta meshes/weapons>` regenera la tabla. Tiene que regenerarse
+  con **este mismo** clasificador: la primera versión usó otro y la REGLA
+  rechazaba el 6,36 % del corpus del que había salido.
 - **`scripts/mascara_especular.py`** — el alfa del `_n` es la máscara
   especular, y saturada deja el asset de plástico (el hacha llegó al juego con
   el 99,7 % de su máscara en blanco). Lee el alfa **sin decodificar**: en

@@ -262,3 +262,31 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **EXCEPCIONES ENCONTRADAS**: no aplica — el hallazgo es que la relación no existe.
 
 > **Consecuencia práctica**: adaptar la inercia de un donante escalándola por la fórmula de la caja es una **heurística** razonable, no una regla, y `colision_caja.py` **no la exige**: informa la razón como OBSERVACIÓN. Se anota porque es exactamente la regla que estuve a punto de escribir.
+
+### 38. (#44) Las proporciones de un arma son de su CLASE, no de "las armas"
+
+**AFIRMACIÓN**: una daga y un martillo a dos manos no comparten una sola proporción. Medido en coordenadas de mundo sobre **199** armas vanilla, el largo mediano va de **40,5** (daga) a **120,7** (bastón), y el grosor relativo de **0,034** (mandoble) a **0,260** (maza). Una tabla única para "armas" no dice nada de ninguna.
+
+**CONSULTA QUE LA PRODUJO**: por cada NIF de `meshes/weapons/`, la malla de más triángulos llevada a mundo (`p = t + escala·(M·p_local)`), su caja, y la extensión transversal del 20 % de cada extremo; el extremo más fino es la empuñadura.
+
+**N**: 199 armas en 9 clases con al menos 10 ejemplares.
+
+**EXCEPCIONES ENCONTRADAS**: el arco queda fuera de la tabla: con el clasificador que se envía sólo matchean 2 archivos, porque el resto son `*bowskinned*` y un shape skinneado no lleva la geometría inline.
+
+> **Leer los vértices locales da números sin sentido.** `daedricwarhammer.nif` mide **1.128** unidades en local y **341** al componer la transformada. La primera versión de esta medición descartaba esos archivos por "largo implausible" en vez de arreglarlos.
+
+### 39. (#44) La tabla y el clasificador tienen que ser el mismo
+
+**AFIRMACIÓN**: una regla derivada del corpus tiene que aceptar el corpus del que salió. La primera versión de `proporciones_arma.py` generó la tabla con un clasificador y envió otro —con un comodín `axe`— y **rechazaba 14 de 220 armas vanilla (6,36 %)**.
+**CONSULTA QUE LA PRODUJO**: correr la REGLA sobre todo `meshes/weapons/` y contar rechazos.
+**N**: 220 archivos con clase asignada.
+**EXCEPCIONES ENCONTRADAS**: los 14 rechazos eran `axeofysgramor` (99 unidades), `executioneraxe` (145), `boundaxeencheffects` (114) y seis piezas de `brokenaxe*` (de 10 a 20), todos metidos en la clase de las hachas de **una mano** por el comodín. Sacando el comodín y regenerando la tabla con el clasificador que se envía: **0 de 197**.
+
+> **La prueba que decide** si una regla derivada del corpus sirve es correrla contra ese corpus. Es barata y no la había hecho.
+
+### 40. (#44) El rango vanilla es ancho: la regla no reemplaza al ojo
+
+**AFIRMACIÓN**: el mango del hacha de Tencent medía **0,1124** del largo, y el rango de las hachas a dos manos es **[0,0369, 0,1854]**. La REGLA **no lo marca**. Lo que sí lo dice es el percentil: 0,1124 está por encima de la mediana (0,0827) de su clase.
+**N**: 26 hachas a dos manos.
+
+> **Corrige una afirmación mía.** Dije que ese mango era "más grueso que el de cualquier arma de dos manos del juego". Salía de mezclar hachas, mandobles y martillos en una sola muestra de 28 —donde el máximo era 9,83— y de leer varios archivos en coordenadas locales. Separando por clase y en coordenadas de mundo, el máximo de las hachas a dos manos es **11,27** y el del arma era **10,12**: grueso, por encima de la mediana, y **dentro** del rango.
