@@ -115,8 +115,14 @@ def leer(ruta):
             "tr": tr, "rot": rot, "esc": esc,
             "hijos": [h for h in hijos if h >= 0],
         }
+    # La tabla de bloques va en el resultado porque el que quiera leer algo
+    # que este lector no decodifica --la colision bhk*, por ejemplo-- no tiene
+    # otra forma de ubicarlo, y escribir un SEGUNDO parser de cabecera para
+    # eso es como se separan dos lectores del mismo formato.
+    bloques = [(tipos[idx[b]], offs[b], tam[b]) for b in range(n_bloques)]
     return {"archivo": os.path.basename(ruta), "version": "0x%08X" % version,
-            "bs": bs, "n_bloques": n_bloques, "nodos": nodos}
+            "bs": bs, "n_bloques": n_bloques, "nodos": nodos,
+            "bloques": bloques, "datos": datos}
 
 
 def mundo(nif):

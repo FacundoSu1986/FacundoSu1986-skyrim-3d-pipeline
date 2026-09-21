@@ -238,6 +238,71 @@ def construir_estatico(pos, tris, nombre_pieza=PIEZA_NOMBRE, data_size=None,
     return datos, esperado
 
 
+def construir_con_colision(dims, radio, masa, inercia, motion=3,
+                           cuerpo_tipo="bhkRigidBodyT", tam_cuerpo=250):
+    """(bytes, esperado) de un NIF con un bhkRigidBody(T) y su bhkBoxShape.
+
+    Los offsets que se escriben son los que el lector va a buscar, y estan
+    fijados por correlacion contra PyNifly sobre archivos reales:
+
+        bhkBoxShape    +4   radio          +16  medias extensiones
+        bhkRigidBody   +116 Ixx  +136 Iyy  +156 Izz
+                       +180 masa           +224 motionSystem
+
+    `tam_cuerpo` deja escribir un bloque CORTO a proposito: un lector correcto
+    tiene que negarse a leer campos que no entran en el bloque, en vez de
+    devolver lo que haya despues.
+    """
+    tipos = ["BSFadeNode", cuerpo_tipo, "bhkBoxShape"]
+    strings = [RAIZ_NOMBRE]
+
+    caja = bytearray(32)
+    struct.pack_into("<I", caja, 0, 1000)             # material
+    struct.pack_into("<f", caja, 4, radio)
+    struct.pack_into("<3f", caja, 16, *dims)
+
+    cuerpo = bytearray(tam_cuerpo)
+    struct.pack_into("<i", cuerpo, 0, 2)              # ref a la forma
+    for k, v in zip((116, 136, 156), inercia):
+        if k + 4 <= tam_cuerpo:
+            struct.pack_into("<f", cuerpo, k, v)
+    if 184 <= tam_cuerpo:
+        struct.pack_into("<f", cuerpo, 180, masa)
+    if 225 <= tam_cuerpo:
+        cuerpo[224] = motion
+
+    bloques = [_avobject(0, [], (0.0, 0.0, 0.0), []),  # 0: raiz
+               bytes(cuerpo),                          # 1: cuerpo rigido
+               bytes(caja)]                            # 2: la caja
+
+    h = bytearray(CABECERA)
+    h += struct.pack("<I", VERSION)
+    h += struct.pack("<B", 1)
+    h += struct.pack("<I", USER)
+    h += struct.pack("<I", len(bloques))
+    h += struct.pack("<I", BS)
+    h += _corta("")
+    h += _corta("")
+    h += _corta("")
+    h += struct.pack("<H", len(tipos))
+    for t in tipos:
+        h += _larga(t)
+    for k in range(len(bloques)):
+        h += struct.pack("<H", k)
+    for b in bloques:
+        h += struct.pack("<I", len(b))
+    h += struct.pack("<I", len(strings))
+    h += struct.pack("<I", max(len(s) for s in strings))
+    for s in strings:
+        h += _larga(s)
+    h += struct.pack("<I", 0)
+
+    esperado = {"dims": [float(x) for x in dims], "radio": float(radio),
+                "masa": float(masa), "inercia": [float(x) for x in inercia],
+                "motion": motion, "cuerpo": cuerpo_tipo}
+    return bytes(h) + b"".join(bloques), esperado
+
+
 def _dismember(bone_refs, body_parts, con_particiones=True):
     """La skin instance: los cuatro refs, los huesos y --solo en la variante
     dismember-- las particiones de body-part.

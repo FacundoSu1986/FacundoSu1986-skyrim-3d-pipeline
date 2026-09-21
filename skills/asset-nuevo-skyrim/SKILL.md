@@ -253,6 +253,19 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   `--autotest <carpeta Data>` reproduce el conteo de records de 6 plugins. Su
   recorrido y el de `census/parser_esm.py` dan el **mismo número en los 10**
   plugins de una instalación: 1.188.811 records.
+- **`scripts/colision_caja.py`** — comprueba las cajas de colisión de un NIF
+  contra lo que hace el corpus. Dos REGLAS: `bhkRadius == min(semieje menor,
+  0,1)` (2.667 de 2.684) y **masa > 0 ⟺ diagonal de inercia > 0** (1.194 de
+  1.194, en los dos sentidos).
+
+  Lo que **no** exige importa tanto como lo que exige: no hay fórmula para el
+  **valor** de la inercia —contra `m(a²+b²)/12` la razón va de 1,2 a 471 y solo
+  1 de 2.433 ejes cae dentro del ±10 %—, así que la informa como OBSERVACIÓN.
+  Y el radio **sin** el tope de 0,1 parecía regla sobre armas (62 de 62) y es
+  falsa sobre el corpus (73,25 %).
+
+  `--autotest` y `--falsificar <carpeta meshes>`, que tuerce cuatro campos de
+  cajas vanilla reales y exige que el control las pesque.
 
 ## Cómo conviene trabajar
 
