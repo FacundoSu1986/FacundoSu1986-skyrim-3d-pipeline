@@ -130,3 +130,23 @@ set, pisándose 0,938** — y en el juego se ve perfecto.
 > envenenan `sorted()` —NaN compara falso contra todo— y la lista salía
 > desordenada. Un percentil que viola su propio orden es la señal más barata de
 > que hay basura en los datos.
+
+### (#41) El NIF guarda la V con el origen ARRIBA: un conversor desde OBJ tiene que invertirla
+
+**AFIRMACIÓN**: Un NIF almacena la coordenada V con el origen en la **fila 0 de la imagen** (convención DirectX); un OBJ y Blender la almacenan con el origen abajo. Un conversor OBJ → NIF que copie la V tal cual deja **todo el mapeo espejado en vertical**, y no da ningún error.
+
+**CONSULTA QUE LA PRODUJO**: tres líneas independientes, porque ninguna sola alcanzaba.
+
+1. **PyNifly**, el importador que usa la comunidad de modding, **invierte la V al importar**. Comparando las UV que devuelve Blender contra los bytes del archivo, apareando por posición: `elvenbattleaxe.nif` **2.648** loops invertidos contra **13** iguales; `ironbattleaxe.nif` **1.370** contra **23**; `daedricsword.nif` **2.716** contra **16**. Los pocos "iguales" son los que caen cerca de v = 0,5, donde invertir no cambia nada.
+
+2. **El corpus**, de forma independiente. Las zonas vacías de un atlas son negro sólido, y eso se detecta **en los bytes comprimidos** de DXT1/DXT5 sin decodificar nada: un bloque de 4×4 con `color0 == color1 == 0` e índices en cero. Muestreando las UV vanilla sobre ese mapa, tomar `v` como fila desde arriba cae sobre pintura el **69,5 %** de las veces contra el **58,3 %** de la versión invertida, y gana en **86 de 120** archivos con al menos 25 % de atlas vacío.
+
+3. **Un control renderizado**: la malla de `elvenbattleaxe.nif` con su propia textura vanilla sale correcta **solo** con la V invertida.
+
+**N**: 3 archivos y 6.734 loops para PyNifly; 120 archivos para el corpus; 1 para el control.
+
+**EXCEPCIONES ENCONTRADAS**: la línea 2 **no es unánime** — 30 de 120 archivos prefieren lo contrario, y los casos más fuertes en contra son mallas de ojo (`EyeBrown.dds`), donde la región que usa la malla es tan oscura que comprime a bloques negros y el detector la cuenta como vacía. Por eso la línea 2 queda como **tendencia**, no como prueba, y la afirmación se apoya en la 1, que es categórica.
+
+> **Cómo se comprueba**: `skills/modelo-ia-a-skyrim/scripts/verificar_uv.py <origen.obj> <exportado.nif>`. Aparea por posición **normalizada por la caja de cada lado**, porque el conversor escala el modelo a tamaño de arma (en el hacha, ×79,7). Sobre los archivos reales del hacha: **8.299 invertidas, 0 iguales** (exit 0); regenerando el mismo NIF sin la inversión, **0 invertidas, 8.299 iguales** (exit 1).
+
+> **Por qué importa**: con el atlas ruidoso de una IA 3D —una isla por triángulo— el espejado no se nota, porque ya era ruido. Con una textura horneada salta a la vista, y el síntoma se confunde con "el horneado salió mal", que es el paso más caro de rehacer.

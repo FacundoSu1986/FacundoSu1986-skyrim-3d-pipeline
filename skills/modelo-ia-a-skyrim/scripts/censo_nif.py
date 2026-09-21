@@ -90,6 +90,14 @@ import sys
 #
 # El sufijo del nombre no dice de que hereda. Verificalo en nif.xml.
 TIPOS_SHAPE = ("BSTriShape", "BSDynamicTriShape", "BSSubIndexTriShape")
+
+# Offset de las UV dentro de un vertice y bit de presencia en el vertexDesc.
+# Los dos se fijaron MIDIENDO sobre un archivo conocido, no leyendo nif.xml:
+# con offset 12 las u salian -9264..6876 y solo 8 de 361 caian en [0,1]; con
+# 16, 400 de 400. Mismos valores que census/parser_uv.py, que es donde esta
+# la medicion completa.
+UV_OFFSET = 16
+BIT_UV = 0x2
 # Los mismos tres que census/parser_nif.py. BSSubIndexTriShape no aparece
 # en este corpus (0 bloques en 22.394 archivos); va igual para que las dos
 # listas no vuelvan a separarse.
@@ -250,6 +258,75 @@ class Nif(object):
                 tri, = struct.unpack_from("<I", self.d, p); p += 4
             ver, = struct.unpack_from("<H", self.d, p)
             fuera.append((nombre, tri, ver))
+        return fuera
+
+    def geometria(self, con_uv=False):
+        """[{nombre, pos, tris}] por shape, para medir la malla y no solo
+        contarla. Con `con_uv=True` agrega `uv`.
+
+        Un shape SKINNEADO sale con 'error' en vez de omitirse: su geometria
+        vive en el NiSkinPartition, que esta semilla no parsea. Omitirlo en
+        silencio es el mismo modo de fallar que tenia trishapes() --devolvia 0
+        shapes para el 17 % del corpus sin avisar-- y el que lo llama tiene que
+        poder negarse a dar por bueno un archivo que no pudo medir.
+
+        El layout se falsifica con la identidad de tamano
+        n_ver*stride + n_tri*6 == data_size. Si no cierra, no se devuelven
+        numeros inventados: sale 'error'.
+        """
+        fuera = []
+        for o, _ in self.de_tipo(*TIPOS_SHAPE):
+            nombre = "?"
+            try:
+                p, nombre = self._saltar_niavobject(o)
+                p += 16                                  # bounding sphere
+                if self.bs >= 151:
+                    p += 24                              # NO validado
+                p += 12                                  # skin, shader, alpha
+                vdesc, = struct.unpack_from("<Q", self.d, p); p += 8
+                if self.bs < 130:
+                    n_tri, = struct.unpack_from("<H", self.d, p); p += 2
+                else:
+                    n_tri, = struct.unpack_from("<I", self.d, p); p += 4
+                n_ver, = struct.unpack_from("<H", self.d, p); p += 2
+                data_size, = struct.unpack_from("<I", self.d, p); p += 4
+
+                if data_size == 0 or n_ver == 0:
+                    fuera.append({"nombre": nombre, "error":
+                                  "sin geometria inline (skinneado?): "
+                                  "tri=%d ver=%d data_size=%d"
+                                  % (n_tri, n_ver, data_size)})
+                    continue
+                stride = (vdesc & 0xF) * 4
+                esperado = n_ver * stride + n_tri * 6
+                if esperado != data_size:
+                    fuera.append({"nombre": nombre, "error":
+                                  "%d*%d + %d*6 = %d != data_size %d"
+                                  % (n_ver, stride, n_tri, esperado,
+                                     data_size)})
+                    continue
+                pos = [struct.unpack_from("<3f", self.d, p + i * stride)
+                       for i in range(n_ver)]
+                base_tri = p + n_ver * stride
+                tris = [struct.unpack_from("<3H", self.d, base_tri + t * 6)
+                        for t in range(n_tri)]
+                shape = {"nombre": nombre, "pos": pos, "tris": tris}
+                if con_uv:
+                    # Las UV son dos half-floats en UV_OFFSET, y el flag de
+                    # presencia es el bit 1 de los flags de atributo. Los dos
+                    # numeros salieron midiendo, no del nif.xml: ver la
+                    # cabecera de census/parser_uv.py.
+                    if (vdesc >> 44) & BIT_UV:
+                        shape["uv"] = [
+                            struct.unpack_from("<2e", self.d,
+                                               p + i * stride + UV_OFFSET)
+                            for i in range(n_ver)]
+                    else:
+                        shape["uv"] = None
+                fuera.append(shape)
+            except Exception as e:
+                fuera.append({"nombre": nombre,
+                              "error": "%s: %s" % (type(e).__name__, e)})
         return fuera
 
     def _ref_valida(self, r):

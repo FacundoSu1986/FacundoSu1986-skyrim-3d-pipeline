@@ -65,7 +65,9 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
    triángulos, UV, texturas, proporción, si es sólido o cáscara, si vienen
    varias figuras en el archivo.
 4. **Preparar** — soldar, decimar al presupuesto, orientar si hace falta.
-   `scripts/preparar_parte.py`.
+   `scripts/preparar_parte.py`. Y **comprobar que la malla no se abrió**:
+   `scripts/salud_malla.py <antes> <despues>`. Soldar bien y no verificarlo
+   después no alcanza — ver trampa 28.
 5. **Montar** — cortar cada parte en su tramo, escalar a su hueco, espejar. Dar
    espesor **solo si la medición dice que es una cáscara abierta**: `Solidify`
    duplica los triángulos y no siempre hace falta.
@@ -73,6 +75,9 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
 7. **Texturas** — PBR → convención de Skyrim, a DDS con mipmaps.
 8. **Exportar y verificar** — reimportar el archivo generado y compararlo
    contra el vanilla: `scripts/verificar_export.py <nuevo.nif> <vanilla.nif>`.
+   Y si el NIF lo escribió un conversor propio, además
+   `scripts/verificar_uv.py <origen.obj> <nuevo.nif>`: el NIF guarda la V al
+   revés que el OBJ y copiarla tal cual espeja toda la textura (trampa 29).
 
 ## Las tres cosas que hay que pedirle a la IA 3D
 
@@ -233,6 +238,24 @@ pieza que mañana pierda una atadura.
 - **`scripts/preparar_parte.py`** — soldar, decimar a un presupuesto y, si se lo
   pedís con `--girar-180`, orientar. No gira por defecto a propósito: una
   rotación es destructiva y no debe dispararse por una heurística.
+- **`scripts/verificar_uv.py`** — compara las UV del OBJ de origen contra las
+  del NIF exportado y exige que la **V esté invertida**. Aparea por posición
+  normalizada por la caja de cada lado, así que tolera la escala y la
+  traslación que aplica un conversor, pero no una rotación — y si alguien la
+  agrega, deja de aparear y reprueba por "nada que comparar", que es el modo de
+  fallar correcto. Trae `--autotest`.
+- **`scripts/salud_malla.py`** — mide si la malla se **rompió** al decimarla, y
+  lo hace sobre el **archivo** (`.nif` o `.obj`), sin Blender. Con dos
+  argumentos aplica la REGLA: el número de aristas de borde no puede aumentar.
+  Con uno, informa. Trae `--autotest` (18 comprobaciones sobre figuras de
+  respuesta conocida) y `--falsificar <carpeta>`, que rompe mallas vanilla de
+  cuatro formas distintas y exige que el control las pesque.
+
+  La regla es **relacional** y no "la malla tiene que estar cerrada", porque eso
+  es falso: solo el 15,1 % de los shapes vanilla lo están. Todo lo demás
+  —ratio tri/vert, piezas sueltas, no-manifold, winding— se informa como
+  OBSERVACIÓN y no reprueba: no está medido sobre el corpus con la densidad que
+  hace falta para bloquear.
 
 ## Cómo conviene trabajar
 

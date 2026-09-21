@@ -154,6 +154,90 @@ def _trishape(nombre_idx, skin_ref, traslacion=(0.0, 0.0, 0.0), escala=1.0,
     return p
 
 
+def _trishape_estatico(nombre_idx, pos, tris, traslacion=(0.0, 0.0, 0.0),
+                       escala=1.0, rot=IDENTIDAD, data_size=None, uvs=None):
+    """BSTriShape ESTATICO: la geometria va inline, despues de dataSize.
+
+    SIN uvs el vertexDesc declara stride 12 --solo XYZ-- porque
+    `stride = (vdesc & 0xF) * 4`. CON uvs el stride pasa a 20, porque las UV
+    viven en el byte 16 del vertice (12 de posicion + 4 de bitangente/relleno)
+    y ocupan dos half-floats; y se enciende el bit de presencia,
+    `(vdesc >> 44) & 0x2`. Los dos numeros estan medidos en la cabecera de
+    census/parser_uv.py, no leidos de nif.xml.
+
+    En los dos casos la identidad n_ver*stride + n_tri*6 == dataSize se
+    cumple, que es lo que el lector usa para falsificar el layout.
+
+    `data_size` deja escribir un tamano MENTIROSO a proposito: un lector
+    correcto tiene que negarse a devolver numeros en vez de leer basura.
+    """
+    p = _avobject_sin_hijos(nombre_idx, traslacion, escala, rot)
+    p += struct.pack("<4f", 0.0, 0.0, 0.0, 0.0)      # esfera envolvente
+    p += struct.pack("<3i", -1, -1, -1)              # skin, shader, alpha
+    if uvs is None:
+        vdesc = 0x0000000000000003                   # stride 12, sin UV
+        cuerpo = b"".join(struct.pack("<3f", *v) for v in pos)
+    else:
+        vdesc = 0x0000000000000005 | (0x2 << 44)     # stride 20, con UV
+        cuerpo = b"".join(
+            struct.pack("<3f", *v) + struct.pack("<4s", b"\x00\x00\x00\x00")
+            + struct.pack("<2e", *uv)
+            for v, uv in zip(pos, uvs))
+    p += struct.pack("<Q", vdesc)
+    cuerpo += b"".join(struct.pack("<3H", *t) for t in tris)
+    p += struct.pack("<H", len(tris))                # numTriangles
+    p += struct.pack("<H", len(pos))                 # numVertices
+    p += struct.pack("<I", len(cuerpo) if data_size is None else data_size)
+    p += cuerpo
+    return p
+
+
+def construir_estatico(pos, tris, nombre_pieza=PIEZA_NOMBRE, data_size=None,
+                       uvs=None):
+    """(bytes, esperado) de un NIF con UNA pieza estatica con geometria inline.
+
+    Existe para poder probar la lectura de geometria --y la medicion de salud
+    de malla-- sin depender del corpus vanilla, que no esta en el repo.
+    """
+    tipos = ["BSFadeNode", "BSTriShape"]
+    strings = [RAIZ_NOMBRE, nombre_pieza]
+    bloques = [
+        _avobject(0, [], (0.0, 0.0, 0.0), [1]),                  # 0: raiz
+        _trishape_estatico(1, pos, tris, data_size=data_size,
+                           uvs=uvs),                            # 1: pieza
+    ]
+
+    h = bytearray(CABECERA)
+    h += struct.pack("<I", VERSION)
+    h += struct.pack("<B", 1)                        # endian: little
+    h += struct.pack("<I", USER)
+    h += struct.pack("<I", len(bloques))
+    h += struct.pack("<I", BS)
+    h += _corta("")                                  # author
+    h += _corta("")                                  # process script
+    h += _corta("")                                  # export script
+    h += struct.pack("<H", len(tipos))
+    for t in tipos:
+        h += _larga(t)
+    for k in range(len(bloques)):
+        h += struct.pack("<H", k)                    # un tipo por bloque
+    for b in bloques:
+        h += struct.pack("<I", len(b))
+    h += struct.pack("<I", len(strings))
+    h += struct.pack("<I", max(len(s) for s in strings))
+    for s in strings:
+        h += _larga(s)
+    h += struct.pack("<I", 0)                        # numGroups
+
+    datos = bytes(h) + b"".join(bloques)
+    esperado = {"raiz": RAIZ_NOMBRE, "pieza": nombre_pieza,
+                "pos": [tuple(float(c) for c in v) for v in pos],
+                "tris": [tuple(int(i) for i in t) for t in tris],
+                "uvs": None if uvs is None
+                       else [tuple(float(c) for c in uv) for uv in uvs]}
+    return datos, esperado
+
+
 def _dismember(bone_refs, body_parts, con_particiones=True):
     """La skin instance: los cuatro refs, los huesos y --solo en la variante
     dismember-- las particiones de body-part.

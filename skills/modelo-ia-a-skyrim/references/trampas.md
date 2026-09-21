@@ -515,6 +515,69 @@ Es la misma familia que la trampa [19](#19): allá el error estaba en la cámara
 acá en el archivo. El síntoma es el mismo y la consecuencia también — juzgar un
 modelo sobre un render mal etiquetado.
 
+### 28. Soldar bien y no comprobarlo despues no alcanza {#28}
+
+**Síntoma:** el arma llega al juego con agujeros por los que se ve el interior.
+Ningún paso dio error: el archivo se escribió bien, el juego lo cargó, y el
+modelo de origen era impecable.
+
+**Por qué pasa:** la trampa [22](#22) y `scripts/preparar_parte.py` ya dicen que
+hay que **soldar antes de decimar**, y lo hacen bien. Pero nada verifica el
+resultado. En el hacha de Tencent la decimación la hizo un script escrito a
+mano, fuera de `preparar_parte.py`, y la malla salió con el **49,4 %** de sus
+aristas abiertas partiendo de un GLB con **cero**. Después yo volví a decimar
+**desde ese archivo ya roto**, bajé a 35,2 % y lo leí como progreso.
+
+`[MEASURED]` Decimando 14 shapes vanilla al 25 %: soldando primero el número de
+aristas de borde **nunca aumentó** (peor caso x0,70); sin soldar creció en 12 de
+14, hasta **x25,5**, y las dos mallas cerradas pasaron de 0 a 956 y a 544.
+
+**Arreglo:** `scripts/salud_malla.py <antes> <despues>`. Corre sobre el
+**archivo**, sin Blender, y reprueba si el número de aristas de borde aumentó.
+Sobre los archivos reales del hacha, la cadena vieja sale con exit 1 y la nueva
+con exit 0.
+
+**Lo que NO se puede exigir:** que la malla esté cerrada. `[MEASURED]` Solo el
+**15,1 %** de los shapes vanilla lo están; la mediana tiene el 15,4 % de sus
+aristas al aire y `architecture` el 24,7 %. La ropa, los carteles y las láminas
+de vegetación son superficies abiertas a propósito. Por eso la regla es
+**relacional** —no abrir lo que estaba cerrado— y no absoluta.
+
+**La lección general:** que un paso del pipeline haga lo correcto no sirve si
+otro camino llega al mismo archivo sin pasar por él. El arreglo no es
+documentar mejor el paso bueno: es poner la comprobación **sobre el resultado**,
+donde la ve cualquiera que haya llegado por donde sea.
+
+### 29. El NIF guarda la V al revés que el OBJ {#29}
+
+**Síntoma:** la textura horneada se ve corrida o espejada sobre el modelo, y
+todo lo demás está bien: la malla cerrada, el atlas correcto, el bake limpio.
+Se concluye que el horneado salió mal y se rehace — que es el paso más caro.
+
+**Por qué pasa:** un NIF guarda la V con el origen en la **fila 0** de la
+imagen; un OBJ y Blender la guardan con el origen **abajo**. Un conversor que
+copie la V tal cual deja todo el mapeo espejado en vertical. No da error: el
+archivo se escribe bien y el juego lo carga.
+
+Con el atlas de una IA 3D —una isla de UV por triángulo— ni se nota, porque ya
+era ruido. Aparece recién cuando la textura es buena.
+
+`[MEASURED]` **PyNifly invierte la V al importar**: sobre tres armas vanilla,
+2.648 / 1.370 / 2.716 loops invertidos contra 13 / 23 / 16 iguales. `[MEASURED]`
+El corpus apoya lo mismo, aunque no unánime: tomar v como fila desde arriba cae
+sobre pintura el 69,5 % de las veces contra 58,3 %, ganando en 86 de 120
+archivos. `[OBSERVED]` Y el control renderizado de `elvenbattleaxe.nif` con su
+propia textura sale bien solo con la V invertida.
+
+**Arreglo:** `uv = (u, 1.0 - v)` al escribir el NIF, y comprobarlo con
+`scripts/verificar_uv.py <origen.obj> <exportado.nif>`. Sobre los archivos
+reales del hacha: 8.299 invertidas y 0 iguales; regenerando el NIF sin la
+inversión, 0 y 8.299.
+
+**La lección general:** una convención de formato que no rompe nada al
+escribirse solo se ve cuando el resto ya está bien. Cuanto más tarde aparece,
+más caro es el paso que se sospecha primero.
+
 ## Proceso
 
 ### 19. La vista "de frente" de tu render puede estar mostrando la espalda {#19}
