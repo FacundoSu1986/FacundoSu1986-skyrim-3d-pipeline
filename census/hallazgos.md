@@ -235,3 +235,30 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **CONSULTA QUE LA PRODUJO**: el mismo shape del hacha contado de las dos formas.
 **N**: 1 asset, pero el efecto es estructural: los 8.608 vértices del NIF que se envía sueldan a 3.991.
 **EXCEPCIONES ENCONTRADAS**: no aplica. Contando por índice, el hacha daba **2.953** piezas sueltas donde había 382, y 382 donde en realidad hay **1**. Los tres números salieron del mismo archivo.
+
+### 35. (#42) El radio convexo de una caja es el semieje menor, pero con tope en 0,1
+
+**AFIRMACIÓN**: `bhkRadius == min(semieje_menor, 0,1)` en **2.667 de 2.684** cajas del corpus (99,37 %), y con coincidencia **exacta** — la cuenta no se mueve entre tolerancia relativa 1e-6 y 5e-2.
+**CONSULTA QUE LA PRODUJO**: enumerar todos los bloques `bhkBoxShape` de la tabla de bloques y leer el radio en +4 y las medias extensiones en +16.
+**N**: 22.394 archivos, 2.684 cajas.
+**EXCEPCIONES ENCONTRADAS**: **17**, todas volúmenes de trampa o de marcador que se quedaron en 0,1 con un semieje más chico (`traptripwire01`, `oiltrappuddle01`, `hammertablemarker`, `leantablemarker`, `mineralpoolbigwater01`…), más `argatedoor01` con 0,034.
+
+> **La versión sin el tope es falsa.** Medida solo sobre armas daba **62 de 62** y parecía una regla; sobre el corpus entero es **73,25 %**. El subconjunto estaba sesgado: un arma es fina y su semieje menor casi siempre cae debajo de 0,1. Es el mismo modo de error que la entrada 32 — una regla que se sostiene en la muestra que uno miró primero.
+
+### 36. (#42) Masa cero y inercia cero son la misma condición
+
+**AFIRMACIÓN**: en un `bhkRigidBody` con `bhkBoxShape`, **masa > 0 ⟺ diagonal de inercia > 0**. Con masa 0, la inercia está en cero en **383 de 383**; con masa > 0, está en cero en **0 de 811**. Sin una sola excepción en los dos sentidos.
+**CONSULTA QUE LA PRODUJO**: masa en +180 y diagonal de inercia en +116/+136/+156 del bloque del cuerpo, sobre los cuerpos cuya forma es una caja.
+**N**: 1.194 cuerpos.
+**EXCEPCIONES ENCONTRADAS**: 0.
+
+> **Corrige una regla de la skill.** `asset-nuevo-skyrim/references/trampas.md` pedía "exigir diagonal > 0" a secas. Escrita así rechaza **383 cuerpos de Bethesda** — el 32 % de los que tienen caja. La condición es el bicondicional, no la desigualdad suelta.
+
+### 37. (#42) Resultado negativo: la inercia de una caja no sigue ninguna fórmula
+
+**AFIRMACIÓN**: no hay relación utilizable entre la inercia escrita y la geometría de la caja. Contra la fórmula de libro `m(a²+b²)/12`, la razón va de **1,2 a 471** con mediana **7,1**, y solo **1 de 2.433** ejes cae dentro del ±10 %. Tampoco se sostienen las **proporciones** entre los tres ejes: apenas el **3,6 %** de las cajas queda dentro del 10 %, con desvío mediano del **51,5 %**.
+**CONSULTA QUE LA PRODUJO**: comparar la diagonal medida contra la fórmula, en magnitud y normalizada por el primer eje.
+**N**: 811 cajas con masa > 0, 2.433 ejes.
+**EXCEPCIONES ENCONTRADAS**: no aplica — el hallazgo es que la relación no existe.
+
+> **Consecuencia práctica**: adaptar la inercia de un donante escalándola por la fórmula de la caja es una **heurística** razonable, no una regla, y `colision_caja.py` **no la exige**: informa la razón como OBSERVACIÓN. Se anota porque es exactamente la regla que estuve a punto de escribir.

@@ -83,8 +83,41 @@ ningún lado.
 
 → Poner `col["inertiaMatrix"]` a mano (matriz 3×4, diagonal en los índices
 0/5/10). **Los valores de Havok no son la fórmula de libro `(m/12)(a²+b²)`** ni
-un escalado simple: copiar los de un objeto vanilla equivalente. El paso de
-verificación tiene que exigir diagonal > 0.
+un escalado simple: copiar los de un objeto vanilla equivalente.
+
+**Corrección (medido, corpus entero).** Este párrafo decía "el paso de
+verificación tiene que exigir diagonal > 0", y así escrito **rechaza a
+Bethesda**: 383 de los 1.194 cuerpos con caja del corpus —el 32 %— tienen la
+diagonal en cero. La condición real es un bicondicional:
+
+> `[MEASURED]` **masa > 0 ⟺ diagonal > 0**. Con masa 0, inercia cero en **383
+> de 383**; con masa > 0, inercia cero en **0 de 811**. Sin excepciones en
+> ninguno de los dos sentidos.
+
+Un cuerpo de masa 0 es inamovible y su inercia en cero es correcta. El NaN
+aparece cuando hay masa **y** no hay inercia, que es lo que deja PyNifly.
+
+Y el **valor** de la inercia no se puede exigir: `[MEASURED]` contra
+`m(a²+b²)/12` la razón va de 1,2 a 471 con mediana 7,1, y solo 1 de 2.433 ejes
+cae dentro del ±10 %; las proporciones entre ejes tampoco (3,6 % dentro del
+10 %). Adaptar la del donante escalándola por la fórmula es una **heurística**,
+no una regla.
+
+Lo comprueba `scripts/colision_caja.py`.
+
+### 4b. El radio convexo de la caja también depende de la caja {#4b}
+
+Mismo modo de falla que la inercia: se copia del donante y queda un radio que
+no corresponde a esta forma.
+
+`[MEASURED]` **`bhkRadius == min(semieje_menor, 0,1)`** en **2.667 de 2.684**
+cajas del corpus (99,37 %), exacto. Las 17 excepciones son volúmenes de trampa
+y de marcador.
+
+**Ojo con la versión sin el tope.** Medida solo sobre armas, "bhkRadius es el
+semieje menor" daba **62 de 62** y parecía regla; sobre el corpus entero es
+**73,25 %**. Un arma es fina y su semieje menor casi siempre cae debajo de 0,1,
+así que el subconjunto no podía mostrar el tope.
 
 ### 5. Un asset colgado de un nodo sale girado lo que esté girado el nodo {#5}
 
