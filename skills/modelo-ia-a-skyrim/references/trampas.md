@@ -548,6 +548,36 @@ otro camino llega al mismo archivo sin pasar por él. El arreglo no es
 documentar mejor el paso bueno: es poner la comprobación **sobre el resultado**,
 donde la ve cualquiera que haya llegado por donde sea.
 
+### 29. El NIF guarda la V al revés que el OBJ {#29}
+
+**Síntoma:** la textura horneada se ve corrida o espejada sobre el modelo, y
+todo lo demás está bien: la malla cerrada, el atlas correcto, el bake limpio.
+Se concluye que el horneado salió mal y se rehace — que es el paso más caro.
+
+**Por qué pasa:** un NIF guarda la V con el origen en la **fila 0** de la
+imagen; un OBJ y Blender la guardan con el origen **abajo**. Un conversor que
+copie la V tal cual deja todo el mapeo espejado en vertical. No da error: el
+archivo se escribe bien y el juego lo carga.
+
+Con el atlas de una IA 3D —una isla de UV por triángulo— ni se nota, porque ya
+era ruido. Aparece recién cuando la textura es buena.
+
+`[MEASURED]` **PyNifly invierte la V al importar**: sobre tres armas vanilla,
+2.648 / 1.370 / 2.716 loops invertidos contra 13 / 23 / 16 iguales. `[MEASURED]`
+El corpus apoya lo mismo, aunque no unánime: tomar v como fila desde arriba cae
+sobre pintura el 69,5 % de las veces contra 58,3 %, ganando en 86 de 120
+archivos. `[OBSERVED]` Y el control renderizado de `elvenbattleaxe.nif` con su
+propia textura sale bien solo con la V invertida.
+
+**Arreglo:** `uv = (u, 1.0 - v)` al escribir el NIF, y comprobarlo con
+`scripts/verificar_uv.py <origen.obj> <exportado.nif>`. Sobre los archivos
+reales del hacha: 8.299 invertidas y 0 iguales; regenerando el NIF sin la
+inversión, 0 y 8.299.
+
+**La lección general:** una convención de formato que no rompe nada al
+escribirse solo se ve cuando el resto ya está bien. Cuanto más tarde aparece,
+más caro es el paso que se sospecha primero.
+
 ## Proceso
 
 ### 19. La vista "de frente" de tu render puede estar mostrando la espalda {#19}

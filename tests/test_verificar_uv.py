@@ -1,0 +1,198 @@
+# -*- coding: utf-8 -*-
+"""La V va INVERTIDA en el NIF, y hay que comprobarlo sobre el archivo.
+
+Un NIF guarda la V con el origen arriba de la imagen; un OBJ y Blender con el
+origen abajo. Un conversor que la copie tal cual deja todo el mapeo espejado en
+vertical, sin dar error: el archivo se escribe bien y el juego lo carga.
+
+En el hacha de Tencent el sintoma se confundio con "el horneado salio mal", que
+es el paso mas caro de rehacer.
+"""
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+
+from _paths import preparar_path
+
+preparar_path()
+
+import censo_nif  # noqa: E402
+import nif_sintetico  # noqa: E402
+import verificar_uv  # noqa: E402
+
+CUADRADO = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
+UV_FUENTE = {0: {(0.0, 0.0)}, 1: {(1.0, 0.1)},
+             2: {(1.0, 0.9)}, 3: {(0.0, 1.0)}}
+UV_LISTA = [(0.0, 0.0), (1.0, 0.1), (1.0, 0.9), (0.0, 1.0)]
+
+SCRIPT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "skills", "modelo-ia-a-skyrim", "scripts", "verificar_uv.py")
+
+
+def _escalado(f=80.0):
+    return [(x * f, y * f, z * f) for x, y, z in CUADRADO]
+
+
+def _archivo(datos, sufijo):
+    fd, ruta = tempfile.mkstemp(suffix=sufijo)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(datos)
+    return ruta
+
+
+class ReglaTests(unittest.TestCase):
+    """REGLA: la V del NIF es el complemento de la del origen."""
+
+    def test_el_conversor_correcto_pasa(self):
+        votos, _ = verificar_uv.comparar(
+            CUADRADO, UV_FUENTE, _escalado(),
+            [(u, 1.0 - v) for u, v in UV_LISTA])
+        self.assertGreater(votos["invertida"], 0)
+        self.assertEqual(votos["igual"], 0)
+        self.assertFalse(verificar_uv.juzgar(votos)[0])
+
+    def test_copiar_la_v_tal_cual_reprueba(self):
+        votos, _ = verificar_uv.comparar(CUADRADO, UV_FUENTE, _escalado(),
+                                         UV_LISTA)
+        self.assertGreater(votos["igual"], 0)
+        fallas = verificar_uv.juzgar(votos)[0]
+        self.assertTrue(fallas)
+        self.assertIn("v_invertida", fallas[0])
+
+    def test_escalar_y_trasladar_no_rompen_el_apareo(self):
+        """Es la tolerancia que hace falta: el conversor escala el modelo a
+        tamano de arma. Queda afirmado para que nadie la saque sin querer."""
+        movido = [(x * 80.0 + 1000.0, y * 80.0 - 7.0, z * 80.0)
+                  for x, y, z in CUADRADO]
+        votos, _ = verificar_uv.comparar(
+            CUADRADO, UV_FUENTE, movido,
+            [(u, 1.0 - v) for u, v in UV_LISTA])
+        self.assertGreater(votos["invertida"], 0)
+
+    def test_los_vertices_de_v_medio_no_votan(self):
+        """Cerca de v=0,5 invertir no cambia nada: contarlos seria contar
+        ruido a favor de cualquiera de las dos respuestas."""
+        medio = dict((i, {(float(i % 2), 0.5)}) for i in range(4))
+        votos, _ = verificar_uv.comparar(
+            CUADRADO, medio, _escalado(),
+            [(float(i % 2), 0.5) for i in range(4)])
+        self.assertEqual(votos["apareados"], 0)
+        fallas = verificar_uv.juzgar(votos)[0]
+        # Se afirma la RAZON, no solo que repruebe: con 0 votos de cada lado
+        # la otra condicion (igual >= invertida) tambien es cierta, asi que
+        # una asercion sobre la verdad a secas pasaba aunque se borrara la
+        # guarda de "cero comprobaciones". Lo pesco mutar el codigo.
+        self.assertTrue(fallas)
+        self.assertIn("cero vertices comparables", fallas[0])
+
+    def test_sin_uv_en_el_origen_reprueba(self):
+        """Cero comprobaciones no es exito."""
+        votos, _ = verificar_uv.comparar(CUADRADO, {}, _escalado(), UV_LISTA)
+        self.assertEqual(votos["apareados"], 0)
+        fallas = verificar_uv.juzgar(votos)[0]
+        self.assertTrue(fallas)
+        self.assertIn("cero vertices comparables", fallas[0])
+
+    def test_una_u_que_no_coincide_se_informa_y_no_vota(self):
+        votos, notas = verificar_uv.comparar(
+            CUADRADO, UV_FUENTE, _escalado(),
+            [(0.42, 1.0 - v) for _u, v in UV_LISTA])
+        self.assertEqual(votos["apareados"], 0)
+        self.assertTrue(any("U no coincide" in n for n in notas))
+
+
+class LecturaUvTests(unittest.TestCase):
+    """censo_nif.geometria(con_uv=True) contra lo que se escribio."""
+
+    def test_recupera_las_uv(self):
+        uvs = [(0.0, 0.0), (0.25, 0.5), (0.5, 0.75), (0.75, 1.0)]
+        datos, esperado = nif_sintetico.construir_estatico(
+            CUADRADO, [(0, 1, 2), (0, 2, 3)], uvs=uvs)
+        ruta = _archivo(datos, ".nif")
+        try:
+            g = censo_nif.Nif(ruta).geometria(con_uv=True)[0]
+            self.assertNotIn("error", g)
+            self.assertEqual([(round(u, 3), round(v, 3)) for u, v in g["uv"]],
+                             [(round(u, 3), round(v, 3))
+                              for u, v in esperado["uvs"]])
+        finally:
+            os.unlink(ruta)
+
+    def test_sin_el_bit_de_uv_devuelve_none_y_no_basura(self):
+        """El bit de presencia es (vdesc >> 44) & 0x2. Sin el, leer en
+        UV_OFFSET devolveria dos half-floats de lo que haya ahi."""
+        datos, _ = nif_sintetico.construir_estatico(CUADRADO,
+                                                    [(0, 1, 2), (0, 2, 3)])
+        ruta = _archivo(datos, ".nif")
+        try:
+            self.assertIsNone(censo_nif.Nif(ruta).geometria(con_uv=True)[0]["uv"])
+        finally:
+            os.unlink(ruta)
+
+    def test_las_dos_lecturas_de_uv_del_repo_coinciden(self):
+        """censo_nif (la semilla de la skill) y census/parser_uv leen el mismo
+        campo. Si una se mueve, esto lo dice."""
+        import parser_uv
+        from parser_nif import Nif as NifCenso
+        uvs = [(0.1, 0.2), (0.3, 0.4), (0.5, 0.6), (0.7, 0.8)]
+        datos, _ = nif_sintetico.construir_estatico(
+            CUADRADO, [(0, 1, 2), (0, 2, 3)], uvs=uvs)
+        ruta = _archivo(datos, ".nif")
+        try:
+            a = censo_nif.Nif(ruta).geometria(con_uv=True)[0]
+            b = parser_uv.geometria(NifCenso(ruta))[0]
+            self.assertEqual(a["uv"], b["uv"])
+            self.assertEqual(a["pos"], b["pos"])
+            self.assertEqual(a["tris"], b["tris"])
+        finally:
+            os.unlink(ruta)
+
+
+class LineaDeComandosTests(unittest.TestCase):
+
+    def _correr(self, *args):
+        p = subprocess.run([sys.executable, SCRIPT] + list(args),
+                           capture_output=True, text=True)
+        return p.returncode, p.stdout + p.stderr
+
+    def test_autotest_pasa(self):
+        codigo, salida = self._correr("--autotest")
+        self.assertEqual(codigo, 0, salida)
+        self.assertIn("0 fallas", salida)
+
+    def test_argumentos_que_no_sirven_dan_dos(self):
+        self.assertEqual(self._correr()[0], 2)
+        self.assertEqual(self._correr("a.nif", "b.obj")[0], 2)
+        self.assertEqual(self._correr("a.obj", "b.nif", "c")[0], 2)
+
+    def test_par_correcto_sale_cero_y_par_sin_invertir_sale_uno(self):
+        tris = [(0, 1, 2), (0, 2, 3)]
+        obj = "\n".join(
+            ["v %f %f %f" % p for p in CUADRADO]
+            + ["vt %f %f" % uv for uv in UV_LISTA]
+            + ["f %d/%d %d/%d %d/%d" % (a + 1, a + 1, b + 1, b + 1,
+                                        c + 1, c + 1) for a, b, c in tris])
+        ruta_obj = _archivo((obj + "\n").encode("ascii"), ".obj")
+        bien, _ = nif_sintetico.construir_estatico(
+            _escalado(), tris, uvs=[(u, 1.0 - v) for u, v in UV_LISTA])
+        mal, _ = nif_sintetico.construir_estatico(_escalado(), tris,
+                                                  uvs=UV_LISTA)
+        r_bien = _archivo(bien, ".nif")
+        r_mal = _archivo(mal, ".nif")
+        try:
+            codigo, salida = self._correr(ruta_obj, r_bien)
+            self.assertEqual(codigo, 0, salida)
+            codigo, salida = self._correr(ruta_obj, r_mal)
+            self.assertEqual(codigo, 1, salida)
+            self.assertIn("REGLA v_invertida", salida)
+        finally:
+            for r in (ruta_obj, r_bien, r_mal):
+                os.unlink(r)
+
+
+if __name__ == "__main__":
+    unittest.main()

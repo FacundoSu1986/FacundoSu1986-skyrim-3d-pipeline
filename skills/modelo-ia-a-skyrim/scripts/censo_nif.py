@@ -90,6 +90,14 @@ import sys
 #
 # El sufijo del nombre no dice de que hereda. Verificalo en nif.xml.
 TIPOS_SHAPE = ("BSTriShape", "BSDynamicTriShape", "BSSubIndexTriShape")
+
+# Offset de las UV dentro de un vertice y bit de presencia en el vertexDesc.
+# Los dos se fijaron MIDIENDO sobre un archivo conocido, no leyendo nif.xml:
+# con offset 12 las u salian -9264..6876 y solo 8 de 361 caian en [0,1]; con
+# 16, 400 de 400. Mismos valores que census/parser_uv.py, que es donde esta
+# la medicion completa.
+UV_OFFSET = 16
+BIT_UV = 0x2
 # Los mismos tres que census/parser_nif.py. BSSubIndexTriShape no aparece
 # en este corpus (0 bloques en 22.394 archivos); va igual para que las dos
 # listas no vuelvan a separarse.
@@ -252,9 +260,9 @@ class Nif(object):
             fuera.append((nombre, tri, ver))
         return fuera
 
-    def geometria(self):
+    def geometria(self, con_uv=False):
         """[{nombre, pos, tris}] por shape, para medir la malla y no solo
-        contarla.
+        contarla. Con `con_uv=True` agrega `uv`.
 
         Un shape SKINNEADO sale con 'error' en vez de omitirse: su geometria
         vive en el NiSkinPartition, que esta semilla no parsea. Omitirlo en
@@ -302,7 +310,20 @@ class Nif(object):
                 base_tri = p + n_ver * stride
                 tris = [struct.unpack_from("<3H", self.d, base_tri + t * 6)
                         for t in range(n_tri)]
-                fuera.append({"nombre": nombre, "pos": pos, "tris": tris})
+                shape = {"nombre": nombre, "pos": pos, "tris": tris}
+                if con_uv:
+                    # Las UV son dos half-floats en UV_OFFSET, y el flag de
+                    # presencia es el bit 1 de los flags de atributo. Los dos
+                    # numeros salieron midiendo, no del nif.xml: ver la
+                    # cabecera de census/parser_uv.py.
+                    if (vdesc >> 44) & BIT_UV:
+                        shape["uv"] = [
+                            struct.unpack_from("<2e", self.d,
+                                               p + i * stride + UV_OFFSET)
+                            for i in range(n_ver)]
+                    else:
+                        shape["uv"] = None
+                fuera.append(shape)
             except Exception as e:
                 fuera.append({"nombre": nombre,
                               "error": "%s: %s" % (type(e).__name__, e)})
