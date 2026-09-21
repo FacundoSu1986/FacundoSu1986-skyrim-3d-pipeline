@@ -525,7 +525,7 @@ Es la misma familia que la trampa [19](#19): allá el error estaba en la cámara
 acá en el archivo. El síntoma es el mismo y la consecuencia también — juzgar un
 modelo sobre un render mal etiquetado.
 
-### 28. Soldar bien y no comprobarlo despues no alcanza {#28}
+### 28. Soldar bien y no comprobarlo después no alcanza {#28}
 
 **Síntoma:** el arma llega al juego con agujeros por los que se ve el interior.
 Ningún paso dio error: el archivo se escribió bien, el juego lo cargó, y el
@@ -545,7 +545,10 @@ aristas de borde **nunca aumentó** (peor caso x0,70); sin soldar creció en 12 
 **Arreglo:** `scripts/salud_malla.py <antes> <despues>`. Corre sobre el
 **archivo**, sin Blender, y reprueba si el número de aristas de borde aumentó.
 Sobre los archivos reales del hacha, la cadena vieja sale con exit 1 y la nueva
-con exit 0.
+con exit 0. Sale con exit 2 si el argumento no sirve (otra extensión), para que
+quien automatiza no confunda "no le entendí" con "falló" — y corre sobre los
+`.obj` de Preparar, antes de Montar: sobre un `.nif` skinneado no hay geometría
+inline que medir, y eso es aviso, no reproche.
 
 **Lo que NO se puede exigir:** que la malla esté cerrada. `[MEASURED]` Solo el
 **15,1 %** de los shapes vanilla lo están; la mediana tiene el 15,4 % de sus

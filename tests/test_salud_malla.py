@@ -111,6 +111,19 @@ class MedicionTests(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertEqual(m["fuera_de_rango"], 1)
 
+    def test_indice_negativo_no_indexa_desde_el_final(self):
+        """`w[-2]` es un vertice VALIDO para Python: un indice negativo que
+        nadie resolvio no revienta, mide OTRA malla. La guarda de salud() es
+        `i < 0 or i >= len(w)` y el agujero era la segunda mitad nada mas.
+        (-1,-2,-3) son los tres ultimos vertices del cubo: una cara que
+        existe, y contada como si fuera un triangulo nuevo daria bordes de
+        sobra. Fuera de rango es la unica lectura honesta de un indice que el
+        llamador no resolvio."""
+        m = salud_malla.salud(CUBO_POS, [(-1, -2, -3)] + CUBO_TRIS, 1)
+        self.assertEqual(m["fuera_de_rango"], 1)
+        self.assertEqual(m["tris"], len(CUBO_TRIS))
+        self.assertEqual(m["borde"], 0)
+
     def test_el_minimo_de_triangulos_descarta_lo_que_no_dice_nada(self):
         """Un cartel de dos triangulos tiene el 100 % de borde y esta bien."""
         self.assertIsNone(salud_malla.salud(CUBO_POS, CUBO_TRIS[:2]))
@@ -234,6 +247,52 @@ class LecturaNifTests(unittest.TestCase):
             medidas, avisos = salud_malla.leer(ruta)
             self.assertEqual(medidas, [])
             self.assertTrue(avisos)
+        finally:
+            os.unlink(ruta)
+
+
+class LecturaObjTests(unittest.TestCase):
+    """La spec de Wavefront permite `f -1 -2 -3`: indices negativos relativos
+    al ultimo vertice definido. La primera version del lector hacia
+    `int(tok) - 1` para TODO token: el negativo quedaba barajado (y media una
+    malla torcida sin avisar, el peor fallo posible) y un -len reventaba con
+    IndexError. La segunda mitad del contrato del archivo (.nif o .obj) no
+    puede tener un camino que mienta o truene."""
+
+    def _escribir(self, lineas):
+        return _archivo(("\n".join(lineas) + "\n").encode("ascii"), ".obj")
+
+    def test_mismo_cubo_escrito_con_negativos(self):
+        lineas = ["v %f %f %f" % p for p in CUBO_POS]
+        for a, b, c in CUBO_TRIS:
+            lineas.append("f %d %d %d" % (a - len(CUBO_POS),
+                                          b - len(CUBO_POS),
+                                          c - len(CUBO_POS)))
+        ruta = self._escribir(lineas)
+        try:
+            medidas, _ = salud_malla.leer(ruta)
+            self.assertEqual(len(medidas), 1)
+            self.assertEqual(medidas[0]["borde"], 0)
+            self.assertEqual(medidas[0]["tris"], len(CUBO_TRIS))
+            self.assertEqual(medidas[0]["fuera_de_rango"], 0)
+        finally:
+            os.unlink(ruta)
+
+    def test_indices_imposibles_se_cuentan_no_se_omiten(self):
+        """v incompleto (placeholder NaN para que las caras no se corran),
+        cara con el 0 que no existe, un fuera de rango, un token ilegible:
+        todo tiene que salir medido y con `fuera_de_rango`, no en traceback."""
+        lineas = (["v 0 0"]
+                  + ["v %f %f %f" % p for p in CUBO_POS[1:]]
+                  + ["f -99 1 2", "f x 2 3", "f 0 1 2",
+                     "f 5 6 7", "f 6 7 8"])
+        ruta = self._escribir(lineas)
+        try:
+            s = salud_malla._leer_obj(ruta)[0]
+            self.assertEqual(len(s["pos"]), len(CUBO_POS))
+            m = salud_malla.salud(s["pos"], s["tris"], 1)
+            self.assertEqual(m["fuera_de_rango"], 3)
+            self.assertEqual(m["tris"], 2)
         finally:
             os.unlink(ruta)
 
@@ -383,8 +442,23 @@ class LineaDeComandosTests(unittest.TestCase):
                 os.unlink(r)
 
     def test_sin_argumentos_o_con_extension_rara_no_dice_que_paso(self):
+        """`2` es "los argumentos no sirven" segun el contrato de arriba del
+        archivo. Un .txt es exactamente eso: la primera version tiraba un
+        SystemExit con mensaje y salia con 1, que es el codigo de "el control
+        fallo" — un automatizador que lea el exit code sin la salida no los
+        puede distinguir."""
         self.assertEqual(self._correr()[0], 2)
         self.assertEqual(self._correr("a", "b", "c")[0], 2)
+        fd, txt = tempfile.mkstemp(suffix=".txt")
+        os.close(fd)
+        try:
+            codigo, salida = self._correr(txt)
+            self.assertEqual(codigo, 2, salida)
+            self.assertIn(".nif o .obj", salida)
+            codigo, salida = self._correr(txt, txt)
+            self.assertEqual(codigo, 2, salida)
+        finally:
+            os.unlink(txt)
 
     def test_un_archivo_sin_nada_medible_no_sale_cero(self):
         """Medir nada no es pasar."""
