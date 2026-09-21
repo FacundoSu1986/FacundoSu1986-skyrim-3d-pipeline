@@ -122,3 +122,26 @@ Mediana del lado mayor por clase: `terrain` 256, `actors` 512, `clutter` 512,
 - **Resolución de rutas.** El cruce NIF→archivo se hizo a mano una vez (393 de
   10.008 rutas sin resolver, de las cuales solo 6 malformadas) pero no está
   automatizado acá.
+
+### (#43) La máscara especular: la mediana de un objeto es 0 % saturada, pero el corpus entero dice lo contrario
+
+**AFIRMACIÓN**: el alfa del `_n` es la máscara especular, y en un objeto portable **no** está saturada: mediana **0,00 %** de bloques con alfa constante 255, p90 **0,34 %**. Pero medido sobre el corpus **entero** el 79,8 % de los `_n` tiene más de la mitad de sus bloques en blanco — porque **9.360 de los 12.058** archivos medibles son de `terrain`, que usa alfa plano. Promediar sin separar da la conclusión contraria a la correcta.
+
+**CONSULTA QUE LA PRODUJO**: en DXT5/BC3 cada bloque de 4×4 empieza con `alpha0`, `alpha1` y 6 bytes de índices; si `alpha0 == alpha1` el bloque tiene alfa constante y vale ese byte. Se cuenta qué fracción de bloques vale 255, sin decodificar nada.
+
+**N**: 12.075 texturas `_n` del corpus; 12.058 medibles; 2.578 fuera de terrain/test/lod/sky/effects/interface; 1.201 de objeto portable (weapons, armor, clothes, clutter, actors).
+
+**EXCEPCIONES ENCONTRADAS**: **59 de 1.201 (4,91 %)** objetos portables tienen la máscara **totalmente** saturada, y no son ruido: ropa de granjero, ropa de chicos, quesos, manzanas, carbón, libros, ceniza, cejas. Son **materiales mate**, donde el brillo lo apaga la propiedad del shader (`Specular Strength`) y la máscara deja de importar.
+
+> **El alcance que sí aguanta una REGLA**: las **140** texturas `_n` de malla de arma están todas por debajo del **6,9 %** de bloques en blanco. Sin excepciones. Por eso `mascara_especular.py` declara la regla **solo para armas** y para el resto informa.
+
+> **Tercera vez.** Una regla medida sobre armas ya falló al generalizar dos veces en este repo: el radio de la caja de colisión (62 de 62 sobre armas, 73,25 % sobre el corpus) y "la malla tiene que estar cerrada" (obvia sobre armas, falsa sobre `architecture`). La diferencia acá es que el alcance se **declara** en vez de suponerse.
+
+### (#43) Los 12.075 `_n` del corpus son DXT5
+
+**AFIRMACIÓN**: todas las texturas `_n` del corpus usan **DXT5**. Cero usan DXT1, BC5 o BC7.
+**CONSULTA QUE LA PRODUJO**: lectura del FourCC / DXGI de cada `_n`.
+**N**: 12.075.
+**EXCEPCIONES ENCONTRADAS**: 0.
+
+> **Matiz importante**: eso refuerza la regla que ya existía —DXT1 no tiene alfa, así que un `_n` en DXT1 no puede llevar máscara— pero **no** convierte a BC7 en un error. BC7 lleva alfa y el motor lo carga; el corpus refleja el pipeline de Bethesda de 2011, no un límite del motor. Lo que sí implica es que un `_n` en BC7 **no se puede verificar** con un lector de bloques simple: BC7 tiene ocho modos con particionado variable. `mascara_especular.py` lo reporta como límite de la herramienta, no como defecto del archivo, y no lo da por bueno.
