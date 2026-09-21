@@ -145,3 +145,25 @@ Mediana del lado mayor por clase: `terrain` 256, `actors` 512, `clutter` 512,
 **EXCEPCIONES ENCONTRADAS**: 0.
 
 > **Matiz importante**: eso refuerza la regla que ya existía —DXT1 no tiene alfa, así que un `_n` en DXT1 no puede llevar máscara— pero **no** convierte a BC7 en un error. BC7 lleva alfa y el motor lo carga; el corpus refleja el pipeline de Bethesda de 2011, no un límite del motor. Lo que sí implica es que un `_n` en BC7 **no se puede verificar** con un lector de bloques simple: BC7 tiene ocho modos con particionado variable. `mascara_especular.py` lo reporta como límite de la herramienta, no como defecto del archivo, y no lo da por bueno.
+
+### (#44) Resultado negativo: la convención del canal verde NO se pudo medir sobre el corpus
+
+**AFIRMACIÓN**: no se encontró ninguna medición sobre el corpus que determine si el canal verde de un normal map de Skyrim está en convención OpenGL (+Y) o DirectX (−Y). Se intentaron dos, y **las dos fallaron de formas distintas y útiles de conocer**.
+
+**INTENTO 1 — comparar la normal reconstruida contra la normal suave del vértice.**
+Es **simétrico por construcción** y no puede distinguir nada: con `P = T·tx + B·ty + N·tz` y `T`, `B` perpendiculares a `N`, el producto `dot(P, N)` depende sólo de `tz`, que no cambia al invertir el verde. Medido sobre dos mallas: **0,8222 contra 0,8222**, idéntico hasta el último decimal. Un test que devuelve el mismo número para las dos hipótesis no está midiendo la hipótesis.
+
+**INTENTO 2 — coincidencia a través de una costura de UV.**
+La idea: en una costura, dos vértices ocupan el mismo punto con marcos tangentes distintos, así que la normal reconstruida desde cada lado debe coincidir; invertir el verde cambia el signo del término `B` y no el de `T`, de modo que rompe la coincidencia asimétricamente. Sobre 40 mallas vanilla con su propio `_n`, filtrando a las costuras con tangentes realmente distintas, dio **0,839 contra 0,801** y ganó "tal cual" en **31 de 40**.
+
+Parecía servir. **No sirve**: sobre `elvenbattleaxe.nif` —el único archivo donde hay una respuesta independiente— el mismo método da **27 votos contra 37 a favor de invertido**, que es lo contrario de lo que muestra el control renderizado. Y el resultado se mueve con detalles que no deberían importar: muestrear un 15 % hacia adentro de la isla lo lleva a 22 contra 41.
+
+**N**: 40 mallas vanilla, ~2.900 costuras.
+
+**EXCEPCIONES ENCONTRADAS**: no aplica — el hallazgo es que el método no es fiable. Una medición que contradice la verdad conocida en el único caso con verdad conocida no se rescata con un promedio favorable sobre 40 archivos.
+
+> **Por qué es difícil**: el marco tangente se deriva de las UV, así que la **V y el verde están acoplados**. Invertir la V cambia `T` y `B`, y eso se confunde con invertir el verde. Cualquier medición del verde presupone una convención de V ya fijada, y al revés.
+
+> **Lo que sí hay**: `[OBSERVED]` un control renderizado. `elvenbattleaxe.nif` con su propia textura vanilla, luz rasante desde arriba y sin textura de color: con el verde **tal cual** los remaches con forma de flor se iluminan arriba y sombrean abajo —salen de la superficie, que es lo que un remache hace— y las incisiones se hunden. Invertido, los remaches se hunden y las incisiones se vuelven costillas. De ahí sale la práctica: **no invertir el verde**, que además es el valor por defecto del bake de Blender (`bake.normal_g = POS_Y`).
+
+> Se anota como **OBSERVACIÓN** y no como REGLA, y sin script: una herramienta que emite un veredicto por archivo con este método estaría disfrazando de medición algo que no lo es.
