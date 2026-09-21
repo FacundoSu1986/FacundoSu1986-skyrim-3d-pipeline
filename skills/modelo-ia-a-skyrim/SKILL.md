@@ -65,7 +65,9 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
    triángulos, UV, texturas, proporción, si es sólido o cáscara, si vienen
    varias figuras en el archivo.
 4. **Preparar** — soldar, decimar al presupuesto, orientar si hace falta.
-   `scripts/preparar_parte.py`.
+   `scripts/preparar_parte.py`. Y **comprobar que la malla no se abrió**:
+   `scripts/salud_malla.py <antes> <despues>`. Soldar bien y no verificarlo
+   después no alcanza — ver trampa 28.
 5. **Montar** — cortar cada parte en su tramo, escalar a su hueco, espejar. Dar
    espesor **solo si la medición dice que es una cáscara abierta**: `Solidify`
    duplica los triángulos y no siempre hace falta.
@@ -233,6 +235,18 @@ pieza que mañana pierda una atadura.
 - **`scripts/preparar_parte.py`** — soldar, decimar a un presupuesto y, si se lo
   pedís con `--girar-180`, orientar. No gira por defecto a propósito: una
   rotación es destructiva y no debe dispararse por una heurística.
+- **`scripts/salud_malla.py`** — mide si la malla se **rompió** al decimarla, y
+  lo hace sobre el **archivo** (`.nif` o `.obj`), sin Blender. Con dos
+  argumentos aplica la REGLA: el número de aristas de borde no puede aumentar.
+  Con uno, informa. Trae `--autotest` (18 comprobaciones sobre figuras de
+  respuesta conocida) y `--falsificar <carpeta>`, que rompe mallas vanilla de
+  cuatro formas distintas y exige que el control las pesque.
+
+  La regla es **relacional** y no "la malla tiene que estar cerrada", porque eso
+  es falso: solo el 15,1 % de los shapes vanilla lo están. Todo lo demás
+  —ratio tri/vert, piezas sueltas, no-manifold, winding— se informa como
+  OBSERVACIÓN y no reprueba: no está medido sobre el corpus con la densidad que
+  hace falta para bloquear.
 
 ## Cómo conviene trabajar
 

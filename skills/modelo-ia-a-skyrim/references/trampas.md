@@ -515,6 +515,39 @@ Es la misma familia que la trampa [19](#19): allá el error estaba en la cámara
 acá en el archivo. El síntoma es el mismo y la consecuencia también — juzgar un
 modelo sobre un render mal etiquetado.
 
+### 28. Soldar bien y no comprobarlo despues no alcanza {#28}
+
+**Síntoma:** el arma llega al juego con agujeros por los que se ve el interior.
+Ningún paso dio error: el archivo se escribió bien, el juego lo cargó, y el
+modelo de origen era impecable.
+
+**Por qué pasa:** la trampa [22](#22) y `scripts/preparar_parte.py` ya dicen que
+hay que **soldar antes de decimar**, y lo hacen bien. Pero nada verifica el
+resultado. En el hacha de Tencent la decimación la hizo un script escrito a
+mano, fuera de `preparar_parte.py`, y la malla salió con el **49,4 %** de sus
+aristas abiertas partiendo de un GLB con **cero**. Después yo volví a decimar
+**desde ese archivo ya roto**, bajé a 35,2 % y lo leí como progreso.
+
+`[MEASURED]` Decimando 14 shapes vanilla al 25 %: soldando primero el número de
+aristas de borde **nunca aumentó** (peor caso x0,70); sin soldar creció en 12 de
+14, hasta **x25,5**, y las dos mallas cerradas pasaron de 0 a 956 y a 544.
+
+**Arreglo:** `scripts/salud_malla.py <antes> <despues>`. Corre sobre el
+**archivo**, sin Blender, y reprueba si el número de aristas de borde aumentó.
+Sobre los archivos reales del hacha, la cadena vieja sale con exit 1 y la nueva
+con exit 0.
+
+**Lo que NO se puede exigir:** que la malla esté cerrada. `[MEASURED]` Solo el
+**15,1 %** de los shapes vanilla lo están; la mediana tiene el 15,4 % de sus
+aristas al aire y `architecture` el 24,7 %. La ropa, los carteles y las láminas
+de vegetación son superficies abiertas a propósito. Por eso la regla es
+**relacional** —no abrir lo que estaba cerrado— y no absoluta.
+
+**La lección general:** que un paso del pipeline haga lo correcto no sirve si
+otro camino llega al mismo archivo sin pasar por él. El arreglo no es
+documentar mejor el paso bueno: es poner la comprobación **sobre el resultado**,
+donde la ve cualquiera que haya llegado por donde sea.
+
 ## Proceso
 
 ### 19. La vista "de frente" de tu render puede estar mostrando la espalda {#19}

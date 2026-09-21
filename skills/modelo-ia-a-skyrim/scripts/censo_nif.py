@@ -252,6 +252,62 @@ class Nif(object):
             fuera.append((nombre, tri, ver))
         return fuera
 
+    def geometria(self):
+        """[{nombre, pos, tris}] por shape, para medir la malla y no solo
+        contarla.
+
+        Un shape SKINNEADO sale con 'error' en vez de omitirse: su geometria
+        vive en el NiSkinPartition, que esta semilla no parsea. Omitirlo en
+        silencio es el mismo modo de fallar que tenia trishapes() --devolvia 0
+        shapes para el 17 % del corpus sin avisar-- y el que lo llama tiene que
+        poder negarse a dar por bueno un archivo que no pudo medir.
+
+        El layout se falsifica con la identidad de tamano
+        n_ver*stride + n_tri*6 == data_size. Si no cierra, no se devuelven
+        numeros inventados: sale 'error'.
+        """
+        fuera = []
+        for o, _ in self.de_tipo(*TIPOS_SHAPE):
+            nombre = "?"
+            try:
+                p, nombre = self._saltar_niavobject(o)
+                p += 16                                  # bounding sphere
+                if self.bs >= 151:
+                    p += 24                              # NO validado
+                p += 12                                  # skin, shader, alpha
+                vdesc, = struct.unpack_from("<Q", self.d, p); p += 8
+                if self.bs < 130:
+                    n_tri, = struct.unpack_from("<H", self.d, p); p += 2
+                else:
+                    n_tri, = struct.unpack_from("<I", self.d, p); p += 4
+                n_ver, = struct.unpack_from("<H", self.d, p); p += 2
+                data_size, = struct.unpack_from("<I", self.d, p); p += 4
+
+                if data_size == 0 or n_ver == 0:
+                    fuera.append({"nombre": nombre, "error":
+                                  "sin geometria inline (skinneado?): "
+                                  "tri=%d ver=%d data_size=%d"
+                                  % (n_tri, n_ver, data_size)})
+                    continue
+                stride = (vdesc & 0xF) * 4
+                esperado = n_ver * stride + n_tri * 6
+                if esperado != data_size:
+                    fuera.append({"nombre": nombre, "error":
+                                  "%d*%d + %d*6 = %d != data_size %d"
+                                  % (n_ver, stride, n_tri, esperado,
+                                     data_size)})
+                    continue
+                pos = [struct.unpack_from("<3f", self.d, p + i * stride)
+                       for i in range(n_ver)]
+                base_tri = p + n_ver * stride
+                tris = [struct.unpack_from("<3H", self.d, base_tri + t * 6)
+                        for t in range(n_tri)]
+                fuera.append({"nombre": nombre, "pos": pos, "tris": tris})
+            except Exception as e:
+                fuera.append({"nombre": nombre,
+                              "error": "%s: %s" % (type(e).__name__, e)})
+        return fuera
+
     def _ref_valida(self, r):
         return 0 <= r < len(self.bloques)
 

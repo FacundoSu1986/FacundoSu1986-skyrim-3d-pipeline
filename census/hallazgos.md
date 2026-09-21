@@ -208,3 +208,30 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **CONSULTA QUE LA PRODUJO**: `Counter` sobre las listas de hijos de todos los nodos de cada archivo.
 **N**: 3.000 archivos, 0 errores de lectura.
 **EXCEPCIONES ENCONTRADAS**: 0. Se mide porque el recorrido de `censo_nif` se queda con el **primer** padre que visita y no avisa; sobre entrada vanilla eso no puede manifestarse, pero el archivo que `verificar_export.py` recibe lo escribe un exportador. Queda declarado en la cabecera del script, no arreglado.
+
+### 32. (#40) Casi ninguna malla vanilla está cerrada — la regla no puede ser absoluta
+
+**AFIRMACIÓN**: Solo el **15,1 %** de los shapes vanilla son mallas cerradas (menos del 0,5 % de aristas de borde). La mediana tiene el **15,4 %** de sus aristas al aire, y por categoría va desde `actors` (mediana 1,6 %, el 36,4 % cerradas) hasta `architecture` (mediana 24,7 %, solo el **2,6 %** cerradas).
+**CONSULTA QUE LA PRODUJO**: para cada shape, soldar los vértices por posición (tolerancia 2e-5 del lado mayor) y contar las aristas usadas por un solo triángulo. Sobre `census/parser_uv.geometria()`.
+**N**: 700 archivos de muestra aleatoria, 1.347 shapes con al menos 50 triángulos útiles.
+**EXCEPCIONES ENCONTRADAS**: no aplica — el hallazgo **es** la dispersión. La ropa, los carteles, las láminas de vegetación y casi toda la arquitectura son superficies abiertas a propósito.
+
+> **Por qué importa**: "la malla tiene que estar cerrada" parecía la regla obvia después del hacha de Tencent, y es **falsa**. Escrita como REGLA habría bloqueado el 85 % de lo que Bethesda publica. Ver la entrada 33 para la que sí se sostiene.
+
+### 33. (#40) Decimar correctamente nunca aumenta las aristas de borde
+
+**AFIRMACIÓN**: Decimando al 25 % de sus triángulos, **soldar por distancia antes** de aplicar el modificador deja el número de aristas de borde **igual o menor** — peor caso medido **x0,70**, y las mallas cerradas siguen en cero. Decimar **sin soldar** lo multiplica: creció en **12 de 14** shapes, hasta **x25,5**, y las dos mallas cerradas de la muestra pasaron de 0 a **956** y a **544** aristas de borde.
+**CONSULTA QUE LA PRODUJO**: las mismas 14 mallas decimadas de las dos formas en Blender 4.4, midiendo el borde sobre vértices soldados antes y después.
+**N**: 14 shapes vanilla de al menos 2.000 triángulos, 28 decimaciones.
+**EXCEPCIONES ENCONTRADAS**: 0 casos en que la decimación correcta aumentara el borde.
+
+> **La causa**: un modelo de Tripo/Meshy trae los vértices **partidos por cada costura del atlas de UV** — medido en el hacha de Tencent, 858.627 vértices que sueldan a 749.992. Para el modificador `Decimate` una costura sin soldar **es** un borde de malla, y los bordes se conservan como bordes: cada isla queda como un parche suelto. Con un atlas de una isla por triángulo eso rasga el modelo entero. El GLB de origen tenía ratio tri/vert 2,00 exacto y **cero** aristas de borde; el OBJ decimado sin soldar quedó con el **49,4 %** de sus aristas abiertas, y la malla que llegó al juego con el **35,2 %**. En el juego se veía como "al arma le faltan partes". Nada dio error en ningún paso.
+
+> **Consecuencia práctica**: la REGLA es **relacional** y la implementa `skills/modelo-ia-a-skyrim/scripts/salud_malla.py`. Sobre los archivos reales del hacha, la cadena vieja sale con exit 1 (59.078 aristas de borde contra 0 del origen) y la nueva con exit 0.
+
+### 34. (#40) Contar aristas por índice de vértice no mide nada
+
+**AFIRMACIÓN**: En un NIF los vértices de costura están **duplicados**, así que dos triángulos vecinos no comparten índice y toda arista parece de borde. Hay que soldar por posición **antes** de contar.
+**CONSULTA QUE LA PRODUJO**: el mismo shape del hacha contado de las dos formas.
+**N**: 1 asset, pero el efecto es estructural: los 8.608 vértices del NIF que se envía sueldan a 3.991.
+**EXCEPCIONES ENCONTRADAS**: no aplica. Contando por índice, el hacha daba **2.953** piezas sueltas donde había 382, y 382 donde en realidad hay **1**. Los tres números salieron del mismo archivo.

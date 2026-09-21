@@ -1,0 +1,343 @@
+# -*- coding: utf-8 -*-
+"""La malla no se puede ABRIR al decimarla (issue del hacha de Tencent).
+
+El defecto que estos tests atajan no dio ni un error: el GLB de origen era una
+malla cerrada de 1.500.000 triangulos y la que llego al juego tenia el 35 % de
+sus aristas al aire. Se veia como "al arma le faltan partes".
+
+Los tests estan escritos para enumerar la familia --toda forma de romper una
+malla-- y no el caso puntual que ya encontramos, porque el mismo error entra
+por cualquier paso que toque geometria: decimar, soldar, exportar, reescalar.
+"""
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+
+from _paths import preparar_path
+
+preparar_path()
+
+import censo_nif  # noqa: E402
+import nif_sintetico  # noqa: E402
+import salud_malla  # noqa: E402
+
+CUBO_POS = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0),
+            (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)]
+CUBO_TRIS = [(0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7),
+             (0, 1, 5), (0, 5, 4), (2, 3, 7), (2, 7, 6),
+             (1, 2, 6), (1, 6, 5), (0, 4, 7), (0, 7, 3)]
+
+SCRIPT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "skills", "modelo-ia-a-skyrim", "scripts", "salud_malla.py")
+
+
+def _archivo(datos, sufijo=".nif"):
+    fd, ruta = tempfile.mkstemp(suffix=sufijo)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(datos)
+    return ruta
+
+
+def _obj(pos, tris):
+    lineas = ["v %f %f %f" % p for p in pos]
+    lineas += ["f %d %d %d" % (a + 1, b + 1, c + 1) for a, b, c in tris]
+    return _archivo(("\n".join(lineas) + "\n").encode("ascii"), ".obj")
+
+
+class MedicionTests(unittest.TestCase):
+    """Los cinco numeros, sobre una figura cuya respuesta se conoce."""
+
+    def test_cubo_cerrado(self):
+        m = salud_malla.salud(CUBO_POS, CUBO_TRIS, 1)
+        self.assertEqual(m["borde"], 0)
+        self.assertEqual(m["aristas"], 18)
+        self.assertEqual(m["piezas"], 1)
+        self.assertEqual(m["no_manifold"], 0)
+        self.assertEqual(m["winding"], 0)
+        self.assertEqual(m["soldados"], 8)
+
+    def test_soldar_primero_o_no_medir_nada(self):
+        """Con los vertices partidos por costura, contar por INDICE dice que
+        todo es borde. Soldando por posicion es el mismo cubo cerrado.
+
+        Es la confusion que hizo leer 382 piezas donde habia 1.
+        """
+        pos, tris = [], []
+        for a, b, c in CUBO_TRIS:
+            base = len(pos)
+            pos.extend([CUBO_POS[a], CUBO_POS[b], CUBO_POS[c]])
+            tris.append((base, base + 1, base + 2))
+        m = salud_malla.salud(pos, tris, 1)
+        self.assertEqual(m["verts"], 36)
+        self.assertEqual(m["soldados"], 8)
+        self.assertEqual(m["borde"], 0)
+        self.assertEqual(m["piezas"], 1)
+
+    def test_cada_rotura_mueve_su_propio_numero(self):
+        """Enumera la familia: cada forma de romper una malla tiene que mover
+        la medida que le corresponde y NO las otras."""
+        base = salud_malla.salud(CUBO_POS, CUBO_TRIS, 1)
+        casos = [
+            ("agujero", CUBO_POS, CUBO_TRIS[2:], "borde"),
+            ("dos piezas",
+             CUBO_POS + [(x + 10, y, z) for x, y, z in CUBO_POS],
+             CUBO_TRIS + [(a + 8, b + 8, c + 8) for a, b, c in CUBO_TRIS],
+             "piezas"),
+            ("triangulo invertido", CUBO_POS,
+             [tuple(reversed(CUBO_TRIS[0]))] + CUBO_TRIS[1:], "winding"),
+            ("arista con tres caras", CUBO_POS + [(0.5, 0.5, 2.0)],
+             CUBO_TRIS + [(0, 1, 8)], "no_manifold"),
+        ]
+        for nombre, pos, tris, campo in casos:
+            with self.subTest(rotura=nombre):
+                m = salud_malla.salud(pos, tris, 1)
+                self.assertGreater(
+                    m[campo], base[campo],
+                    "%s no movio %s" % (nombre, campo))
+
+    def test_el_degenerado_no_cuenta_como_triangulo(self):
+        m = salud_malla.salud(CUBO_POS, CUBO_TRIS + [(0, 0, 1)], 1)
+        self.assertEqual(m["degenerados"], 1)
+        self.assertEqual(m["tris"], len(CUBO_TRIS))
+
+    def test_posiciones_no_finitas_no_revientan(self):
+        """El corpus tiene shapes con NaN. No puede tirar excepcion ni contar
+        esos vertices como si fueran un punto."""
+        pos = CUBO_POS + [(float("nan"), 0.0, 0.0)]
+        m = salud_malla.salud(pos, CUBO_TRIS + [(0, 1, 8)], 1)
+        self.assertIsNotNone(m)
+        self.assertEqual(m["fuera_de_rango"], 1)
+
+    def test_el_minimo_de_triangulos_descarta_lo_que_no_dice_nada(self):
+        """Un cartel de dos triangulos tiene el 100 % de borde y esta bien."""
+        self.assertIsNone(salud_malla.salud(CUBO_POS, CUBO_TRIS[:2]))
+
+
+class ReglaTests(unittest.TestCase):
+    """REGLA: el numero de aristas de borde no puede aumentar."""
+
+    def _t(self, pos, tris):
+        return salud_malla.total([salud_malla.salud(pos, tris, 1)])
+
+    def test_cerrada_a_rota_reprueba(self):
+        cerrada = self._t(CUBO_POS, CUBO_TRIS)
+        rota = self._t(CUBO_POS, CUBO_TRIS[2:])
+        fallas, _ = salud_malla.comparar(cerrada, rota)
+        self.assertTrue(fallas)
+
+    def test_la_misma_malla_pasa(self):
+        a = self._t(CUBO_POS, CUBO_TRIS)
+        fallas, _ = salud_malla.comparar(a, self._t(CUBO_POS, CUBO_TRIS))
+        self.assertFalse(fallas)
+
+    def test_abierta_que_se_cierra_pasa(self):
+        """El 85 % del corpus vanilla es abierto a proposito. Reducir el borde
+        es valido; la regla es relacional, no absoluta."""
+        abierta = self._t(CUBO_POS, CUBO_TRIS[2:])
+        menos = self._t(CUBO_POS, CUBO_TRIS)
+        fallas, _ = salud_malla.comparar(abierta, menos)
+        self.assertFalse(fallas)
+
+    def test_abierta_que_se_abre_mas_reprueba(self):
+        fallas, _ = salud_malla.comparar(self._t(CUBO_POS, CUBO_TRIS[2:]),
+                                         self._t(CUBO_POS, CUBO_TRIS[4:]))
+        self.assertTrue(fallas)
+
+    def test_sin_nada_que_medir_reprueba(self):
+        """Cero comprobaciones no es exito."""
+        fallas, _ = salud_malla.comparar(self._t(CUBO_POS, CUBO_TRIS), None)
+        self.assertTrue(fallas)
+        fallas, _ = salud_malla.comparar(None, None)
+        self.assertTrue(fallas)
+
+
+class LecturaNifTests(unittest.TestCase):
+    """censo_nif.geometria(): recupera la geometria, o dice que no pudo."""
+
+    def test_recupera_lo_que_se_escribio(self):
+        datos, esperado = nif_sintetico.construir_estatico(CUBO_POS, CUBO_TRIS)
+        ruta = _archivo(datos)
+        try:
+            g = censo_nif.Nif(ruta).geometria()
+            self.assertEqual(len(g), 1)
+            self.assertNotIn("error", g[0])
+            self.assertEqual([tuple(t) for t in g[0]["tris"]],
+                             esperado["tris"])
+            self.assertEqual([tuple(round(c, 6) for c in p)
+                              for p in g[0]["pos"]], esperado["pos"])
+        finally:
+            os.unlink(ruta)
+
+    def test_un_data_size_mentiroso_no_devuelve_numeros(self):
+        """La identidad n_ver*stride + n_tri*6 == data_size falsifica el
+        layout. Si no cierra, sale 'error' -- no basura."""
+        datos, _ = nif_sintetico.construir_estatico(CUBO_POS, CUBO_TRIS,
+                                                    data_size=999)
+        ruta = _archivo(datos)
+        try:
+            g = censo_nif.Nif(ruta).geometria()
+            self.assertIn("error", g[0])
+            self.assertIn("data_size", g[0]["error"])
+        finally:
+            os.unlink(ruta)
+
+    def test_el_shape_skinneado_avisa_en_vez_de_desaparecer(self):
+        """Un shape sin geometria inline no se puede omitir en silencio: el
+        que llama tiene que poder negarse a dar por bueno lo que no midio."""
+        datos, _ = nif_sintetico.construir_skinneado()
+        ruta = _archivo(datos)
+        try:
+            g = censo_nif.Nif(ruta).geometria()
+            self.assertTrue(g, "no devolvio ningun shape")
+            self.assertTrue(all("error" in s for s in g))
+            medidas, avisos = salud_malla.leer(ruta)
+            self.assertEqual(medidas, [])
+            self.assertTrue(avisos)
+        finally:
+            os.unlink(ruta)
+
+
+class DivergenciaConMedirParteTests(unittest.TestCase):
+    """Dos lecturas de la MISMA magnitud tienen que dar el mismo numero.
+
+    `medir_parte.aristas_de_borde()` ya contaba bordes antes que esto, pero
+    corre DENTRO de Blender --sobre la escena-- y con tolerancia ABSOLUTA
+    (1e-5). `salud_malla.salud()` corre sobre el ARCHIVO, sin Blender, y suelda
+    con tolerancia RELATIVA al lado mayor. Las dos son defendibles y no son la
+    misma: sobre una malla en unidades de Skyrim (cientos), 1e-5 absoluto es
+    mucho mas fino que 2e-5 relativo.
+
+    El test no elige cual gana: exige que coincidan donde tienen que coincidir
+    y deja escrito donde no. Si manana alguien toca una, esto lo dice.
+
+    `medir_parte` importa `bpy`, asi que no se puede importar aca. Se extrae la
+    funcion REAL de su fuente con `ast` y se ejecuta: probar una copia pegada
+    en el test no probaria nada.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import ast
+        import io
+        ruta = os.path.join(os.path.dirname(SCRIPT), "medir_parte.py")
+        with io.open(ruta, encoding="utf-8") as fh:
+            arbol = ast.parse(fh.read())
+        fn = next((n for n in arbol.body
+                   if isinstance(n, ast.FunctionDef)
+                   and n.name == "aristas_de_borde"), None)
+        if fn is None:
+            raise AssertionError(
+                "medir_parte.py ya no define aristas_de_borde: este test ata "
+                "las dos lecturas y hay que reapuntarlo, no borrarlo")
+        entorno = {}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), ruta, "exec"),
+             entorno)
+        cls.aristas_de_borde = staticmethod(entorno["aristas_de_borde"])
+
+    def _malla_falsa(self, pos, tris):
+        """Lo minimo que aristas_de_borde() toca de una malla de Blender."""
+        class V(object):
+            def __init__(self, co):
+                self.co = type("Co", (), {"x": co[0], "y": co[1],
+                                          "z": co[2]})()
+
+        class P(object):
+            def __init__(self, t):
+                self.vertices = list(t)
+
+        return type("Malla", (), {"vertices": [V(p) for p in pos],
+                                  "polygons": [P(t) for t in tris]})()
+
+    def test_las_dos_cuentan_lo_mismo_en_las_mismas_figuras(self):
+        casos = [("cubo cerrado", CUBO_POS, CUBO_TRIS),
+                 ("cubo con un agujero", CUBO_POS, CUBO_TRIS[2:]),
+                 ("dos cubos", CUBO_POS + [(x + 10, y, z)
+                                           for x, y, z in CUBO_POS],
+                  CUBO_TRIS + [(a + 8, b + 8, c + 8) for a, b, c in CUBO_TRIS])]
+        for nombre, pos, tris in casos:
+            with self.subTest(figura=nombre):
+                mia = salud_malla.salud(pos, tris, 1)["borde"]
+                suya = self.aristas_de_borde(self._malla_falsa(pos, tris))
+                self.assertEqual(mia, suya,
+                                 "%s: salud_malla %d vs medir_parte %d"
+                                 % (nombre, mia, suya))
+
+    def test_la_tolerancia_relativa_es_la_que_cierra_una_costura_real(self):
+        """Donde SI divergen, y por que la relativa es la que sirve aca.
+
+        Un vertice partido por costura y separado 1e-4 en una malla de 100
+        unidades es el mismo punto: 1e-6 del tamano. La tolerancia absoluta de
+        1e-5 no lo suelda y cuenta bordes falsos; la relativa si.
+        """
+        escala = 100.0
+        pos, tris = [], []
+        for a, b, c in CUBO_TRIS:
+            base = len(pos)
+            for i in (a, b, c):
+                x, y, z = CUBO_POS[i]
+                pos.append((x * escala + 1e-4 * (base % 2),
+                            y * escala, z * escala))
+            tris.append((base, base + 1, base + 2))
+        mia = salud_malla.salud(pos, tris, 1)["borde"]
+        suya = self.aristas_de_borde(self._malla_falsa(pos, tris))
+        self.assertEqual(mia, 0, "la relativa tendria que cerrar el cubo")
+        self.assertGreater(suya, 0,
+                           "si la absoluta ya cerrara esto, el comentario de "
+                           "este test esta desactualizado")
+
+
+class LineaDeComandosTests(unittest.TestCase):
+    """Los codigos de salida son el contrato con el pipeline."""
+
+    def _correr(self, *args):
+        p = subprocess.run([sys.executable, SCRIPT] + list(args),
+                           capture_output=True, text=True)
+        return p.returncode, p.stdout + p.stderr
+
+    def test_autotest_pasa(self):
+        codigo, salida = self._correr("--autotest")
+        self.assertEqual(codigo, 0, salida)
+        self.assertIn("0 fallas", salida)
+
+    def test_par_sano_sale_cero_y_par_roto_sale_uno(self):
+        # Dos cubos: 24 triangulos, por encima del minimo de la herramienta.
+        # Con uno solo (12 tri) la version rota quedaba en 10 y el control
+        # reprobaba por "no hay nada que medir" en vez de por la REGLA: mismo
+        # codigo de salida, otra razon. Lo pesco la asercion sobre el mensaje.
+        pos2 = CUBO_POS + [(x + 10, y, z) for x, y, z in CUBO_POS]
+        tris2 = CUBO_TRIS + [(a + 8, b + 8, c + 8) for a, b, c in CUBO_TRIS]
+        sano = _obj(pos2, tris2)
+        roto = _obj(pos2, tris2[2:])
+        try:
+            self.assertEqual(self._correr(sano, sano)[0], 2,
+                             "el mismo archivo dos veces tiene que ser 2")
+            copia = _obj(pos2, tris2)
+            try:
+                self.assertEqual(self._correr(sano, copia)[0], 0)
+            finally:
+                os.unlink(copia)
+            codigo, salida = self._correr(sano, roto)
+            self.assertEqual(codigo, 1, salida)
+            self.assertIn("REGLA borde", salida)
+        finally:
+            os.unlink(sano)
+            os.unlink(roto)
+
+    def test_sin_argumentos_o_con_extension_rara_no_dice_que_paso(self):
+        self.assertEqual(self._correr()[0], 2)
+        self.assertEqual(self._correr("a", "b", "c")[0], 2)
+
+    def test_un_archivo_sin_nada_medible_no_sale_cero(self):
+        """Medir nada no es pasar."""
+        vacio = _obj(CUBO_POS, CUBO_TRIS[:2])
+        try:
+            self.assertEqual(self._correr(vacio)[0], 1)
+        finally:
+            os.unlink(vacio)
+
+
+if __name__ == "__main__":
+    unittest.main()
