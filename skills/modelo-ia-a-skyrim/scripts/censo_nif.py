@@ -276,6 +276,13 @@ class Nif(object):
                     p += 24                              # NO validado
                 p += 12                                  # skin, shader, alpha
                 vdesc, = struct.unpack_from("<Q", self.d, p); p += 8
+                # OJO: la rama >=130 es INALCANZABLE en esta semilla -- el
+                # constructor levanta para bs>=130 unos 200 metros mas arriba.
+                # Se espeja linea por linea a trishapes_detalle() de
+                # census/parser_nif.py (unica fuente validada sobre el corpus)
+                # para que si alguien mueve un offset ahi, mueva este tambien.
+                # Antes de creer el else hay que falsificarlo contra un FO4 de
+                # verdad, ahi, no aca.
                 if self.bs < 130:
                     n_tri, = struct.unpack_from("<H", self.d, p); p += 2
                 else:

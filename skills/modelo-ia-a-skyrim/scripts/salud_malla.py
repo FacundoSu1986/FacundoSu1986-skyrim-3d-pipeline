@@ -66,8 +66,8 @@ toda arista parece de borde. En el hacha eso daba 2.953 piezas donde habia
 382, y 382 donde en realidad habia 1. Primero se sueldan las posiciones.
 """
 import os
-import struct
 import sys
+import tempfile
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -129,7 +129,10 @@ def salud(pos, tris, min_triangulos=MIN_TRIANGULOS):
     degenerados = 0
     fuera_de_rango = 0
     for t in tris:
-        if any(i >= len(w) for i in t):
+        if any(i < 0 or i >= len(w) for i in t):
+            # el i < 0 no era de la version original y era el agujero: w[-2]
+            # es un vertice VALIDO para Python, asi que un indice negativo sin
+            # resolver no reventaba: medía otra malla. Se cuenta.
             fuera_de_rango += 1
             continue
         a, b, c = w[t[0]], w[t[1]], w[t[2]]
@@ -208,14 +211,17 @@ def comparar(antes, despues):
         fallas.append("no hubo nada que medir en uno de los dos archivos")
         return fallas, notas
     if despues["borde"] > antes["borde"]:
+        # contra 0 no hay multiplicador que valga: la primera version imprimia
+        # "(x59078.0)" sobre el hacha --el caso mas importante de todos-- y ese
+        # numero no es un ratio, es el numerador disfrazado.
+        cuanto = ("x%.1f" % (despues["borde"] / float(antes["borde"]))
+                  if antes["borde"] else "el origen estaba CERRADO")
         fallas.append(
-            "REGLA borde: %d aristas de borde contra %d del origen (x%.1f). "
+            "REGLA borde: %d aristas de borde contra %d del origen (%s). "
             "La malla se ABRIO. Decimando 14 shapes vanilla al 25 %%, soldar "
             "antes de decimar nunca aumento el borde (peor caso x0,70); "
             "decimar directo lo multiplico hasta x25,5."
-            % (despues["borde"], antes["borde"],
-               despues["borde"] / float(antes["borde"])
-               if antes["borde"] else float(despues["borde"])))
+            % (despues["borde"], antes["borde"], cuanto))
     for campo, texto in (("piezas", "piezas sueltas"),
                          ("no_manifold", "aristas no-manifold"),
                          ("winding", "aristas con winding incoherente")):
@@ -233,15 +239,52 @@ def comparar(antes, despues):
 # --------------------------------------------------------------------------
 # lectura
 # --------------------------------------------------------------------------
+def _indice_obj(tok, n):
+    """Indice de cara del .obj, ya en 0-based.
+
+    La spec de Wavefront permite dos escrituras: 1-based positiva, y NEGATIVA
+    relativa al ultimo vertice definido hasta esa linea ("f -1 -2 -3" son los
+    tres ultimos v leidos). El 0 no existe en el formato.
+    """
+    try:
+        i = int(tok.split("/")[0])
+    except ValueError:
+        return -10 ** 12
+    if i > 0:
+        return i - 1
+    if i < 0:
+        return n + i
+    return -10 ** 12
+
+
 def _leer_obj(ruta):
+    """Vertices y caras del .obj.
+
+    La primera version hacia `int(tok) - 1` para TODO token: un indice
+    negativo, que es valido, quedaba barajado (-1 apuntaba al penultimo
+    vertice en vez del ultimo) y un -len reventaba con IndexError. Barajado es
+    el modo peor: la malla se media TUERTA y el control no lo decia. Ahora el
+    negativo se resuelve como dice la spec, contra los v definidos hasta esa
+    linea, y lo demas (0, basura, pasarse del rango) sale como indice
+    imposible que salud() cuenta en `fuera_de_rango` en vez de omitir en
+    silencio o de explotar.
+    """
     pos, tris = [], []
     with open(ruta, "r", errors="ignore") as fh:
         for linea in fh:
             if linea.startswith("v "):
                 p = linea.split()
-                pos.append((float(p[1]), float(p[2]), float(p[3])))
+                try:
+                    pos.append((float(p[1]), float(p[2]), float(p[3])))
+                except (ValueError, IndexError):
+                    # un v incompleto NO se descarta: descartarlo correria un
+                    # puesto los indices de TODAS las caras siguientes, que es
+                    # exactamente la corrupcion silenciosa que se quiere
+                    # evitar. Entra como NaN; salud() lo filtra y cuenta afuera
+                    # las caras que lo tocan.
+                    pos.append((float("nan"), 0.0, 0.0))
             elif linea.startswith("f "):
-                idx = [int(t.split("/")[0]) - 1 for t in linea.split()[1:]]
+                idx = [_indice_obj(t, len(pos)) for t in linea.split()[1:]]
                 for i in range(1, len(idx) - 1):
                     tris.append((idx[0], idx[i], idx[i + 1]))
     return [{"nombre": os.path.basename(ruta), "pos": pos, "tris": tris}]
@@ -256,7 +299,7 @@ def leer(ruta):
     elif ext == ".nif":
         shapes = censo_nif.Nif(ruta).geometria()
     else:
-        raise SystemExit("extension no soportada: %s (.nif o .obj)" % ext)
+        raise ValueError("extension no soportada: %s (.nif o .obj)" % ext)
 
     medidas, avisos = [], []
     for s in shapes:
@@ -317,8 +360,15 @@ def _partir_por_costura(pos, tris):
 
 def autotest():
     fallas = []
+    n_comprobaciones = [0]
 
     def exigir(cond, texto):
+        # el contador se lleva aca y se imprime abajo: la primera version
+        # hardcodeaba "18 comprobaciones" en el print, y cuando el banco crecio
+        # siguio imprimiendo 18. Es EL defecto que esta herramienta existe para
+        # cazar — reportar lo que se cree y no lo que se cuenta — cometido por
+        # la herramienta. Un numero de este archivo no se toca a mano jamas.
+        n_comprobaciones[0] += 1
         if not cond:
             fallas.append(texto)
 
@@ -376,6 +426,46 @@ def autotest():
     exigir(m_nm["no_manifold"] == 1,
            "no-manifold: %d, se esperaba 1" % m_nm["no_manifold"])
 
+    # --- el .obj, que es la otra mitad del contrato -------------------------
+    # La spec de Wavefront permite caras con indices negativos: "f -8 -6 -7"
+    # son (0,2,1) contados desde el final. La primera version del lector hacia
+    # int(tok)-1 para todo token: el negativo quedaba barajado y un -8
+    # reventaba con IndexError, o sea: medida otra malla, o crash con
+    # traceback. El mismo cubo escrito con negativos tiene que dar el MISMO
+    # numero que con positivos, y la basura tiene que terminar en
+    # fuera_de_rango, no en silencio.
+    with tempfile.TemporaryDirectory() as tmp:
+        ruta_neg = os.path.join(tmp, "cubo_neg.obj")
+        with open(ruta_neg, "w") as fh:
+            fh.write("".join("v %r %r %r\n" % p for p in pos))
+            fh.write("".join("f %d %d %d\n" % (a - len(pos), b - len(pos),
+                                               c - len(pos))
+                             for a, b, c in tris))
+        s = _leer_obj(ruta_neg)[0]
+        mo = salud(s["pos"], s["tris"], 1)
+        exigir(mo is not None and mo["borde"] == 0 and mo["tris"] == 12
+               and mo["fuera_de_rango"] == 0,
+               "obj con indices negativos: no mide el mismo cubo (%s)"
+               % str(mo and (mo["borde"], mo["tris"], mo["fuera_de_rango"])))
+
+        ruta_basura = os.path.join(tmp, "basura.obj")
+        with open(ruta_basura, "w") as fh:
+            fh.write("v 0 0\n")                       # v incompleto -> NaN
+            fh.write("".join("v %r %r %r\n" % p for p in pos[1:]))
+            fh.write("f -99 1 2\nf x 2 3\nf 0 1 2\n")  # imposibles
+            fh.write("f 5 6 7\nf 6 7 8\n")            # 2 caras validas, que
+            # no tocan el vertice roto (la cara 1 toca el NaN y contaria afuera
+            # tambien: 3 fuera y no 4, y el banco tiene que saber por que falla)
+        s = _leer_obj(ruta_basura)[0]
+        exigir(len(s["pos"]) == 8,
+               "el v incompleto se descarto y corrio los indices: %d"
+               % len(s["pos"]))
+        mb = salud(s["pos"], s["tris"], 1)
+        exigir(mb is not None and mb["fuera_de_rango"] == 3
+               and mb["tris"] == 2,
+               "indices imposibles: se esperaban 3 fuera_de_rango y 2 tri, "
+               "salio %s" % str(mb and (mb["fuera_de_rango"], mb["tris"])))
+
     # --- la REGLA -----------------------------------------------------------
     cerrada = total([salud(pos, tris, 1)])
     rota = total([salud(*_partir_por_costura(pos, tris[2:]), min_triangulos=1)])
@@ -396,7 +486,7 @@ def autotest():
     exigir(f, "contra un archivo sin nada medible: la REGLA no reprobo")
 
     print("autotest: %d comprobaciones, %d fallas"
-          % (18, len(fallas)))
+          % (n_comprobaciones[0], len(fallas)))
     for x in fallas:
         print("  FALLA %s" % x)
     return 1 if fallas else 0
@@ -541,8 +631,11 @@ def falsificar(raiz):
                     fallas.append("%s / %s: la REGLA no reprobo"
                                   % (os.path.basename(ruta), nombre))
 
-    print("falsificar: %d archivos x %d roturas = %d comprobaciones, %d fallas"
-          % (usados, roturas // max(1, usados), roturas, len(fallas)))
+    # roturas por archivo NO es constante: "agujerear" e "invertir" solo existen
+    # si hay triangulos interiores, un file totalmente abierto recibe 2 y no 4.
+    # La primera version imprimia el promedio como si fuera "x 4" exacto.
+    print("falsificar: %d archivos medibles, %d roturas, %d fallas"
+          % (usados, roturas, len(fallas)))
     for x in fallas:
         print("  FALLA %s" % x)
     if usados == 0:
@@ -551,15 +644,36 @@ def falsificar(raiz):
     return 1 if fallas else 0
 
 
+def _ext_ok(*rutas):
+    """Valida las extensiones ANTES de leer nada.
+
+    Un .txt es un argumento que no sirve, y el contrato de arriba dice que
+    eso sale con 2, no con 1: un automatizador tiene que poder distinguir
+    "el control no entendi que le pasaron" de "el control fallo", sin leer
+    stderr. La primera version tiraba SystemExit con mensaje y salia con 1.
+    """
+    malas = [r for r in rutas
+             if os.path.splitext(r)[1].lower() not in (".nif", ".obj")]
+    if malas:
+        print("no se puede medir %s: las entradas son .nif o .obj"
+              % ", ".join(malas), file=sys.stderr)
+        return False
+    return True
+
+
 def main(argv):
     if len(argv) == 1 and argv[0] == "--autotest":
         return autotest()
     if len(argv) == 2 and argv[0] == "--falsificar":
         return falsificar(argv[1])
     if len(argv) == 1:
+        if not _ext_ok(argv[0]):
+            return 2
         medidas, avisos = informe(argv[0])
         return 0 if medidas else 1
     if len(argv) == 2:
+        if not _ext_ok(argv[0], argv[1]):
+            return 2
         if os.path.abspath(argv[0]) == os.path.abspath(argv[1]):
             print("los dos caminos son el mismo archivo: no hay que comparar")
             return 2

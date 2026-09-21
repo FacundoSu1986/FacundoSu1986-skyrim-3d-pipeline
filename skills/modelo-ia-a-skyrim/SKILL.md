@@ -66,8 +66,12 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
    varias figuras en el archivo.
 4. **Preparar** — soldar, decimar al presupuesto, orientar si hace falta.
    `scripts/preparar_parte.py`. Y **comprobar que la malla no se abrió**:
-   `scripts/salud_malla.py <antes> <despues>`. Soldar bien y no verificarlo
-   después no alcanza — ver trampa 28.
+   `scripts/salud_malla.py <antes> <despues>`, sobre los `.obj` de este paso,
+   **antes de Montar**. Soldar bien y no verificarlo después no alcanza — ver
+   trampa 28. Sobre un `.nif` skinneado el control no mide: la geometría está
+   en el NiSkinPartition y sale `exit 1` con un AVISO "sin geometría medible".
+   Eso no es la malla rota; para saber si un skinneado está roto hay que medir
+   la fuente, no el archivo del juego.
 5. **Montar** — cortar cada parte en su tramo, escalar a su hueco, espejar. Dar
    espesor **solo si la medición dice que es una cáscara abierta**: `Solidify`
    duplica los triángulos y no siempre hace falta.
@@ -238,9 +242,12 @@ pieza que mañana pierda una atadura.
 - **`scripts/salud_malla.py`** — mide si la malla se **rompió** al decimarla, y
   lo hace sobre el **archivo** (`.nif` o `.obj`), sin Blender. Con dos
   argumentos aplica la REGLA: el número de aristas de borde no puede aumentar.
-  Con uno, informa. Trae `--autotest` (18 comprobaciones sobre figuras de
-  respuesta conocida) y `--falsificar <carpeta>`, que rompe mallas vanilla de
-  cuatro formas distintas y exige que el control las pesque.
+  Con uno, informa. Trae `--autotest` (figuras de respuesta conocida; cuántas
+  comprobaciones son las imprime el banco porque **se cuentan, no se declaran**)
+  y `--falsificar <carpeta>`, que rompe mallas vanilla de hasta cuatro formas
+  por archivo —el número depende de si hay triángulos interiores— y exige que
+  el control las pesque. Sale con `2` si los argumentos no sirven (otra
+  extensión), para que un automatizador distinga "no le entendí" de "falló".
 
   La regla es **relacional** y no "la malla tiene que estar cerrada", porque eso
   es falso: solo el 15,1 % de los shapes vanilla lo están. Todo lo demás
