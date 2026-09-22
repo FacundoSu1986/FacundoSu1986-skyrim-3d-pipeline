@@ -38,6 +38,7 @@ verificación que los atrapa.
 | [`scripts/nif_nodos.py`](skills/modelo-ia-a-skyrim/scripts/nif_nodos.py) | Jerarquía de nodos y posiciones de hueso reales |
 | [`scripts/medir_parte.py`](skills/modelo-ia-a-skyrim/scripts/medir_parte.py) | Mide un GLB/FBX/OBJ recién generado |
 | [`scripts/preparar_parte.py`](skills/modelo-ia-a-skyrim/scripts/preparar_parte.py) | Soldar, decimar, orientar |
+| [`scripts/howdah_mamut.py`](skills/modelo-ia-a-skyrim/scripts/howdah_mamut.py) | Howdah de mûmak sobre el lomo de un mamut: geometría paramétrica atada a la columna, medida contra el vanilla |
 
 Y aparte, en [`census/`](census), las herramientas que producen los números:
 

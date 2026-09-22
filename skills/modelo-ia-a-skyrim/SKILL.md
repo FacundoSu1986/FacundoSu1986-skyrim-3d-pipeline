@@ -242,6 +242,18 @@ pieza que mañana pierda una atadura.
   de un arma **en coordenadas de mundo** y los compara contra el rango de su
   **clase** (medido sobre 199 armas vanilla en 9 clases). REGLA: caer dentro
   del `[min, max]` de la clase. OBSERVACIÓN: en qué percentil cae cada medida.
+- **`scripts/howdah_mamut.py`** — howdah de mûmak sobre el lomo de un mamut (o
+  de cualquier cuadrúpedo grande): plataforma, baranda, toldo, escalera y
+  correas, armadas con cajas cerradas y atadas a los huesos de la columna que
+  le pases con `--huesos`. Mide el lomo del `skeleton.nif` con `nif_nodos.py`;
+  sin esqueleto hay que declarar el alto y el informe lo marca `[DECLARADO]`.
+
+  Es el ejemplo más corto de las dos reglas que más caro salen romper: **no
+  inventar una medida** (`--listar-huesos` vuelca los nombres reales en vez de
+  adivinarlos) y **verificar sobre lo generado**, no sobre la escena: malla
+  cerrada, winding, y que la cubierta caiga dentro del tramo de huesos medido.
+  Lo que no hace: el NIF (lo exporta PyNifly contra el vanilla) y que el bicho
+  sea montable, que es actor, animación y plugin.
 
   El rango vanilla es **ancho**, así que esto es una red de seguridad y no una
   regla de gusto: el mango del hacha de Tencent medía 0,1124 del largo y el
