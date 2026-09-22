@@ -167,3 +167,21 @@ entendemos.
 **CONSULTA**: `clasificar(formids, len(masters(d)))` sobre cada `.esl`.
 **N**: 3 archivos; 165 overrides en uno, 0 en los otros dos.
 **EXCEPCIONES**: la versión anterior de `esl.py` reportaba **los 165 como "fuera de rango"** y se habría negado a marcar un ESL que el juego ya carga. La comprobación se aplicaba a *todos* los records no-`TES4` y el informe los llamaba "records propios", que es otra cosa.
+
+### 12. (#31) `formVersion` es 44 en todo lo que Bethesda autoró para SE — y el corpus entero dice lo contrario
+
+**AFIRMACIÓN**: En los **5 plugins autorados para SE** —`_ResourcePack.esl` y los cuatro de Creation Club— los **10.273** records llevan `formVersion` (bytes 20-21 de la cabecera) **44**. Sobre los **10 plugins**, 44 es además el **máximo**: no existe un 45 en 1.188.821 records.
+**CONSULTA**: `struct.unpack_from("<H", d, offset + 20)` en cada record no-`GRUP`, separando los 5 masters de 2011 de los 5 autorados para SE.
+**N**: 10.273 records autorados para SE; 1.188.821 en total.
+**EXCEPCIONES**: 0 en el subconjunto SE. **El corpus entero invierte la conclusión**: solo el **7,65 %** está en 44 y el valor más común es el **39** (26,2 %). No es una excepción a la regla sino otra población: los masters de 2011 llevan, record por record, la versión de la última edición —hay 8 records que nadie tocó desde la **14**—. Es historia del archivo, no lo que escribe hoy el Creation Kit. Es la tercera vez en el proyecto que el subconjunto invierte la respuesta, después de `bhkRadius` y la máscara especular.
+
+**Confirmado en el juego.** El `.esl` del hacha de Tencent salió con 0 en sus tres records: el plugin cargó, el VALOR se leyó bien y el PESO y el DAÑO salieron en 0. Con 44, el mismo record dio **peso 27 y daño 26**. El motor lee el `DATA` con el layout de la versión declarada, y el único síntoma fue un número mal en una pantalla. `skills/asset-nuevo-skyrim/scripts/verificar_plugin.py` lo reprueba; `--falsificar` torció un record de cada uno de los 5 plugins autorados para SE a 0, 39 y 45, y los 15 reprobaron.
+
+### 13. El índice de mod de un FormID nunca pasa la cantidad de masters — salvo un record sucio de Bethesda
+
+**AFIRMACIÓN**: En un plugin con N masters, el byte alto del FormID de cada record es **≤ N**: N es el propio plugin y cada índice menor, un override de ese master. Se cumple en **1.188.810 de 1.188.811** records.
+**CONSULTA**: `form_id >> 24` contra la cantidad de `MAST` del `TES4`, en cada record no-`TES4` de los 10 plugins.
+**N**: 10 plugins, 1.188.811 records.
+**EXCEPCIONES**: **1**, con nombre: el `GMST` **`iDaysToRespawnVendor`** (`0123C00E`) de `Skyrim.esm`, índice 1 en un archivo **sin** masters —apunta a un plugin que no existe—. La regla lo marca, y el juego carga `Skyrim.esm` igual. Por qué ese record no rompe nada **no está medido**.
+
+**Lo que la regla no ve.** El `.esl` del hacha del 20/9 tenía el `WEAP` en `00000800`: índice 0, un override de `Skyrim.esm`. Estructuralmente válido, así que pasa. Pero `00000800` **no existe** en `Skyrim.esm` —el más cercano es `00000810`—: el plugin estaba *inyectando* un record en el espacio del master. La inyección es una técnica usada y funciona, pero choca si una actualización ocupa ese número. Verificarlo exige cargar el master; no hay un N que la vuelva regla, y queda como observación. La línea `OBS` de `verificar_plugin.py` —`0 propio(s), 1 override(s)`— es lo que lo dejó a la vista.
