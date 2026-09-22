@@ -101,13 +101,28 @@ class ReglaVersionTests(unittest.TestCase):
         """`Skyrim.esm` tiene 1,1 millones de records fuera de 44 --
         legítimos, son de 2011--. Una falla por record son 1,1 M de strings.
         El detalle se corta, pero el TOTAL tiene que ser el verdadero: un
-        resumen que cuenta de menos es otra forma de mentir."""
-        n = vp.LIMITE_DETALLE * 5
+        resumen que cuenta de menos es otra forma de mentir.
+
+        El 50 y el 11 van LITERALES y no `vp.LIMITE_DETALLE`. La primera
+        versión armaba `n = LIMITE_DETALLE * 5` y acotaba con
+        `LIMITE_DETALLE + 1`: mutar la constante a 99999 movía la sonda y el
+        test seguía verde. Lo encontró una revisión; es el mismo patrón que
+        test_proporciones_arma castiga con su 9e-5."""
         fallas, _ = vp.juzgar(_info(
-            [_rec(version=0, form_id=0x800 + i) for i in range(n)]))
-        self.assertLessEqual(len(fallas), vp.LIMITE_DETALLE + 1)
-        self.assertTrue(any(str(n) in f for f in fallas),
-                        "el total %d no aparece en %r" % (n, fallas[-1:]))
+            [_rec(version=0, form_id=0x800 + i) for i in range(50)]))
+        self.assertLessEqual(len(fallas), 11,
+                             "50 records rotos dieron %d fallas" % len(fallas))
+        self.assertIn("50 records en total", fallas[-1])
+
+    def test_el_TES4_tambien_esta_sujeto_a_la_regla(self):
+        """El hacha tenía 0 también en el TES4, y los 10.273 records medidos
+        incluyen los 5 TES4. Nada lo fijaba: el test de punta a punta pone
+        TODOS en 0 y reprueba igual por el STAT, así que eximir al TES4 dejaba
+        la suite y el --autotest en verde. Lo encontró una revisión."""
+        fallas, _ = vp.juzgar(_info([_rec(tipo="TES4", form_id=0, version=0),
+                                     _rec(tipo="STAT")]))
+        self.assertEqual(len(fallas), 1, fallas)
+        self.assertIn("TES4", fallas[0])
 
     def test_un_record_sano_entre_rotos_no_se_reporta(self):
         fallas, _ = vp.juzgar(_info(
