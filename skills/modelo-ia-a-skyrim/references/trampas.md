@@ -646,7 +646,12 @@ objeto, 1024²: con `DIFFUSE` el atlas pesaba 82.538 bytes, casi todo negro; con
 
 **Arreglo:** hornear el albedo con `type='EMIT'`: conectar *Base Color* a un
 `ShaderNodeEmission` y ponerlo como salida del material solo durante ese bake.
-Alternativa: `Metallic = 0` durante el bake, y restaurarlo.
+Alternativa: `Metallic = 0` durante el bake, y restaurarlo — pero **solo con
+`pass_filter={'COLOR'}`**. El operador trae `pass_filter=set()`, que toma la
+configuración de la escena, y ahí `use_pass_direct`, `use_pass_indirect` y
+`use_pass_color` vienen en `True`: el `DIFFUSE` por defecto hornea color × luz,
+una textura iluminada con las sombras fijas de la trampa [21](#21). El `EMIT`
+no tiene ese problema porque la emisión no depende de la luz.
 
 ### 32. Un Bevel después del unwrap superpone las UV {#32}
 
