@@ -34,14 +34,18 @@ def _sub(tipo, datos):
     return tipo + struct.pack("<H", len(datos)) + datos
 
 
-def _record(tipo, datos, form_id, flags=0, comprimir=False):
-    """Record: 4 tipo, 4 tam_datos, 4 flags, 4 formID, 4 control, 2+2 version."""
+def _record(tipo, datos, form_id, flags=0, comprimir=False, version=44):
+    """Record: 4 tipo, 4 tam_datos, 4 flags, 4 formID, 4 control, 2+2 version.
+
+    `version` es el formVersion (bytes 20-21). Se puede torcer para fabricar
+    el defecto que tuvo el hacha: 0 en todos los records.
+    """
     if comprimir:
         flags |= 0x00040000
         datos = struct.pack("<I", len(datos)) + zlib.compress(datos)
     return (tipo + struct.pack("<I", len(datos)) + struct.pack("<I", flags)
             + struct.pack("<I", form_id) + struct.pack("<I", 0)
-            + struct.pack("<HH", 44, 0) + datos)
+            + struct.pack("<HH", version, 0) + datos)
 
 
 def _grupo(etiqueta, contenido, tipo_grupo=0):
@@ -52,8 +56,10 @@ def _grupo(etiqueta, contenido, tipo_grupo=0):
             + struct.pack("<I", 0) + struct.pack("<I", 0) + contenido)
 
 
-def construir(comprimir_stat=False, con_escape=False, masters=()):
+def construir(comprimir_stat=False, con_escape=False, masters=(), version=44):
     """Devuelve (bytes, esperado).
+
+    `version` va a TODOS los records, TES4 incluido: así salió el hacha.
 
     `esperado` es la verdad declarada: lo que cualquier parser correcto tiene
     que recuperar de esos bytes.
@@ -73,10 +79,11 @@ def construir(comprimir_stat=False, con_escape=False, masters=()):
         stat += b"MNAM" + struct.pack("<H", 0) + grande
         subs_stat.append("MNAM")
 
-    r_stat = _record(b"STAT", stat, 0x00000801, comprimir=comprimir_stat)
+    r_stat = _record(b"STAT", stat, 0x00000801, comprimir=comprimir_stat,
+                     version=version)
 
     otro = _sub(b"EDID", _cstr("PruebaActivador"))
-    r_acti = _record(b"ACTI", otro, 0x00000802)
+    r_acti = _record(b"ACTI", otro, 0x00000802, version=version)
 
     cuerpo = _grupo(b"STAT", r_stat) + _grupo(b"ACTI", r_acti)
 
@@ -90,7 +97,7 @@ def construir(comprimir_stat=False, con_escape=False, masters=()):
     for m in masters:
         cab += _sub(b"MAST", _cstr(m))
         cab += _sub(b"DATA", struct.pack("<Q", 0))
-    tes4 = _record(b"TES4", cab, 0)
+    tes4 = _record(b"TES4", cab, 0, version=version)
 
     datos = tes4 + cuerpo
     esperado = {

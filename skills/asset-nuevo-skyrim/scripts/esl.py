@@ -101,8 +101,8 @@ def clasificar(formids, n_masters):
     return nuevos, over
 
 
-def recorrer_formids(d):
-    """(formids, cerro). `cerro` dice si el recorrido embaldoso el archivo.
+def recorrer_records(d):
+    """([(tag, offset)], cerro) de cada record, TES4 incluido.
 
     Un GRUP se entra, no se saltea: su cabecera mide 24 bytes igual que la de un
     record, pero su tamano INCLUYE la cabecera y su contenido son mas records.
@@ -117,22 +117,32 @@ def recorrer_formids(d):
     El cierre se comprueba como en census/parser_esm.py: la suma de bloques
     tiene que caer exactamente en el fin del archivo. Ahi esa identidad se
     cumple en 1.328.055 records de 10 plugins sin una sola violacion.
+
+    Devuelve el OFFSET y no solo el FormID porque verificar_plugin.py lee otro
+    campo de la misma cabecera (el formVersion, +20). Un solo recorrido para
+    los dos: un segundo recorrido escrito aparte es como aparecieron en este
+    repo dos parsers de plugins que nadie cruzo.
     """
-    fuera = []
+    recs = []
     i = 0
     while i + 24 <= len(d):
         tag = d[i:i + 4]
         tam = struct.unpack_from("<I", d, i + 4)[0]
         if tag == b"GRUP":
             if tam < 24:
-                return fuera, False
+                return recs, False
             i += 24
             continue
-        fid = struct.unpack_from("<I", d, i + 12)[0]
-        if tag != b"TES4":
-            fuera.append(fid)
+        recs.append((bytes(tag), i))
         i += 24 + tam
-    return fuera, i == len(d)
+    return recs, i == len(d)
+
+
+def recorrer_formids(d):
+    """(formids, cerro), sin el TES4. Ver recorrer_records."""
+    recs, cerro = recorrer_records(d)
+    return ([struct.unpack_from("<I", d, o + 12)[0]
+             for tag, o in recs if tag != b"TES4"], cerro)
 
 
 # Medido contra los 10 plugins de una instalacion SE, cruzando este mismo

@@ -133,6 +133,14 @@ El núcleo mínimo también está medido: **`EDID+RNAM+DNAM+BODT`** en el `ARMA`
 730 records), y **`EDID+OBND+RNAM+MODL+DATA+DNAM+BOD2`** en el `ARMO`, que
 cumplen 3.905 de 3.915. Los otros 10 usan el `BODT` viejo en vez de `BOD2`.
 
+**Y la cabecera de cada record lleva un `formVersion` que decide cómo se lee el
+resto.** Con 0, el hacha de Tencent cargó, apareció en el inventario con el
+valor correcto — y pesaba 0 y hacía 0 de daño. Tiene que ser **44**: los 10.273
+records que Bethesda autoró para SE lo son, sin excepción. `[MEASURED]` Si el
+plugin no sale de `census/escritor_plugin.py`, pasalo por
+`scripts/verificar_plugin.py` antes de instalarlo. Ver
+[trampa 23](references/trampas.md#23).
+
 ## Reproducir el juego fuera del juego
 
 La malla se modela en el espacio local del nodo, y **en ese espacio no se ve
@@ -266,6 +274,20 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
 
   `--autotest` y `--falsificar <carpeta meshes>`, que tuerce cuatro campos de
   cajas vanilla reales y exige que el control las pesque.
+- **`scripts/verificar_plugin.py`** — lee un `.esp`/`.esl` **terminado** y
+  reprueba lo que el juego lee mal sin avisar. Dos REGLAS: **`formVersion ==
+  44`** en cada record (10.273 de 10.273 en los plugins autorados para SE) y
+  **índice de mod ≤ cantidad de masters** (1.188.810 de 1.188.811; la
+  excepción es un `GMST` sucio de `Skyrim.esm`).
+
+  Es para **tu** plugin. Pasado sobre `Skyrim.esm` reprueba 1,1 millones de
+  records que el juego carga perfecto: los masters de 2011 conservan la versión
+  de la última edición de cada record, y por eso el corpus entero da 7,65 % en
+  44. Medir ahí invierte la regla.
+
+  Usa el recorrido de `esl.py`, no uno propio. `--autotest` (75 casos) y
+  `--falsificar <carpeta Data>`, que tuerce un record de cada plugin autorado
+  para SE a 0, 39, 45 y a un índice de mod inexistente.
 
 ## Cómo conviene trabajar
 

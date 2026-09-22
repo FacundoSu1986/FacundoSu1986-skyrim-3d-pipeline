@@ -1,9 +1,10 @@
-# Trampas: veintidós fallos que no tiran error
+# Trampas: veintitrés fallos que no tiran error
 
-Todas se pagaron en `Escudo_Dwemer_SE_v01` (un escudo dwemer nuevo, con panel
-transparente, para Skyrim SE). **Ninguna tira excepción.** El pipeline termina
-`ok`, el mod se instala, y el problema aparece mirando el archivo escrito o
-probando en el juego.
+Casi todas se pagaron en `Escudo_Dwemer_SE_v01` (un escudo dwemer nuevo, con
+panel transparente, para Skyrim SE); la [4b](#4b) y la [23](#23) salieron del
+hacha de Tencent. **Ninguna tira excepción.** El pipeline termina `ok`, el mod
+se instala, y el problema aparece mirando el archivo escrito o probando en el
+juego.
 
 Leelas **antes** de empezar. Varias solo se descubren jugando, y para entonces
 ya perdiste la iteración.
@@ -18,6 +19,7 @@ Empezá acá. La primera columna es lo que ve el jugador.
 | Está en el inventario, dice "equipado", y no se dibuja | [1](#1), [4](#4) |
 | `help "nombre" 0` no devuelve nada | [2](#2) |
 | Se equipa y la armadura no sube | [3](#3) |
+| El arma pesa 0 y hace 0 de daño, y el valor sale bien | [23](#23) |
 | Al soltarlo sale volando y se hunde en el piso | [4](#4) |
 | Sale girado un ángulo raro | [5](#5) |
 | Las correas / el agarre quedan lejos del brazo | [6](#6) |
@@ -64,6 +66,28 @@ correcta, master resoluble. Perseguir el NIF acá es tiempo perdido.
 La clase está en el **segundo dword de `BOD2`** (`0` Light, `1` Heavy, `2`
 Clothing), no en el `DNAM`. Un escudo que quedó como *Clothing* funciona en todo
 salvo en que no protege. Se confunde con un problema de balance.
+
+### 23. `formVersion = 0` deja el peso y el daño en cero, y el valor bien {#23}
+
+La cabecera de cada record lleva en los bytes 20-21 un `formVersion`, y el motor
+**lee el resto del record con el layout de esa versión**. El `.esl` del hacha
+salió con 0 en sus tres records: el plugin cargó, el arma apareció en el
+inventario, el VALOR se leyó bien — y el PESO y el DAÑO salieron en **0**. Con
+44, el mismo record dio peso 27 y daño 26, confirmado en el juego.
+
+Parece de balance, o de un campo mal copiado del donante. No es ninguna de las
+dos: el `DATA` está bien, lo que está mal es cómo se lo lee.
+
+`[MEASURED]` Los 5 plugins que Bethesda autoró para SE: **10.273 de 10.273**
+records en **44**. Y 44 es el máximo de todo el corpus.
+
+**Ojo al medirlo.** Sobre los 10 plugins solo el **7,65 %** está en 44 y el
+valor más común es el 39. Los masters de 2011 llevan, record por record, la
+versión de la última vez que alguien lo tocó. Es la misma trampa que la
+[4b](#4b): el subconjunto equivocado invierte la respuesta.
+
+→ `census/escritor_plugin.py` ya escribe 44. Si armás los bytes a mano, o el
+plugin viene de otra herramienta: `scripts/verificar_plugin.py MiMod.esl`.
 
 ## La colisión
 
@@ -261,9 +285,13 @@ arregles a propósito. El paso que *genera* un artefacto mejorable tiene que
 
 ### 20. Un FormID fuera de rango en un ESL no da error {#20}
 
-Un ESL solo admite índices de objeto entre `0x800` y `0xFFF`. Fuera de ese
-rango el motor **remapea** y el objeto sale corrupto o no sale, sin mensaje.
-Comprobar el rango **antes** de encender el flag `0x200`.
+Un ESL solo admite índices de objeto hasta `0xFFF` (12 bits en el espacio
+`FE:xxx`). Por encima el motor **remapea** y el objeto sale corrupto o no sale,
+sin mensaje. Comprobar el techo **antes** de encender el flag `0x200`.
+
+El piso de `0x800` que aparece por todos lados es del Creation Kit, no del
+motor: `_ResourcePack.esl` —que Bethesda distribuye— tiene **368 de 373**
+records por debajo (`census/hallazgos_plugins.md`, entrada 10).
 
 (Y avisar de la otra consecuencia: al pasar a `FE:XXX` cambian todos los
 FormIDs, así que una partida guardada pierde el objeto.)
