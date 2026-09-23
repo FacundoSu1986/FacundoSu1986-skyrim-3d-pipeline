@@ -97,6 +97,8 @@ armas del jugador: `[MEASURED]`
 
 La excepción es `NordicGreatSword.nif`. El hacha lleva `WeaponBack` y cuelga en
 la espalda. Copiá el `Prn` del NIF del donante, no lo escribas de memoria.
+`verificar_plugin.py` lo controla: busca el NIF en `meshes/` al lado del plugin
+y compara su `Prn` con el tipo del `DNAM`. Ver [trampa 24](trampas.md#24).
 
 La colisión del NIF tiene sus propias reglas: `scripts/colision_caja.py`.
 
@@ -142,8 +144,13 @@ python scripts/colision_caja.py meshes/weapons/MiArma/miarma.nif
 ```
 
 `verificar_plugin.py` exige `formVersion = 44`, índices de mod que resuelvan,
-`DATA` de 10 y `DNAM` de 100 en cada `WEAP`, y que el `WNAM` apunte a un
-`STAT` que exista. Sobre las 3.359 `WEAP` vanilla reprueba cero.
+`DATA` de 10 y `DNAM` de 100 en cada `WEAP`, que el `WNAM` apunte a un
+`STAT` que exista, y que el `Prn` del NIF corresponda al tipo del arma. Sobre
+las 3.359 `WEAP` vanilla, la regla estructural reprueba cero; la del `Prn` se
+falsificó sobre 324 armas reales con 1.944 roturas.
+
+Corrélo sobre la carpeta del mod —el `.esl` al lado de `meshes/`— para que
+encuentre el NIF. Si no lo encuentra, lo dice y no juzga el `Prn`.
 
 Lo que ningún script cierra y el hacha tuvo que ver jugando: que se equipa, que
 golpea en primera y tercera persona, que se puede caminar con ella, el peso y

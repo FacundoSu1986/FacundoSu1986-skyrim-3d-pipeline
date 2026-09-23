@@ -227,7 +227,7 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   `Prn` por tipo de arma, el set de impactos y el `TES4`. Medido sobre las
   3.359 `WEAP` vanilla y probado en el juego con el hacha de Tencent. **Leelo
   antes de hacer un arma.**
-- **`references/trampas.md`** — veintitrés fallos que no tiran error, con
+- **`references/trampas.md`** — veinticuatro fallos que no tiran error, con
   índice por síntoma. **Leelo entero antes de empezar**, no cuando algo falle.
 
 ## Scripts
@@ -280,12 +280,15 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   `--autotest` y `--falsificar <carpeta meshes>`, que tuerce cuatro campos de
   cajas vanilla reales y exige que el control las pesque.
 - **`scripts/verificar_plugin.py`** — lee un `.esp`/`.esl` **terminado** y
-  reprueba lo que el juego lee mal sin avisar. Tres REGLAS: **`formVersion ==
-  44`** en cada record (10.273 de 10.273 en los plugins autorados para SE),
+  reprueba lo que el juego lee mal sin avisar. Cuatro REGLAS: **`formVersion
+  == 44`** en cada record (10.273 de 10.273 en los plugins autorados para SE),
   **índice de mod ≤ cantidad de masters** (1.188.810 de 1.188.811; la
-  excepción es un `GMST` sucio de `Skyrim.esm`), y en cada **`WEAP`**: `DATA`
-  de 10 bytes, `DNAM` de 100 y un `WNAM` que apunte a un `STAT` existente
-  (3.359 de 3.359 `WEAP` vanilla pasan).
+  excepción es un `GMST` sucio de `Skyrim.esm`), en cada **`WEAP`** `DATA` de
+  10 bytes, `DNAM` de 100 y un `WNAM` que apunte a un `STAT` existente (3.359
+  de 3.359 `WEAP` vanilla pasan), y el **`Prn`** del NIF según el tipo de arma
+  (305 de 306 armas del jugador; los bastones son observación). Para el `Prn`
+  busca el NIF en `meshes/` al lado del plugin: corrélo sobre la carpeta del
+  mod.
 
   Es para **tu** plugin. Pasado sobre `Skyrim.esm` reprueba 1,1 millones de
   records que el juego carga perfecto: los masters de 2011 conservan la versión
@@ -295,10 +298,11 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   Usa el recorrido de `esl.py`, no uno propio. Los subrecords los lee con una
   copia del lector de `census/parser_esm.py` —la skill no puede importar
   `census/`—, y un test ata las dos lecturas sobre los mismos bytes, con `XXXX`
-  y con zlib. `--autotest` (107 casos) y `--falsificar <carpeta Data>`, que
+  y con zlib. `--autotest` (166 casos) y `--falsificar <carpeta Data>`, que
   tuerce un record de cada plugin autorado para SE a 0, 39, 45 y a un índice
   de mod inexistente, y un `WEAP` real a `DATA` de 12, `DNAM` de 96 y un
-  `WNAM` a la nada.
+  `WNAM` a la nada. `--falsificar-prn <carpeta Data> <carpeta meshes>` le pone
+  a cada arma base real cada `Prn` equivocado: 324 armas, 1.944 roturas.
 
 ## Cómo conviene trabajar
 
