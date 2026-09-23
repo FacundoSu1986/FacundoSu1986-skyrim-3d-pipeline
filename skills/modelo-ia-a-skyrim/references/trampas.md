@@ -1,7 +1,8 @@
-# Trampas: veintisiete fallos que no tiran error
+# Trampas: treinta y tres fallos que no tiran error
 
-Todas estas se pagaron en el proyecto de origen (`Centurion_Marfil_SE_v01`,
-reemplazo del Dwarven Steam Centurion). **Ninguna tira excepción.** El pipeline
+Casi todas se pagaron en el proyecto de origen (`Centurion_Marfil_SE_v01`,
+reemplazo del Dwarven Steam Centurion); de la 28 en adelante salieron de otros
+assets, y cada una lo dice. **Ninguna tira excepción.** El pipeline
 termina "bien", el archivo se escribe, el mod se instala, y el problema aparece
 mirando el archivo generado o probando en el juego.
 
@@ -40,13 +41,18 @@ ya está en la lista.
 | La malla se deforma en las uniones entre particiones | [23](#23) |
 | Proporciones de hueso disparatadas | [1](#1) |
 | **Texturas** | |
-| Textura en negro | [16](#16) |
+| Textura en negro | [16](#16), [31](#31) |
+| El metal sale negro en el atlas y el cuero bien | [31](#31) |
+| Una isla de la textura muestra el color de otro material | [32](#32) |
 | Texturas desordenadas, varias piezas sobre el mismo pedazo | [17](#17) |
 | El archivo no tiene texturas ni UV | [10](#10) |
 | El asset se ve sucio, con sombras que no se mueven | [21](#21) |
 | En una cueva queda negro | [21](#21) |
 | `TypeError: slice indices must be integers` | [18](#18) |
 | `context is incorrect` en Blender sin interfaz | [17](#17) |
+| **Exportación** | |
+| El NIF "de SE" sale con `NiTriShape` y `bs_version 83` | [33](#33) |
+| El export dice `Export successful` y los verificadores de geometría no ven ninguna malla | [33](#33) |
 
 ---
 
@@ -626,6 +632,58 @@ cuál de los dos sobresale.
 un método que contradice la verdad conocida en el único caso donde la verdad se
 conoce. Cuando hay un caso con respuesta independiente, ese caso manda sobre el
 agregado.
+
+### 31. Hornear el albedo con `DIFFUSE` deja negro todo lo metálico {#31}
+
+**Síntoma:** el atlas horneado sale a medias: el cuero marrón, el hierro
+**negro**. Blender no da error.
+
+**Por qué:** `[INVARIANT]` de Cycles, no de Skyrim. El pase `DIFFUSE` solo
+captura la componente difusa del BSDF, y un Principled con `Metallic = 1.0` no
+tiene. El color está en *Base Color*, que ese pase no lee. `[MEASURED]` Mismo
+objeto, 1024²: con `DIFFUSE` el atlas pesaba 82.538 bytes, casi todo negro; con
+`EMIT` y la misma red de color, 450.652 y completo (issue #36 del repo).
+
+**Arreglo:** hornear el albedo con `type='EMIT'`: conectar *Base Color* a un
+`ShaderNodeEmission` y ponerlo como salida del material solo durante ese bake.
+Alternativa: `Metallic = 0` durante el bake, y restaurarlo — pero **solo con
+`pass_filter={'COLOR'}`**. El operador trae `pass_filter=set()`, que toma la
+configuración de la escena, y ahí `use_pass_direct`, `use_pass_indirect` y
+`use_pass_color` vienen en `True`: el `DIFFUSE` por defecto hornea color × luz,
+una textura iluminada con las sombras fijas de la trampa [21](#21). El `EMIT`
+no tiene ese problema porque la emisión no depende de la luz.
+
+### 32. Un Bevel después del unwrap superpone las UV {#32}
+
+**Síntoma:** en el atlas, las islas de un material muestrean los píxeles de
+otro. `[MEASURED]` Con emisión pura (hierro rojo, cuero verde), las caras de
+cuero leían **83 % rojo**.
+
+**Por qué:** las caras nuevas del Bevel heredan UV interpoladas de las vecinas
+y caen **encima** de las originales. `census/parser_uv.py` sobre el NIF
+exportado: `solape_huella` **0,093** antes, **0,0** después de
+re-unwrappear (issue #37 del repo).
+
+**Arreglo:** unwrappear **después** de todo modificador que agregue caras. Y
+medir `solape_huella` sobre el archivo escrito, no confiar en el orden de los
+pasos.
+
+### 33. `target_game='SKYRIMSE'` no alcanza: PyNifly exporta LE igual {#33}
+
+**Síntoma:** el export dice `Export successful`, pero el NIF sale con
+`bs_version 83` y `NiTriShape` + `NiTriShapeData`: formato LE.
+
+**Por qué:** con `intuit_defaults=True` (el default), PyNifly **pisa** el
+`target_game` con el que deduce de la metadata del objeto
+(`export_nif.py`, `_discover_game`). Un objeto creado desde cero no tiene esa
+metadata y cae en `SKYRIM`. `[MEASURED]` Mismo estático: default → `bs_version
+83`, 49.730 bytes; `intuit_defaults=False` → `bs_version 100`, `BSTriShape`,
+27.421 bytes, leído con `census/parser_nif.py` (issue #35 del repo).
+
+**Arreglo:** pasar **siempre** `target_game='SKYRIMSE', intuit_defaults=False`,
+y verificar `bs_version == 100` en el archivo escrito. Es pariente de la
+trampa 13 de `asset-nuevo-skyrim`: ahí el default era LE; acá lo es aunque
+pidas SE.
 
 ## Proceso
 
