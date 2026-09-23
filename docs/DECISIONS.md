@@ -147,10 +147,15 @@ con el asset ya instalado.
 
 **Se convierte, con número:**
 
-- **alfa del `_n` desde la rugosidad** (`255 − roughness`). Medido: las 140
-  texturas `_n` de malla de arma del corpus están todas por debajo del 6,9 % de
-  bloques en blanco, y el hacha del proyecto de origen llegó al juego con el
-  99,7 %. El alfa en 255 es "todo brilla al máximo", no un default neutro.
+- **alfa del `_n` desde la rugosidad** (`255 − roughness`). Lo que el corpus
+  **sí** mide es la regla de saturación: las 140 texturas `_n` de malla de
+  arma del corpus están todas por debajo del 6,9 % de bloques en blanco, y
+  el hacha del proyecto de origen llegó al juego con el 99,7 %. Es decir,
+  el dato del corpus justifica que el alfa NO tiene que quedar en 255 ("todo
+  brilla al máximo", que no es un default neutro). La curva exacta
+  `255 − roughness` es una aproximación razonable para materiales metálicos
+  y se usa; la media del alfa se informa en el reporte para poder auditarla
+  sobre cada asset.
 - **máscara `_m` desde la metalicidad del ORM**, con el rango expandido. Es una
   HEURÍSTICA y se declara como tal en el código y en el reporte: no hay
   medición del corpus que fije cuánto expandir. Lo que sí hay es la medición de
@@ -184,11 +189,12 @@ del `_n` se mide con `scripts/mascara_especular.py`.
 **Dos cosas que hubo que arreglar para que eso fuera cierto:**
 
 1. `mascara_especular.py` clasificaba el sin comprimir de 32 bpp como "lleva
-   alfa pero este lector no lo decodifica" y lo reportaba como límite de la
+   alfa pero este lector no lo decodifica" y lo reportaba como limite de la
    herramienta. Era falso: no hay nada que decodificar. Ahora lo mide texel por
-   texel, con la misma semántica de bloque constante que en DXT5, y el autotest
-   pasa de 18 a 25 comprobaciones. El límite real sigue siendo BC7, que tiene
-   ocho modos con particionado variable.
+   texel, con la misma semantica de bloque constante que en DXT5, y el autotest
+   cuenta sus comprobaciones dinamicamente (no mas un "25"
+   hardcodeado que se desalineaba al agregar casos). El limite real sigue
+   siendo BC7, que tiene ocho modos con particionado variable.
 2. `fixtures/comparar.py` insertaba `census/` en `sys.path` con una ruta
    RELATIVA. Al importarlo desde `pipeline/texturas.py` con cualquier
    directorio de trabajo, ese import se caía. Ahora es absoluta.
