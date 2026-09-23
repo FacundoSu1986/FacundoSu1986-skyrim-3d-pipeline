@@ -26,6 +26,13 @@ jobs:
       - name: Syntax check (compileall)
         run: python -m compileall -q census skills tests pipeline fixtures
 
+      # Cada skill empaquetada con build_skill.py, extraida lejos del repo:
+      # sus scripts tienen que importar y pasar su --autotest SIN census/ ni
+      # nada de afuera, como le llegan a quien la instala. Tambien corre dentro
+      # de "Unit tests"; este paso existe para que se vea con nombre propio.
+      - name: Skills empaquetadas (build_skill.py)
+        run: python -m unittest tests.test_skill_empaquetada -v
+
       # Tests de Python puro: import smoke, invariantes de tablas, funciones
       # puras, y la ida y vuelta contra un NIF sintetico construido byte a byte
       # (tests/nif_sintetico.py) -- eso ultimo ejecuta el camino de parseo real
