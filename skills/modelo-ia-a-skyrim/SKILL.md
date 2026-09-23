@@ -255,7 +255,10 @@ pieza que mañana pierda una atadura.
 - **`scripts/mascara_especular.py`** — el alfa del `_n` es la máscara
   especular, y saturada deja el asset de plástico (el hacha llegó al juego con
   el 99,7 % de su máscara en blanco). Lee el alfa **sin decodificar**: en
-  DXT5/BC3, `alpha0 == alpha1` en un bloque significa alfa constante.
+  DXT5/BC3, `alpha0 == alpha1` en un bloque significa alfa constante; y en un
+  DDS sin comprimir de 32 bpp lo lee texel por téxel (10.048 de 32.241
+  texturas del corpus son de ese formato). Lo que **no** puede medir es BC7,
+  y lo reporta como límite de la herramienta en vez de darlo por bueno.
 
   REGLA **solo para armas** (`--arma`): como mucho 10 % de bloques en blanco;
   las 140 texturas `_n` de arma del corpus están por debajo del 6,9 %. Para el

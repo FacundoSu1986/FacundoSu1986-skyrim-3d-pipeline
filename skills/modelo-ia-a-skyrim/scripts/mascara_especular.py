@@ -67,6 +67,14 @@ TOPE_ARMA = 10.0          # % de bloques en blanco admitido en un _n de arma
 MIN_BLOQUES = 64          # menos que esto no dice nada
 
 
+# Sin comprimir de 32 bpp: tiene alfa y se lee SIN decodificar nada. Antes caía
+# en "formato que lleva alfa pero este lector no decodifica" y se reportaba
+# como limite de la herramienta --que era falso: no hay nada que decodificar.
+# El limite real sigue siendo BC7, que tiene ocho modos con particionado
+# variable. Medido: 10.048 de 32.241 texturas del corpus son sin comprimir.
+SIN_COMPRIMIR_32 = "SIN_COMPRIMIR_32BPP"
+SIN_COMPRIMIR_24 = "SIN_COMPRIMIR_24BPP"
+
 def cabecera(d):
     """(ancho, alto, offset_datos, nombre) o None."""
     if len(d) < 148 or d[:4] != b"DDS ":
@@ -83,6 +91,16 @@ def cabecera(d):
                   99: "BC7_SRGB", 83: "BC5", 71: "BC1", 80: "BC4"}.get(
                       dxgi, "dxgi%d" % dxgi)
         return ancho, alto, 148, nombre
+    if fourcc == b"\x00\x00\x00\x00":
+        # Sin FourCC: el formato lo dice el pixel format. DDPF_ALPHAPIXELS
+        # (0x1) mas una mascara alfa que entre en el pixel declarado.
+        bits, = struct.unpack_from("<I", d, 88)
+        pf, = struct.unpack_from("<I", d, 80)
+        amask, = struct.unpack_from("<I", d, 104)
+        if bits == 32 and (pf & 0x1) and amask:
+            return ancho, alto, 128, SIN_COMPRIMIR_32
+        if bits == 24:
+            return ancho, alto, 128, SIN_COMPRIMIR_24
     return ancho, alto, 128, fourcc.decode("latin1", "replace").strip()
 
 
@@ -99,6 +117,53 @@ SIN_ALFA = ("DXT1", "BC1", "BC4", "BC5")
 ALFA_NO_MEDIBLE = ("BC7_UNORM", "BC7_SRGB", "DXT2", "DXT3", "BC2")
 
 
+def _medir_sin_comprimir(d, ancho, alto, paso):
+    """El alfa de un DDS sin comprimir de 32 bpp, texel por texel.
+
+    La semantica es la misma que en DXT5: un bloque de 4x4 cuenta como
+    "blanco" solo si es CONSTANTE 255, y como "negro" solo si es constante 0.
+    Un bloque que varia no esta saturado aunque uno de sus texeles llegue a
+    255. Donde DXT5 necesita el truco `alpha0 == alpha1`, acá se miran los
+    texeles.
+
+    A diferencia de DXT5, aca la media de un bloque no constante es EXACTA:
+    no hay que aproximar nada porque los valores estan ahi. El canal alfa se
+    saca de una con un corte con paso (operacion de C, no un loop de Python),
+    y cada bloque se decide comparando sus cuatro filas.
+    """
+    base = 128
+    if base + ancho * alto * 4 > len(d):
+        return {"error": "el archivo no llega a contener su primer mip"}
+    alfa = d[base + 3: base + 3 + ancho * alto * 4: 4]
+    if len(alfa) < ancho * alto:
+        return {"error": "el archivo no llega a contener su primer mip"}
+    bw, bh = (ancho + 3) // 4, (alto + 3) // 4
+    blancos = negros = total = 0
+    suma = 0
+    for i in range(0, bw * bh, paso):
+        bx, by = i % bw, i // bw
+        x0, y0 = bx * 4, by * 4
+        x1, y1 = min(x0 + 4, ancho), min(y0 + 4, alto)
+        filas = [alfa[y * ancho + x0: y * ancho + x1] for y in range(y0, y1)]
+        if len(set(filas)) == 1 and len(set(filas[0])) == 1:
+            v = filas[0][0]
+            suma += v
+            if v == 255:
+                blancos += 1
+            elif v == 0:
+                negros += 1
+        else:
+            n = sum(len(f) for f in filas)
+            suma += sum(sum(f) for f in filas) // n
+        total += 1
+    if total < MIN_BLOQUES:
+        return {"error": "solo %d bloques muestreados" % total}
+    return {"blanco_pct": 100.0 * blancos / total,
+            "negro_pct": 100.0 * negros / total, "media": suma / float(total),
+            "bloques": total, "formato": SIN_COMPRIMIR_32,
+            "tamano": (ancho, alto)}
+
+
 def medir(ruta, paso=3):
     """{blanco_pct, media, bloques, formato} o {'error': ...}."""
     try:
@@ -110,7 +175,9 @@ def medir(ruta, paso=3):
     if c is None:
         return {"error": "no es un DDS legible"}
     ancho, alto, base, formato = c
-    if formato in SIN_ALFA:
+    if formato == SIN_COMPRIMIR_32:
+        return _medir_sin_comprimir(d, ancho, alto, paso)
+    if formato in SIN_ALFA or formato == SIN_COMPRIMIR_24:
         return {"error": "formato %s: no tiene canal alfa, asi que NO HAY "
                          "mascara especular. Los 12.075 `_n` del corpus son "
                          "DXT5." % formato,
@@ -220,6 +287,37 @@ def _dds(ancho, alto, alfas):
     return bytes(cab) + bytes(cuerpo)
 
 
+def _sin_comprimir(ancho, alto, alfas, bits=32):
+    """Un DDS sin comprimir, un solo nivel, alfa por texel. Solo autotest.
+
+    Con bits=24 no hay canal alfa: es el caso que tiene que reprobar por
+    "sin_alfa" y no por "no medible" -- un DDS de 24 bpp no tiene bytes para
+    la mascara, aunque la cabecera la mencione.
+    """
+    cab = bytearray(128)
+    cab[0:4] = b"DDS "
+    struct.pack_into("<I", cab, 4, 124)
+    struct.pack_into("<III", cab, 8, 0x1007, alto, ancho)
+    canales = bits // 8
+    struct.pack_into("<I", cab, 20, ancho * canales)        # pitch
+    struct.pack_into("<I", cab, 28, 1)                      # un nivel
+    struct.pack_into("<I", cab, 76, 32)                     # ddspf.size
+    struct.pack_into("<I", cab, 80, 0x1 | 0x40)             # ALPHAPIXELS|RGB
+    struct.pack_into("<I", cab, 88, bits)
+    if bits == 32:
+        struct.pack_into("<IIII", cab, 92,
+                         0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
+    else:
+        struct.pack_into("<III", cab, 92,
+                         0x00FF0000, 0x0000FF00, 0x000000FF)
+    struct.pack_into("<I", cab, 108, 0x1000)                # DDSCAPS_TEXTURE
+    cuerpo = bytearray()
+    for i in range(ancho * alto):
+        a = alfas[i % len(alfas)]
+        cuerpo += bytes((0, 0, 0, a)) if canales == 4 else bytes((0, 0, 0))
+    return bytes(cab) + bytes(cuerpo)
+
+
 def autotest():
     import tempfile
     fallas = []
@@ -304,7 +402,67 @@ def autotest():
     finally:
         os.unlink(ruta)
 
-    print("autotest: %d comprobaciones, %d fallas" % (18, len(fallas)))
+    # --- sin comprimir de 32 bpp: el formato que escribe pipeline/texturas.py
+    def con_sc(alfas, **kw):
+        fd, ruta = tempfile.mkstemp(suffix="_n.dds")
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(_sin_comprimir(64, 64, alfas, **kw))
+        try:
+            return medir(ruta, paso=1), ruta
+        finally:
+            os.unlink(ruta)
+
+    m, _ = con_sc([255])
+    exigir(m.get("formato") == SIN_COMPRIMIR_32,
+           "un sin comprimir de 32 bpp no se clasifico como tal: %s"
+           % m.get("formato"))
+    exigir(abs(m.get("blanco_pct", -1) - 100.0) < 1e-6,
+           "sin comprimir: una mascara toda en 255 no dio 100 %%: %s"
+           % m.get("blanco_pct"))
+    exigir(abs(m.get("media", -1) - 255.0) < 1e-6,
+           "sin comprimir: la media de una mascara en 255 no es 255")
+    exigir(bool(juzgar(m, True)[0]),
+           "sin comprimir: la mascara saturada no reprobo como arma")
+    exigir(not juzgar(m, False)[0],
+           "sin comprimir: la mascara saturada reprobo sin declararla arma, "
+           "y 59 texturas vanilla de objeto portable son asi")
+
+    m, _ = con_sc([0])
+    exigir(abs(m.get("blanco_pct", -1)) < 1e-6,
+           "sin comprimir: una mascara en 0 conto blancos")
+
+    m, _ = con_sc([40, 80, 120, 200])
+    exigir(abs(m.get("blanco_pct", -1)) < 1e-6,
+           "sin comprimir: conto blancos donde no los hay")
+    exigir(abs(m.get("media", -1) - 110.0) < 1.0,
+           "sin comprimir: la media salio %.1f, se esperaba 110"
+           % m.get("media", -1))
+
+    # saturacion PARCIAL: la que distingue "medir" de "contar si hay un 255".
+    # 16 texeles en 255 y 16 en 0 por bloque -> la mitad de los bloques.
+    m, _ = con_sc([255] * 16 + [0] * 16)
+    exigir(abs(m.get("blanco_pct", -1) - 50.0) < 1e-6,
+           "sin comprimir: la saturacion parcial salio %.2f %%, se esperaba "
+           "50.00" % m.get("blanco_pct", -1))
+
+    # un 24 bpp no tiene alfa: defecto del asset, no limite de la herramienta
+    fd, ruta = tempfile.mkstemp(suffix="_n.dds")
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(_sin_comprimir(64, 64, [128], bits=24))
+    try:
+        m = medir(ruta)
+        exigir(m.get("clase") == "sin_alfa",
+               "un sin comprimir de 24 bpp no se clasifico como sin alfa: %s"
+               % m.get("clase"))
+        f = juzgar(m, False)[0]
+        exigir(bool(f), "un 24 bpp no reprobo")
+        exigir("NO MEDIBLE" not in f[0],
+               "un 24 bpp se reporto como limite de la herramienta, y es un "
+               "defecto: no tiene bytes para el alfa")
+    finally:
+        os.unlink(ruta)
+
+    print("autotest: %d comprobaciones, %d fallas" % (25, len(fallas)))
     for x in fallas:
         print("  FALLA %s" % x)
     return 1 if fallas else 0

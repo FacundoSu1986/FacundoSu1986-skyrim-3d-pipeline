@@ -137,3 +137,72 @@ propiedad que los hace útiles.
 La semilla se queda deliberadamente chica: enseña el método —autotest primero,
 ningún campo sin caso de falsificación— sin el peso de los layouts de skin,
 shader y colisión.
+
+## Cablear PROCESS_TEXTURES: qué se convierte y qué deliberadamente no
+
+Primera fase real del runner después de INGEST/INSPECT. La decisión de fondo no
+es técnica: es **qué conversiones tienen un número atrás y cuáles no**, porque
+una conversión inventada en esta fase no tira ningún error --se ve en el juego,
+con el asset ya instalado.
+
+**Se convierte, con número:**
+
+- **alfa del `_n` desde la rugosidad** (`255 − roughness`). Medido: las 140
+  texturas `_n` de malla de arma del corpus están todas por debajo del 6,9 % de
+  bloques en blanco, y el hacha del proyecto de origen llegó al juego con el
+  99,7 %. El alfa en 255 es "todo brilla al máximo", no un default neutro.
+- **máscara `_m` desde la metalicidad del ORM**, con el rango expandido. Es una
+  HEURÍSTICA y se declara como tal en el código y en el reporte: no hay
+  medición del corpus que fije cuánto expandir. Lo que sí hay es la medición de
+  que los generadores entregan metalicidad comprimida (0 a 0,46, media 0,06 en
+  el proyecto de origen) y de que sin expandir la máscara sale sin contraste.
+- **potencia de dos en ambos lados**, redondeando hacia arriba y solo bajando
+  cuando el manifest lo pide (`max_lado_textura`, default 2048). Medido: 0 de
+  32.241 texturas vanilla tienen un lado que no lo sea.
+
+**No se convierte, y el motivo queda escrito:**
+
+- **No se comprime a DXT1/DXT5/BC7.** Se escribe sin comprimir de 32 bpp con la
+  cadena completa de mipmaps, que es lo que ya hace y ya verifica
+  `census/escritor_dds.py` (10.048 de 32.241 vanilla son así). Un compresor de
+  bloques es otra pieza con su propia falsificación --lo dice el docstring de
+  ese archivo-- y el `_n` es el primer mapa que lo va a pedir.
+- **No se saca la luz horneada del albedo.** `limites-skyrim.md` documenta que
+  se atenúa con curvas y que no se recupera del todo. Hacerlo en silencio sería
+  inventar una conversión que nadie midió; se informa como observación.
+- **No se toca el NIF.** La fase deja la ruta declarada de cada mapa en el
+  reporte, que es lo que una futura EXPORT_NIF necesita para llenar el
+  `BSShaderTextureSet`.
+
+**La verificación es la mitad que ya existía.** Cada DDS escrito pasa por
+`fixtures/comparar.reglas_dds` (`dds_parsea`, `dds_tamano`,
+`dds_potencia_de_dos`, `normal_con_alfa`) y falla la fase si alguna regla
+reprueba; las rutas declaradas se comprueban con `comparar.resolver_textura`,
+que resuelve las cuatro formas del corpus y rechaza path traversal. La máscara
+del `_n` se mide con `scripts/mascara_especular.py`.
+
+**Dos cosas que hubo que arreglar para que eso fuera cierto:**
+
+1. `mascara_especular.py` clasificaba el sin comprimir de 32 bpp como "lleva
+   alfa pero este lector no lo decodifica" y lo reportaba como límite de la
+   herramienta. Era falso: no hay nada que decodificar. Ahora lo mide texel por
+   texel, con la misma semántica de bloque constante que en DXT5, y el autotest
+   pasa de 18 a 25 comprobaciones. El límite real sigue siendo BC7, que tiene
+   ocho modos con particionado variable.
+2. `fixtures/comparar.py` insertaba `census/` en `sys.path` con una ruta
+   RELATIVA. Al importarlo desde `pipeline/texturas.py` con cualquier
+   directorio de trabajo, ese import se caía. Ahora es absoluta.
+
+**Una regla nueva, y su alcance.** La fase exige que cada grupo de mapas tenga
+color base: sin difuso no hay `BSShaderTextureSet` posible. Es una regla de
+formato, no de gusto. En cambio, la saturación del alfa del `_n` **informa y no
+reprueba**, porque la regla de saturación está medida solo sobre armas y el
+alcance del manifest es static/clutter --el mismo error de alcance que este repo
+ya cometió tres veces (radio de colisión, "la malla tiene que estar cerrada",
+solape de UV) y que acá se declara en vez de suponerse.
+
+**El gate no se tocó.** Con PROCESS_TEXTURES cableada, publicar sigue siendo
+imposible: lo que frena ahora es PREPARE, EXPORT_NIF, READ_BACK, VALIDATE y
+PACKAGE. `tests/test_pipeline_gate_stubs.py` enumera la fase dejada como stub y
+exige que ninguna llegue a PUBLISHED; el caso del issue #23 se actualizó con una
+nota que dice por qué `process_textures` salió de esa lista.

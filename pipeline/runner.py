@@ -21,7 +21,8 @@ Garantías:
   - el manifest se valida ANTES de crear cualquier directorio.
 
 Fases por defecto: INGEST (copia con hash, no mueve el original), INSPECT
-(inspección read-only de la copia) y PUBLISH (fail-closed: si el destino
+(inspección read-only de la copia), PROCESS_TEXTURES (PBR -> DDS con la
+convención de Skyrim, ver texturas.py) y PUBLISH (fail-closed: si el destino
 existe, error; copia del árbol package/ completo a un temp vecino y
 os.replace). El resto son stubs que se declaran como tales (`stub=True`,
 `ejecutada=False`): puntos de enganche donde las slices siguientes conectarán
@@ -30,7 +31,9 @@ mediante adaptadores inyectables.
 
 Ninguna fase sin conectar puede terminar en una publicación: `run()` rechaza
 PUBLISH si alguna fase ejecutada -- incluido el propio PUBLISH -- se declaró
-stub.
+stub. Con PROCESS_TEXTURES cableada, el gate sigue frenando exactamente igual:
+lo que cambia es que ahora frena por PREPARE, EXPORT_NIF, READ_BACK, VALIDATE
+y PACKAGE, que son las que de verdad faltan.
 
 Publicación: os.replace de directorio es atómico dentro del mismo volumen
 en NTFS/Linux; si la plataforma no lo garantiza, queda documentado aquí
@@ -50,6 +53,7 @@ from typing import Callable, Mapping
 from .errors import ArtifactValidationError, PipelineError, PublishError
 from .manifest import JobManifest
 from .staging import JobWorkspace
+from .texturas import fase_process_texturas
 
 
 class Phase(Enum):
@@ -215,7 +219,7 @@ FASES_POR_DEFECTO: Mapping[Phase, Adapter] = {
     Phase.INGEST: _fase_ingest,
     Phase.INSPECT: _fase_inspect,
     Phase.PREPARE: _fase_noop,
-    Phase.PROCESS_TEXTURES: _fase_noop,
+    Phase.PROCESS_TEXTURES: fase_process_texturas,
     Phase.EXPORT_NIF: _fase_noop,
     Phase.READ_BACK: _fase_noop,
     Phase.VALIDATE: _fase_noop,
