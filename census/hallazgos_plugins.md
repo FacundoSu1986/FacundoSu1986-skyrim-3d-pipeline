@@ -232,6 +232,8 @@ El hacha de Tencent fue la primera arma que hizo el recorrido entero hasta el ju
 **N**: 306 armas de 163 NIF distintos.
 **EXCEPCIONES**: **1**, `DLC02\Weapons\Nordic\NordicGreatSword.nif`: espada de dos manos con `WeaponSword`. Los **bastones no tienen regla**: `WeaponStaff` en 21 y `SHIELD` en 18 (Miraak, Magnus, Forsworn, los dwemer). Quedaron afuera 60 records que no son armas del jugador (`Clutter\DummyItems`, un pico decorativo) y 66 cuyo NIF no estaba extraído. El hacha lleva `WeaponBack` y **cuelga en la espalda en el juego**.
 
+`verificar_plugin.py` lo exige (REGLA 4). `--falsificar-prn` corre sin el filtro de carpeta: sobre las armas base de los 10 plugins, **324** pasan tal cual y a cada una se le pone cada `Prn` equivocado y ninguno: **1.944 roturas, 0 fallas**. Las 41 que no pasan tal cual se listan: 30 maniquíes de `Clutter\DummyItems`, 6 del arco de la esfera dwemer (`SHIELD`), 3 picos decorativos, un emblema y `NordicGreatSword`.
+
 ### 18. Dos convenciones del `TES4` que el motor no exige
 
 **AFIRMACIÓN**: Los 10 plugins vanilla tienen la bandera `LOCALIZED` (`0x80`), y en los 10 el `numRecords` del `HEDR` es **records + `GRUP`s**, exacto.
