@@ -731,9 +731,12 @@ las hojas se **trasladan enteras** lo justo para seguir pegadas. Es monótono,
 así que no puede plegar la malla. Control: cada vértice de hoja trasladado sin
 deformarse (desvío 1e-17).
 
-Confirmado en el juego: "quedó genial". Los scripts son `afinar_v2.py` y
-`afinar_v3.py` del hacha; los números de arriba son de ese modelo, **no los
-copies**: medí el perfil del tuyo.
+Confirmado en el juego: "quedó genial". Se aplicó con dos scripts del proyecto
+del hacha (`afinar_v2.py` y `afinar_v3.py`), que viven en la carpeta de ese
+asset y **no están en este repo**: sus constantes —fin del tramo recto, límites
+de la rampa, factor— salieron del perfil de ese modelo. **No copies los números
+de arriba**: medí el perfil del tuyo. Lo que se reusa son los cinco pasos del
+arreglo.
 
 ### 35. Hornear con una muestra por texel desde una textura más grande es aliasing {#35}
 
