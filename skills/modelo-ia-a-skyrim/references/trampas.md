@@ -645,7 +645,7 @@ agregado.
 captura la componente difusa del BSDF, y un Principled con `Metallic = 1.0` no
 tiene. El color está en *Base Color*, que ese pase no lee. `[MEASURED]` Mismo
 objeto, 1024²: con `DIFFUSE` el atlas pesaba 82.538 bytes, casi todo negro; con
-`EMIT` y la misma red de color, 450.652 y completo (#36).
+`EMIT` y la misma red de color, 450.652 y completo (issue #36 del repo).
 
 **Arreglo:** hornear el albedo con `type='EMIT'`: conectar *Base Color* a un
 `ShaderNodeEmission` y ponerlo como salida del material solo durante ese bake.
@@ -665,7 +665,7 @@ cuero leían **83 % rojo**.
 **Por qué:** las caras nuevas del Bevel heredan UV interpoladas de las vecinas
 y caen **encima** de las originales. `census/parser_uv.py` sobre el NIF
 exportado: `solape_huella` **0,093** antes, **0,0** después de
-re-unwrappear (#37).
+re-unwrappear (issue #37 del repo).
 
 **Arreglo:** unwrappear **después** de todo modificador que agregue caras. Y
 medir `solape_huella` sobre el archivo escrito, no confiar en el orden de los
@@ -681,7 +681,7 @@ pasos.
 (`export_nif.py`, `_discover_game`). Un objeto creado desde cero no tiene esa
 metadata y cae en `SKYRIM`. `[MEASURED]` Mismo estático: default → `bs_version
 83`, 49.730 bytes; `intuit_defaults=False` → `bs_version 100`, `BSTriShape`,
-27.421 bytes, leído con `census/parser_nif.py` (#35).
+27.421 bytes, leído con `census/parser_nif.py` (issue #35 del repo).
 
 **Arreglo:** pasar **siempre** `target_game='SKYRIMSE', intuit_defaults=False`,
 y verificar `bs_version == 100` en el archivo escrito. Es pariente de la
