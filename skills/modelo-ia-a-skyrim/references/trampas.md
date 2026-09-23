@@ -52,7 +52,7 @@ ya está en la lista.
 | `context is incorrect` en Blender sin interfaz | [17](#17) |
 | **Exportación** | |
 | El NIF "de SE" sale con `NiTriShape` y `bs_version 83` | [33](#33) |
-| El export dice `Export successful` y SE no lo carga | [33](#33) |
+| El export dice `Export successful` y los verificadores de geometría no ven ninguna malla | [33](#33) |
 
 ---
 
