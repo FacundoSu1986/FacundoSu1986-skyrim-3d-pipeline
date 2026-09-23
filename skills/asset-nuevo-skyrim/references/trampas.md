@@ -1,8 +1,8 @@
-# Trampas: veintitrés fallos que no tiran error
+# Trampas: veinticuatro fallos que no tiran error
 
 Casi todas se pagaron en `Escudo_Dwemer_SE_v01` (un escudo dwemer nuevo, con
-panel transparente, para Skyrim SE); la [4b](#4b) y la [23](#23) salieron del
-hacha de Tencent. **Ninguna tira excepción.** El pipeline termina `ok`, el mod
+panel transparente, para Skyrim SE); la [4b](#4b), la [23](#23) y la [24](#24)
+salieron del hacha de Tencent. **Ninguna tira excepción.** El pipeline termina `ok`, el mod
 se instala, y el problema aparece mirando el archivo escrito o probando en el
 juego.
 
@@ -20,6 +20,7 @@ Empezá acá. La primera columna es lo que ve el jugador.
 | `help "nombre" 0` no devuelve nada | [2](#2) |
 | Se equipa y la armadura no sube | [3](#3) |
 | El arma pesa 0 y hace 0 de daño, y el valor sale bien | [23](#23) |
+| El arma envainada cuelga en otro lado (la cadera, la espalda) | [24](#24) |
 | Al soltarlo sale volando y se hunde en el piso | [4](#4) |
 | Sale girado un ángulo raro | [5](#5) |
 | Las correas / el agarre quedan lejos del brazo | [6](#6) |
@@ -88,6 +89,24 @@ versión de la última vez que alguien lo tocó. Es la misma trampa que la
 
 → `census/escritor_plugin.py` ya escribe 44. Si armás los bytes a mano, o el
 plugin viene de otra herramienta: `scripts/verificar_plugin.py MiMod.esl`.
+
+### 24. Dónde cuelga el arma envainada lo decide el NIF, no el plugin {#24}
+
+El `WEAP` dice qué arma es (`DNAM[0]`: espada, hacha, arco…) pero el nodo del
+esqueleto del que cuelga cuando no está en la mano sale del NIF: un
+`NiStringExtraData` llamado `Prn`. Nada en el plugin lo corrige: con el `Prn`
+de otro tipo, el arma se cuelga del nodo de ese otro tipo. (Lo confirmado en
+el juego es el caso bueno: el hacha, con `WeaponBack`, cuelga en la espalda.
+Un `Prn` equivocado no se probó jugando.)
+
+`[MEASURED]` El `Prn` sigue al tipo en **305 de 306** armas vanilla del
+jugador: `WeaponBack` para las de dos manos, `WeaponSword`, `WeaponAxe`,
+`WeaponMace`, `WeaponDagger` para las de una mano, `WeaponBow` para arcos y
+ballestas. Los bastones no tienen regla. Tabla completa en
+[`plugin-weap.md`](plugin-weap.md).
+
+→ Copiá el `Prn` del NIF del donante. Y `scripts/verificar_plugin.py`, corrido
+sobre la carpeta del mod, compara el `Prn` del NIF con el tipo del plugin.
 
 ## La colisión
 

@@ -5,6 +5,7 @@ sin avisar.
     python verificar_plugin.py MiMod.esl [...]
     python verificar_plugin.py --autotest
     python verificar_plugin.py --falsificar <carpeta Data>
+    python verificar_plugin.py --falsificar-prn <carpeta Data> <carpeta meshes>
 
 Exit: 0 pasa, 1 falla (o no se pudo leer), 2 argumentos que no sirven.
 
@@ -54,6 +55,15 @@ REGLA 3 -- en cada WEAP: DATA de 10 bytes, DNAM de 100, y el WNAM (el modelo de
     valor u32, peso f32, dano u16 = 10 bytes, confirmado en el juego con 2750 /
     27 / 26.
 
+REGLA 4 -- el Prn del NIF de cada WEAP corresponde a su tipo de animacion
+    (DNAM[0]): WeaponSword, WeaponDagger, WeaponAxe, WeaponMace, WeaponBack
+    para las de dos manos, WeaponBow para arcos y ballestas. Es el nodo del que
+    cuelga el arma envainada. 305 de 306 armas vanilla del jugador; la
+    excepcion es NordicGreatSword.nif. Los bastones no tienen regla
+    (WeaponStaff en 21, SHIELD en 18) y salen como OBSERVACION.
+    El NIF se busca en meshes/ al lado del plugin, sin distinguir mayusculas;
+    si no esta, se dice y no se juzga.
+
 Y un requisito previo que no es regla sino lectura: el recorrido tiene que
 embaldosar el archivo. Si no cierra, no hay nada que juzgar, y eso es una falla.
 
@@ -67,6 +77,7 @@ import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import esl  # noqa: E402
+import nif_nodos  # noqa: E402
 
 VERSION_ACTUAL = 44
 LIMITE_DETALLE = 10
@@ -77,6 +88,15 @@ N_INDICE = 1188811    # records de los 10 plugins, sin el TES4
 N_WEAP = 3359         # WEAP de los 10 plugins: DATA 10 y DNAM 100 en todas
 N_WNAM = 463          # armas base con WNAM: todas apuntan a un STAT
 COMPRIMIDO = 0x00040000
+
+# REGLA 4: el Prn del NIF segun DNAM[0]. 305 de 306 armas del jugador; la
+# excepcion es NordicGreatSword.nif. El 8 (baston) no tiene regla: WeaponStaff
+# en 21, SHIELD en 18. census/hallazgos_plugins.md, entrada 17.
+PRN_POR_TIPO = {1: "WeaponSword", 2: "WeaponDagger", 3: "WeaponAxe",
+                4: "WeaponMace", 5: "WeaponBack", 6: "WeaponBack",
+                7: "WeaponBow", 9: "WeaponBow"}
+TIPO_BASTON = 8
+N_PRN = 306
 
 
 def subrecords(d, off):
@@ -114,14 +134,49 @@ def subrecords(d, off):
 def _datos_weap(d, off):
     subs = dict(subrecords(d, off))
     wnam = subs.get("WNAM")
+    modl = subs.get("MODL")
     return {"DATA": len(subs["DATA"]) if "DATA" in subs else None,
             "DNAM": len(subs["DNAM"]) if "DNAM" in subs else None,
             "WNAM": struct.unpack_from("<I", wnam)[0]
-            if wnam and len(wnam) == 4 else None}
+            if wnam and len(wnam) == 4 else None,
+            "anim": subs["DNAM"][0] if subs.get("DNAM") else None,
+            "MODL": modl.split(b"\x00")[0].decode("cp1252", "replace")
+            if modl else None,
+            "plantilla": "CNAM" in subs}
 
 
-def leer(ruta):
-    """{records: [{tipo, form_id, version}], n_masters, error}."""
+def _resolver(base, ruta_modl):
+    """La ruta del NIF bajo `base`, sin distinguir mayusculas -- como el
+    sistema de archivos del juego --, o None. Los MODL van relativos a meshes/
+    y sin ese prefijo (12.618 de 12.618, hallazgo 4)."""
+    p = base
+    for parte in [x for x in ruta_modl.replace("/", "\\").split("\\") if x]:
+        if not os.path.isdir(p):
+            return None
+        n = dict((x.lower(), x) for x in os.listdir(p)).get(parte.lower())
+        if n is None:
+            return None
+        p = os.path.join(p, n)
+    return p if os.path.isfile(p) else None
+
+
+def _prn(meshes, w):
+    """Pone en `w` lo que se sabe del Prn de su NIF bajo `meshes`."""
+    w["nif"] = _resolver(meshes, w["MODL"]) if w.get("MODL") else None
+    w["prn"] = None
+    w["nif_error"] = None
+    if w["nif"]:
+        try:
+            w["prn"] = nif_nodos.cadena_extra(nif_nodos.leer(w["nif"]), "Prn")
+        except (ValueError, IndexError, struct.error, OSError) as e:
+            w["nif_error"] = "%s: %s" % (type(e).__name__, e)
+
+
+def leer(ruta, meshes=None):
+    """{records: [{tipo, form_id, version}], n_masters, error}.
+
+    El NIF de cada WEAP se busca en `meshes` -- por defecto la carpeta meshes/
+    al lado del plugin, que es como viene un mod."""
     try:
         with open(ruta, "rb") as fh:
             d = fh.read()
@@ -147,6 +202,8 @@ def leer(ruta):
             except (ValueError, zlib.error, struct.error) as e:
                 return {"records": [], "n_masters": 0,
                         "error": "WEAP %08X ilegible: %s" % (r["form_id"], e)}
+            _prn(meshes or os.path.join(os.path.dirname(
+                os.path.abspath(ruta)), "meshes"), r["weap"])
         records.append(r)
     return {"records": records, "n_masters": len(esl.masters(d)),
             "error": None}
@@ -241,9 +298,94 @@ def _reglas_weap(info, notas):
         else:
             notas.append("OBS %s: su WNAM %08X es de un master y no se puede "
                          "verificar sin cargarlo." % (cual, destino))
+        fallas += _regla_prn(cual, w, notas)
     if armas:
         notas.append("OBS %d WEAP comprobada(s)" % len(armas))
     return fallas
+
+
+def _regla_prn(cual, w, notas):
+    """REGLA 4: el Prn del NIF corresponde al tipo de animacion. Solo corre
+    si `leer` busco el NIF (clave "nif"); si no lo encontro, lo dice."""
+    if "nif" not in w or w.get("anim") in (None, 0):
+        return []
+    if not w["nif"]:
+        notas.append("OBS %s: no se encontro el NIF %r junto al plugin: Prn "
+                     "no verificado." % (cual, w.get("MODL")))
+        return []
+    if w["nif_error"]:
+        return ["REGLA WEAP Prn: %s: el NIF %s no se pudo leer (%s)."
+                % (cual, w["MODL"], w["nif_error"])]
+    if w["anim"] == TIPO_BASTON:
+        notas.append("OBS %s es un baston: Prn %s. Los bastones vanilla no "
+                     "tienen regla (WeaponStaff en 21, SHIELD en 18)."
+                     % (cual, w["prn"]))
+        return []
+    esperado = PRN_POR_TIPO.get(w["anim"])
+    if esperado is None:
+        return []
+    if w["prn"] == esperado:
+        # Un control que pasa en silencio no se distingue de uno que no corrio
+        notas.append("OBS %s: Prn %s, el de su tipo (%d)"
+                     % (cual, w["prn"], w["anim"]))
+        return []
+    tiene = "sin Prn" if w["prn"] is None else "con Prn %s" % w["prn"]
+    return ["REGLA WEAP Prn: %s es de tipo %d y su NIF esta %s; se esperaba "
+            "%s. El Prn es el nodo del que cuelga el arma envainada, y sigue "
+            "al tipo en %d de %d armas vanilla del jugador."
+            % (cual, w["anim"], tiene, esperado, N_PRN - 1, N_PRN)]
+
+
+def falsificar_prn(data, meshes):
+    """Sobre las armas base REALES de los 10 plugins, con sus NIF: las que
+    pasan tal cual sirven de patron, y ponerles cualquier otro Prn tiene que
+    reprobar. Los plugins no se juzgan enteros -- los masters de 2011 no pasan
+    la REGLA 1 --: solo la REGLA 4, arma por arma."""
+    patrones = roturas = 0
+    no_patron = []
+    fallas = []
+    nombres = []
+    if os.path.isdir(data):
+        nombres = sorted(n for n in os.listdir(data)
+                         if n.lower().endswith((".esm", ".esl", ".esp")))
+    valores = sorted(set(PRN_POR_TIPO.values()))
+    for nombre in nombres:
+        info = leer(os.path.join(data, nombre), meshes=meshes)
+        if info["error"]:
+            continue
+        for r in info["records"]:
+            w = r.get("weap")
+            if (not w or w["plantilla"] or not w["nif"]
+                    or w["anim"] not in PRN_POR_TIPO):
+                continue
+            cual = "%s %08X" % (nombre, r["form_id"])
+            if _regla_prn(cual, w, []):
+                no_patron.append("%s  Prn=%s" % (w["MODL"], w["prn"]))
+                continue
+            patrones += 1
+            for otro in [v for v in valores if v != w["prn"]] + [None]:
+                roturas += 1
+                if not _regla_prn(cual, dict(w, prn=otro), []):
+                    fallas.append("%s con Prn %s: no reprobo" % (cual, otro))
+    # Las que no pasan tal cual se MUESTRAN, no se describen: sobre el Data
+    # vanilla son maniquies de Clutter\DummyItems, el arco de la esfera
+    # dwemer, picos decorativos, un emblema y NordicGreatSword (hallazgo 17),
+    # pero sobre otro Data serian otras.
+    distintas = sorted(set(no_patron))
+    print("falsificar-prn: %d armas de patron, %d roturas, %d fallas. "
+          "No pasan tal cual: %d (%d NIF distintos)"
+          % (patrones, roturas, len(fallas), len(no_patron), len(distintas)))
+    for x in distintas[:LIMITE_DETALLE]:
+        print("   no es patron: %s" % x)
+    if len(distintas) > LIMITE_DETALLE:
+        print("   ... y %d mas" % (len(distintas) - LIMITE_DETALLE))
+    for x in fallas[:LIMITE_DETALLE]:
+        print("  FALLA %s" % x)
+    if patrones == 0:
+        print("FALLA: cero armas utilizables -- no comprobar nada no es "
+              "exito")
+        return 1
+    return 1 if fallas else 0
 
 
 def revisar(rutas):
@@ -324,6 +466,24 @@ def autotest():
     caso("WNAM a un master", arma(wnam=0x00012345), False, "REGLA")
     caso("sin WNAM", arma(wnam=None), False, "REGLA")
 
+    # REGLA 4: cada tipo con su Prn pasa, y con cualquier otro (o sin Prn) no
+    def con_prn(anim, prn, nif="x.nif"):
+        info = arma()
+        info["records"][2]["weap"].update(
+            anim=anim, MODL="x.nif", nif=nif, prn=prn, nif_error=None)
+        return info
+
+    valores = sorted(set(PRN_POR_TIPO.values()))
+    for anim, bueno in sorted(PRN_POR_TIPO.items()):
+        caso("tipo %d con %s" % (anim, bueno), con_prn(anim, bueno), False,
+             "REGLA")
+        for otro in [v for v in valores if v != bueno] + [None]:
+            caso("tipo %d con %s" % (anim, otro), con_prn(anim, otro), True,
+                 "WEAP Prn")
+    for prn in ("WeaponStaff", "SHIELD"):
+        caso("baston con %s" % prn, con_prn(TIPO_BASTON, prn), False, "REGLA")
+    caso("NIF no encontrado", con_prn(6, None, nif=None), False, "REGLA")
+
     print("autotest: %d casos, %d fallas" % (corridos[0], len(fallas)))
     for x in fallas:
         print("  FALLA %s" % x)
@@ -395,10 +555,13 @@ def main(argv):
         return autotest()
     if len(argv) == 2 and argv[0] == "--falsificar":
         return falsificar(argv[1])
+    if len(argv) == 3 and argv[0] == "--falsificar-prn":
+        return falsificar_prn(argv[1], argv[2])
     if argv and not any(a.startswith("--") for a in argv):
         return revisar(argv)
     print("uso: verificar_plugin.py <plugin> [...] | --autotest | "
-          "--falsificar <carpeta Data>")
+          "--falsificar <carpeta Data> | --falsificar-prn <carpeta Data> "
+          "<carpeta meshes>")
     return 2
 
 

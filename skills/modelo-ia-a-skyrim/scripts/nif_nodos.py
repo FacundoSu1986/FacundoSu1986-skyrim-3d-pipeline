@@ -122,7 +122,24 @@ def leer(ruta):
     bloques = [(tipos[idx[b]], offs[b], tam[b]) for b in range(n_bloques)]
     return {"archivo": os.path.basename(ruta), "version": "0x%08X" % version,
             "bs": bs, "n_bloques": n_bloques, "nodos": nodos,
-            "bloques": bloques, "datos": datos}
+            "bloques": bloques, "datos": datos, "strings": strings}
+
+
+def cadena_extra(nif, nombre):
+    """El valor del NiStringExtraData llamado `nombre`, o None si no hay.
+
+    En SSE un NiStringExtraData son dos indices (i32) a la tabla de strings:
+    el nombre y el valor. Asi se lee el `Prn` de un arma -- el nodo del
+    esqueleto del que cuelga envainada--. Se compara el NOMBRE: el primer
+    NiStringExtraData que aparezca no es necesariamente el que se busca."""
+    s = nif["strings"]
+    for tipo, off, tam in nif["bloques"]:
+        if tipo != "NiStringExtraData" or tam < 8:
+            continue
+        nom, val = struct.unpack_from("<ii", nif["datos"], off)
+        if 0 <= nom < len(s) and s[nom] == nombre:
+            return s[val] if 0 <= val < len(s) else None
+    return None
 
 
 def mundo(nif):

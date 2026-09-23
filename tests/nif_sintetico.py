@@ -387,6 +387,53 @@ def construir(raiz_tipo="BSFadeNode"):
     return datos, esperado
 
 
+def construir_arma(prn="WeaponBack"):
+    """Un NIF de arma minimo: la raiz con un NiStringExtraData `Prn` y el
+    BSXFlags. `prn=None` lo arma sin Prn.
+
+    En SSE un NiStringExtraData son dos indices a la tabla de strings: el
+    nombre ("Prn") y el valor ("WeaponBack"). El Prn es el nodo del esqueleto
+    del que cuelga el arma envainada (census/hallazgos_plugins.md, entrada 17).
+    """
+    tipos = ["BSFadeNode", "BSXFlags"]
+    strings = [RAIZ_NOMBRE, BSX_NOMBRE]
+    extra = [1]
+    bloques_extra = []
+    if prn is not None:
+        tipos.append("NiStringExtraData")
+        strings += ["Prn", prn]
+        extra = [1, 2]
+        bloques_extra = [struct.pack("<ii", 2, 3)]
+    bloques = [
+        _avobject(0, extra, (0.0, 0.0, 0.0), []),
+        struct.pack("<i", 1) + struct.pack("<i", BSX_VALOR),
+    ] + bloques_extra
+
+    h = bytearray(CABECERA)
+    h += struct.pack("<I", VERSION)
+    h += struct.pack("<B", 1)
+    h += struct.pack("<I", USER)
+    h += struct.pack("<I", len(bloques))
+    h += struct.pack("<I", BS)
+    h += _corta("")
+    h += _corta("")
+    h += _corta("")
+    h += struct.pack("<H", len(tipos))
+    for t in tipos:
+        h += _larga(t)
+    for k in range(len(bloques)):
+        h += struct.pack("<H", k)
+    for b in bloques:
+        h += struct.pack("<I", len(b))
+    h += struct.pack("<I", len(strings))
+    h += struct.pack("<I", max(len(s) for s in strings))
+    for s in strings:
+        h += _larga(s)
+    h += struct.pack("<I", 0)
+    return bytes(h) + b"".join(bloques), {"strings": list(strings),
+                                          "prn": prn}
+
+
 def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,
                         huesos=HUESOS_NOMBRE,
                         traslaciones=HUESOS_TRASLACION,
