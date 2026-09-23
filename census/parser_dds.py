@@ -105,6 +105,9 @@ def leer(ruta):
     pf_flags, = struct.unpack_from("<I", cab, 80)
     four = cab[84:88]
     bits, = struct.unpack_from("<I", cab, 88)
+    mascara_r, = struct.unpack_from("<I", cab, 92) if len(cab) >= 96 else (0,)
+    mascara_g, = struct.unpack_from("<I", cab, 96) if len(cab) >= 100 else (0,)
+    mascara_b, = struct.unpack_from("<I", cab, 100) if len(cab) >= 104 else (0,)
     mascara_alfa, = struct.unpack_from("<I", cab, 104)
 
     srgb = False
@@ -115,6 +118,9 @@ def leer(ruta):
         fmt = DXGI.get(dxgi, "DXGI_%d" % dxgi)
         srgb = dxgi in DXGI_SRGB
         cabecera_bytes = 148
+        # Para DX10 las máscaras son las del formato DXGI; las que expone
+        # el pixel format legacy no aplican. Se dejan en 0 para señalarlo.
+        mascara_r = mascara_g = mascara_b = mascara_alfa = 0
     elif pf_flags & DDPF_FOURCC:
         fmt = four.decode("latin-1").strip("\x00") or "?"
         cabecera_bytes = 128
@@ -166,6 +172,10 @@ def leer(ruta):
         "tiene_alfa": ((bool(mascara_alfa) and mascara_alfa.bit_length() <= bits)
                        or fmt in ("DXT3", "DXT5", "BC2", "BC3",
                                   "BC7", "DXGI_98", "DXGI_99")),
+        # Las máscaras solo tienen sentido en sin-comprimir legacy; sirven
+        # para que un lector de píxeles no tenga que asumir BGRA a ciegas.
+        "r_mask": mascara_r, "g_mask": mascara_g,
+        "b_mask": mascara_b, "a_mask": mascara_alfa,
         "bytes": tam_archivo,
         "bytes_esperados": esperado,
         "tamano_cuadra": (esperado is not None) and (esperado == tam_archivo),

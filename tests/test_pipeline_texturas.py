@@ -191,7 +191,83 @@ class ClasificarTests(unittest.TestCase):
         """`_x` no está en la convención: tratarlo como color es honesto, y
         tratarlo como normal inventaría un mapa."""
         self.assertEqual(tx.clasificar("cartel_x.png"),
-                         ("color", "", "cartel_x"))
+                         ( "color", "", "cartel_x"))
+
+    def test_los_sufijos_de_gltf_se_reconocen(self):
+        """Nombres estándar de glTF y de los generadores (Meshy/Tripo):
+        `_basecolor`, `_normal`, `_metallicRoughness` y amigos. Sin esto,
+        `hacha_normal.png` y `hacha_metallicRoughness.png` quedaban como
+        tres texture sets independientes y la fase escribía tres "color"
+        silenciosamente -- la falla que este test existe para que no
+        vuelva."""
+        casos = {
+            "hacha_basecolor.png": ("color", "_basecolor", "hacha"),
+            "hacha_BaseColor.png": ("color", "_basecolor", "hacha"),
+            "hacha_base_color.png": ("color", "_base_color", "hacha"),
+            "hacha_albedo.png": ("color", "_albedo", "hacha"),
+            "hacha_diffuse.png": ("color", "_diffuse", "hacha"),
+            "hacha_D.png": ("color", "_d", "hacha"),
+            "hacha_color.png": ("color", "_color", "hacha"),
+            "hacha_normal.png": ("normal", "_normal", "hacha"),
+            "hacha_Normal.png": ("normal", "_normal", "hacha"),
+            "hacha_nor.png": ("normal", "_nor", "hacha"),
+            "hacha_nrm.png": ("normal", "_nrm", "hacha"),
+            "hacha_normalgl.png": ("normal", "_normalgl", "hacha"),
+        }
+        for nombre, esperado in casos.items():
+            with self.subTest(nombre=nombre):
+                self.assertEqual(tx.clasificar(nombre), esperado)
+
+    def test_metallicroughness_se_reconoce_como_fuente(self):
+        """El sufijo canónico de glTF PBR es `_metallicRoughness`; tiene que
+        ganar sobre el sufijo parcial `_roughness` para que la rugosidad no
+        se lea como un mapa de rugosidad aislado y la metalicidad se
+        pierda."""
+        self.assertIsNotNone(tx._es_fuente("hacha_metallicRoughness"))
+        self.assertEqual(tx._es_fuente("hacha_metallicRoughness"),
+                         "_metallicroughness")
+        self.assertEqual(tx._es_fuente("hacha_MetallicRoughness"),
+                         "_metallicroughness")
+        self.assertEqual(tx._es_fuente("hacha_occlusionRoughnessMetallic"),
+                         "_occlusionroughnessmetallic")
+        # `_roughness` suelto también tiene que funcionar (no solo el
+        # combinado).
+        self.assertEqual(tx._es_fuente("hacha_roughness"), "_roughness")
+        self.assertEqual(tx._es_fuente("hacha_orm"), "_orm")
+
+    def test_sufijos_extra_del_generador_se_quitan(self):
+        """`hacha_normal_fixed.png` (Tripo), `hacha_basecolor_baked.png`
+        tienen un sufijo que el generador agrega DESPUÉS del rol. Sin
+        quitarlo, los dos archivos quedan en bases distintas y el normal
+        nunca se combina con el color."""
+        self.assertEqual(tx.clasificar("hacha_normal_fixed.png"),
+                         ("normal", "_normal", "hacha"))
+        self.assertEqual(tx.clasificar("hacha_basecolor_baked.png"),
+                         ("color", "_basecolor", "hacha"))
+        self.assertEqual(tx.clasificar("hacha_normal_2k.png"),
+                         ("normal", "_normal", "hacha"))
+        # El ORM también
+        self.assertEqual(tx._es_fuente("hacha_metallicRoughness_fixed"),
+                         "_metallicroughness")
+
+    def test_los_tres_mapas_de_gltf_quedan_en_el_mismo_grupo(self):
+        """Prueba de punta a punta del bug original: con nombres glTF
+        estándar los tres archivos tienen que compartir la base `hacha` y
+        producir los tres slots, no tres texture sets de color."""
+        import tempfile, shutil
+        from pipeline.texturas import _agrupar
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            for n in ("hacha_basecolor.png", "hacha_normal.png",
+                      "hacha_metallicRoughness.png"):
+                (tmp / n).write_bytes(b"x")
+            grupos = _agrupar(sorted(tmp.iterdir()))
+            self.assertEqual(list(grupos.keys()), ["hacha"])
+            g = grupos["hacha"]
+            self.assertEqual(set(g["slots"].keys()), {"color", "normal"})
+            self.assertEqual(set(g["fuentes"].keys()), {"_metallicroughness"})
+        finally:
+            shutil.rmtree(tmp)
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +429,73 @@ class GeometriaTests(unittest.TestCase):
     def test_redimensionar_a_cero_es_un_error(self):
         with self.assertRaises(TexturaError):
             tx.redimensionar(tx.Textura(2, 2, bytes(16)), 0, 4)
+
+    def test_redimensionar_normal_renormaliza(self):
+        """El promedio de dos normales unitarias que apuntan en direcciones
+        opuestas da un vector más corto que 1; si no se renormaliza el
+        relieve se aplana en los mipmaps y en el resize principal. Es
+        el mismo defecto que se describe en la trampa 35 (aliasing) pero
+        para las normales."""
+        # Un píxel apuntando a +X (255,128,255) y otro a -X (0,128,255):
+        # promedio (127,128,255) = apunta a +Z, largo 0,5 → hay que
+        # renormalizar a (128,128,255).
+        crudo = bytearray()
+        crudo += bytes((255, 128, 255, 200))
+        crudo += bytes((0,   128, 255, 100))
+        crudo += bytes((0,   128, 255, 100))
+        crudo += bytes((255, 128, 255, 200))
+        tex = tx.Textura(2, 2, bytes(crudo))
+        chico = tx.redimensionar(tex, 1, 1, slot="normal")
+        r, g, b, a = chico.pixeles
+        # El alfa es el promedio de los cuatro: (200+100+100+200)/4 = 150.
+        self.assertEqual(a, 150)
+        # El vector normalizado tiene que ser unitario.
+        nx = r/255*2-1; ny = g/255*2-1; nz = b/255*2-1
+        ln = (nx*nx+ny*ny+nz*nz)**0.5
+        self.assertAlmostEqual(ln, 1.0, delta=0.02,
+                               msg="la normal redimensionada no se "
+                                   "renormalizó: largo %.3f" % ln)
+
+    def test_redimensionar_color_no_renormaliza(self):
+        """Los slots que NO son 'normal' promedian en lineal tal cual,
+        igual que antes."""
+        tex = tx.Textura(2, 2, bytes((0, 0, 0, 0,
+                                      100, 100, 100, 100,
+                                      200, 200, 200, 200,
+                                      40, 40, 40, 40)))
+        self.assertEqual(tx.redimensionar(tex, 1, 1, slot="color").pixeles,
+                         bytes((85, 85, 85, 85)))
+
+    def test_orden_de_canales_rgba_se_rechaza_con_mensaje(self):
+        """Un DDS escrito con orden RGBA (raro, pero posible exportando de
+        GIMP/Photoshop) se rechaza con las máscaras que trae en el header,
+        en vez de asumir BGRA y devolver colores invertidos sin error."""
+        import tempfile, os
+        cab = bytearray(128)
+        cab[0:4] = b"DDS "
+        import struct as st
+        st.pack_into("<I", cab, 4, 124)
+        st.pack_into("<III", cab, 8, 0x1007, 4, 4)
+        st.pack_into("<I", cab, 20, 16)
+        st.pack_into("<I", cab, 28, 1)
+        st.pack_into("<I", cab, 76, 32)
+        st.pack_into("<I", cab, 80, 0x1 | 0x40)    # ALPHAPIXELS|RGB
+        st.pack_into("<I", cab, 88, 32)
+        # RGBA: R en el byte bajo (0x000000FF)
+        st.pack_into("<IIII", cab, 92,
+                     0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000)
+        st.pack_into("<I", cab, 108, 0x1000)
+        fd, ruta = tempfile.mkstemp(suffix=".dds")
+        os.close(fd)
+        with open(ruta, "wb") as fh:
+            fh.write(bytes(cab))
+            fh.write(bytes(64))   # 4x4x4
+        try:
+            with self.assertRaises(TexturaError) as ctx:
+                tx.leer_dds(ruta)
+            self.assertIn("RGBA", str(ctx.exception))
+        finally:
+            os.unlink(ruta)
 
 
 # ---------------------------------------------------------------------------

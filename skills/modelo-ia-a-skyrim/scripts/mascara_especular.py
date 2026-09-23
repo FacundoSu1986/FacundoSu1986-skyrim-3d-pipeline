@@ -321,8 +321,11 @@ def _sin_comprimir(ancho, alto, alfas, bits=32):
 def autotest():
     import tempfile
     fallas = []
+    comprobaciones = 0
 
     def exigir(cond, texto):
+        nonlocal comprobaciones
+        comprobaciones += 1
         if not cond:
             fallas.append(texto)
 
@@ -462,7 +465,7 @@ def autotest():
     finally:
         os.unlink(ruta)
 
-    print("autotest: %d comprobaciones, %d fallas" % (25, len(fallas)))
+    print("autotest: %d comprobaciones, %d fallas" % (comprobaciones, len(fallas)))
     for x in fallas:
         print("  FALLA %s" % x)
     return 1 if fallas else 0

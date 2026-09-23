@@ -96,24 +96,70 @@ import mascara_especular  # noqa: E402
 import parser_dds      # noqa: E402
 
 # --- la convención de sufijos, tal cual está documentada --------------------
+# Sufijos de SKYRIM (lo que se ESCRIBE) y sus equivalentes que entregan los
+# generadores / el estándar glTF. Se aceptan varios alias en la entrada pero
+# se escribe SIEMPRE con el sufijo canónico de Skyrim (cartel, cartel_n,
+# cartel_m...). El orden de la lista importa: los sufijos más LARGOS se buscan
+# primero, así `hacha_metallicRoughness` se clasifica como fuente ORM y no
+# como rugosidad por el sufijo `_roughness` que lleva adentro.
 SUFIJO_A_SLOT = {
+    # Skyrim canónico
     "_n": "normal",
     "_m": "entorno",
     "_g": "glow",
     "_s": "subsurface",
     "_p": "parallax",
     "_b": "backlight",
+    # Alias de color/base que usan los generadores y glTF. Un nombre con uno
+    # de estos sufijos es el color base: no queremos que `hacha_basecolor`
+    # quede como base `hacha_basecolor` sin que produzca un cartel.dds.
+    "_basecolor": "color",
+    "_base_color": "color",
+    "_albedo": "color",
+    "_diffuse": "color",
+    "_d": "color",
+    "_color": "color",
+    # Alias de normal
+    "_normal": "normal",
+    "_normalgl": "normal",
+    "_nor": "normal",
+    "_nrm": "normal",
 }
 SLOT_A_SUFIJO = {v: k for k, v in SUFIJO_A_SLOT.items()}
+# Solo los sufijos de SKYRIM se usan al escribir; los alias no aparecen en el
+# paquete.
+SUFIJO_ESCRITURA = {"color": "", "normal": "_n", "entorno": "_m",
+                    "glow": "_g", "subsurface": "_s",
+                    "parallax": "_p", "backlight": "_b"}
 
 # Orden de escritura: el color primero, para que un reporte truncado deje ver
 # lo más importante arriba.
 ORDEN_SLOTS = ("color", "normal", "entorno", "glow", "subsurface",
                "parallax", "backlight")
 
+# Sufijos que un generador agrega DESPUÉS del rol (_fixed, _baked, _processed,
+# _1k, _2k, _4k) y que hay que quitar para que el nombre base coincida entre
+# el color, el normal y el ORM. Por ejemplo:
+#   hacha_normal_fixed.png     -> base hacha,  slot normal
+#   hacha_basecolor.png        -> base hacha,  slot color
+# Si no se quita `_fixed`, los dos archivos quedan en grupos distintos y el
+# normal nunca se combina con el color: falla silenciosa (ver hallazgo del
+# PR #51).
+_SUFIJOS_EXTRA = (
+    "_fixed", "_baked", "_processed", "_final", "_v2", "_v3",
+    "_1k", "_2k", "_4k", "_8k",
+    "_dx", "_gl", "_opengl",
+)
+
 # Fuentes PBR que no se emiten como textura propia: se doblan dentro del `_n`
-# (rugosidad -> alfa) y del `_m` (metalicidad -> máscara).
-FUENTES_RUGOSIDAD = ("_orm", "_roughness", "_rough")
+# (rugosidad -> alfa) y del `_m` (metalicidad -> máscara). Ordenados por
+# longitud decreciente para que `_metallicRoughness` matchee antes que
+# `_roughness`.
+FUENTES_RUGOSIDAD = (
+    "_metallicroughness", "_metalroughness", "_metallic_roughness",
+    "_metal_roughness", "_occlusionroughnessmetallic", "_orm",
+    "_roughness", "_rough",
+)
 
 EXTENSIONES_LEIBLES = frozenset({".png", ".tga", ".dds"})
 
@@ -290,12 +336,82 @@ def leer_tga(ruta: Path) -> Textura:
     return Textura(ancho, alto, bytes(salida))
 
 
+def _offset_mascara(mask: int) -> int:
+    """Desplazamiento en BYTES del byte menos significativo de la máscara.
+
+    La máscara tiene que ser un bloque contiguo de 8 bits (un byte entero),
+    que es lo que vale para todo A8R8G8B8/X8R8G8B8/B8G8R8A8 de 32 bpp. Si
+    no lo es, se devuelve -1 para que el caller rechace el archivo en vez
+    de inventar el orden.
+    """
+    if mask == 0:
+        return -1
+    # Quitar los bits cero de la derecha; contar BITS, luego dividir por 8.
+    bits_off = 0
+    m = mask
+    while m and (m & 1) == 0:
+        m >>= 1
+        bits_off += 1
+    if bits_off % 8 != 0:
+        return -1
+    # Tiene que ser un byte contiguo
+    if (m & 0xFF) != 0xFF:
+        return -1
+    m >>= 8
+    if m != 0:
+        return -1
+    return bits_off // 8
+
+
+# BGRA canónico: como lo escribe census/escritor_dds.py y como están los
+# 10.048 vanilla sin comprimir del censo.
+_BGRA = {"r_off": 2, "g_off": 1, "b_off": 0, "a_off": 3}
+
+
+def _orden_canales(d: dict) -> dict:
+    """{r_off, g_off, b_off, a_off} a partir de las máscaras del header.
+
+    Falla si las máscaras no describen canales de 8 bits contiguos en un
+    DDS de 32 bpp, o si el orden no es el BGRA que esta fase escribe y que
+    verifica el censo. Asumir BGRA a ciegas sobre un RGBA de otra herramienta
+    devuelve colores y normales invertidos sin error; decirlo es más barato.
+    """
+    r, g, b, a = d["r_mask"], d["g_mask"], d["b_mask"], d["a_mask"]
+    # Sin máscaras (p. ej. un DX10 B8G8R8A8 que ya habrá sido rechazado por
+    # formato): no hay nada que decidir, asumir BGRA. Este camino no se
+    # alcanza para un sin_comprimir_32bpp válido porque ese formato siempre
+    # trae las máscaras en el pixel format.
+    if r == g == b == 0:
+        return dict(_BGRA)
+    offs = {"r_off": _offset_mascara(r), "g_off": _offset_mascara(g),
+            "b_off": _offset_mascara(b), "a_off": _offset_mascara(a) if a else 3}
+    if any(v < 0 or v > 3 for v in offs.values()):
+        raise TexturaError(
+            "orden de canales no soportado (máscaras R=%08X G=%08X B=%08X "
+            "A=%08X): los canales no son bytes contiguos de 8 bits. Esta "
+            "fase escribe y lee BGRA de 8 bits por canal." % (r, g, b, a))
+    if offs != _BGRA:
+        # Nombrar el orden que se encontró para que el mensaje diga qué se
+        # esperaba y qué se recibió, en vez de fallar con un genérico.
+        nombres = {v: k for k, v in offs.items()}
+        orden = "".join(nombres.get(i, "?")[0].upper() for i in range(4))
+        raise TexturaError(
+            "orden de canales %s no soportado; esta fase solo lee BGRA "
+            "(R_mask=00FF0000 G=0000FF00 B=000000FF A=FF000000), que es el "
+            "que escribe y el que usan los 10.048 vanilla sin comprimir "
+            "del censo. Convertilo antes con `texconv -f BGRA8_UNORM`." % orden)
+    return offs
+
+
 def leer_dds(ruta: Path) -> Textura:
-    """DDS SIN comprimir de 32 bpp, nivel 0.
+    """DDS SIN comprimir de 32 bpp, nivel 0, orden BGRA.
 
     Un DDS comprimido se rechaza con el número del censo al lado: no es un
     detalle de implementación, es que esta fase todavía no comprime y por lo
-    tanto no debería pretender que sí.
+    tanto no debería pretender que sí. Un DDS sin comprimir con otro orden
+    de canales (RGBA, ARGB) también se rechaza, con las máscaras que trae
+    el header en el mensaje: asumir BGRA a ciegas devolvía colores
+    invertidos sin ningún error.
     """
     d = parser_dds.leer(ruta)          # lanza DdsInvalido si no parsea
     if d["comprimido"]:
@@ -306,6 +422,7 @@ def leer_dds(ruta: Path) -> Textura:
     if d["formato"] != "sin_comprimir_32bpp":
         raise TexturaError(
             f"{ruta}: formato {d['formato']}; se esperaba sin_comprimir_32bpp")
+    offs = _orden_canales(d)
     ancho, alto = d["ancho"], d["alto"]
     with open(ruta, "rb") as fh:
         fh.seek(128)
@@ -313,9 +430,12 @@ def leer_dds(ruta: Path) -> Textura:
     if len(crudo) != ancho * alto * 4:
         raise TexturaError(f"{ruta}: el archivo no llega a contener el nivel 0")
     salida = bytearray(len(crudo))
-    for p in range(0, len(crudo), 4):      # BGRA -> RGBA
-        b, g, r, a = crudo[p:p + 4]
-        salida[p:p + 4] = bytes((r, g, b, a))
+    r_o, g_o, b_o, a_o = offs["r_off"], offs["g_off"], offs["b_off"], offs["a_off"]
+    for p in range(0, len(crudo), 4):
+        salida[p]     = crudo[p + r_o]
+        salida[p + 1] = crudo[p + g_o]
+        salida[p + 2] = crudo[p + b_o]
+        salida[p + 3] = crudo[p + a_o]
     return Textura(ancho, alto, bytes(salida))
 
 
@@ -347,20 +467,44 @@ def clasificar(nombre: str) -> tuple[str, str, str]:
     """(slot, sufijo, base) a partir del nombre de archivo.
 
     El sufijo se busca al FINAL del tallo, en minúsculas: `Cartel_N.PNG` es un
-    normal map. Un nombre sin sufijo reconocido es el color base --es la forma
+    normal map, `hacha_BaseColor.png` es color base, `hacha_Normal.png` es
+    normal. Un nombre sin sufijo reconocido es el color base --es la forma
     más común del corpus: 19.108 de 32.241 texturas no tienen sufijo--.
+
+    Los sufijos "extra" del generador (_fixed, _baked, _1k, _2k...) se quitan
+    antes de decidir la base, así `hacha_normal_fixed` y `hacha_basecolor`
+    comparten la base `hacha` y van al mismo texture set.
     """
     tallo = Path(nombre).stem
-    for sufijo, slot in SUFIJO_A_SLOT.items():
-        if tallo.lower().endswith(sufijo):
-            return slot, sufijo, tallo[: -len(sufijo)]
+    tallo_b = tallo.lower()
+    # Quitar sufijos extra del final (uno solo; más de uno es raro y se deja).
+    for x in _SUFIJOS_EXTRA:
+        if tallo_b.endswith(x):
+            tallo = tallo[:-len(x)]
+            tallo_b = tallo.lower()
+            break
+    # Buscar sufijo de slot, más largo primero para que `_basecolor` gane
+    # sobre `_color` y no matcheen prefijos parciales.
+    for sufijo in sorted(SUFIJO_A_SLOT, key=len, reverse=True):
+        if tallo_b.endswith(sufijo):
+            return SUFIJO_A_SLOT[sufijo], sufijo, tallo[:-len(sufijo)]
     return "color", "", tallo
 
 
 def _es_fuente(tallo: str) -> str | None:
-    """'_orm'/'_roughness'/'_rough' -> esa fuente, o None si no es una fuente."""
+    """'_orm'/'_roughness'/... -> esa fuente, o None si no es una fuente.
+
+    Quita los sufijos extra igual que `clasificar` y busca el sufijo de
+    fuente más largo que matchee, así `_metallicRoughness` gana sobre
+    `_roughness`.
+    """
     bajo = tallo.lower()
-    for fuente in FUENTES_RUGOSIDAD:
+    for x in _SUFIJOS_EXTRA:
+        if bajo.endswith(x):
+            tallo = tallo[:-len(x)]
+            bajo = tallo.lower()
+            break
+    for fuente in sorted(FUENTES_RUGOSIDAD, key=len, reverse=True):
         if bajo.endswith(fuente):
             return fuente
     return None
@@ -396,19 +540,24 @@ def ajustar_tamano(ancho: int, alto: int, max_lado: int
     return w, h, "redondeado hacia arriba a potencia de dos"
 
 
-def redimensionar(tex: Textura, ancho2: int, alto2: int) -> Textura:
+def redimensionar(tex: Textura, ancho2: int, alto2: int,
+                  slot: str = "color") -> Textura:
     """Remuestreo por cajas (box filter), promediando 2x2 o el bloque que toque.
 
     Es el mismo criterio que `census/escritor_dds.reducir`, que es el que
-    genera los mipmaps: promediar en el espacio en que vienen los valores es
-    correcto para máscaras y mapas de datos, y para el color con gamma es
-    discutible --eso queda dicho ahí y se repite acá en vez de disimularse.
+    genera los mipmaps. Los mapas de DATOS (máscaras, metalicidad, rugosidad,
+    glow) se promedian lineal y queda bien. El color en sRGB es discutible por
+    la gamma, igual que en escritor_dds. Los NORMALES son el caso especial:
+    después de promediar hay que RENORMALIZAR cada vector, porque el promedio
+    de cuatro normales unitarias apuntando en direcciones distintas es más
+    corto que 1 y queda el relieve más suave de lo debido.
     """
     if (tex.ancho, tex.alto) == (ancho2, alto2):
         return tex
     if ancho2 <= 0 or alto2 <= 0:
         raise TexturaError(f"destino inválido: {ancho2}x{alto2}")
     salida = bytearray(ancho2 * alto2 * 4)
+    es_normal = slot == "normal"
     for y2 in range(alto2):
         y0 = y2 * tex.alto // alto2
         y1 = max(y0 + 1, (y2 + 1) * tex.alto // alto2)
@@ -424,8 +573,27 @@ def redimensionar(tex: Textura, ancho2: int, alto2: int) -> Textura:
                         acc[c] += tex.pixeles[o + c]
                     n += 1
             d = (y2 * ancho2 + x2) * 4
-            for c in range(4):
-                salida[d + c] = (acc[c] + n // 2) // n
+            if es_normal:
+                # Normal guardada como (R,G,B) = (nx*0.5+0.5, ny*0.5+0.5,
+                # nz*0.5+0.5), A especular. Se promedia en espacio de
+                # vector unitario y se renormaliza para no aplanar el
+                # relieve. El alfa es lineal y se promedia aparte.
+                import math
+                nx = (acc[0] / n) / 255.0 * 2.0 - 1.0
+                ny = (acc[1] / n) / 255.0 * 2.0 - 1.0
+                nz = (acc[2] / n) / 255.0 * 2.0 - 1.0
+                ln = math.sqrt(nx*nx + ny*ny + nz*nz)
+                if ln > 1e-6:
+                    nx, ny, nz = nx/ln, ny/ln, nz/ln
+                else:
+                    nx, ny, nz = 0.0, 0.0, 1.0
+                salida[d]     = max(0, min(255, int((nx * 0.5 + 0.5) * 255 + 0.5)))
+                salida[d + 1] = max(0, min(255, int((ny * 0.5 + 0.5) * 255 + 0.5)))
+                salida[d + 2] = max(0, min(255, int((nz * 0.5 + 0.5) * 255 + 0.5)))
+                salida[d + 3] = (acc[3] + n // 2) // n
+            else:
+                for c in range(4):
+                    salida[d + c] = (acc[c] + n // 2) // n
     return Textura(ancho2, alto2, bytes(salida))
 
 
@@ -687,7 +855,7 @@ def _procesar_base(base: str, grupo: dict, mani: JobManifest,
             f"el sufijo")
 
     for slot in ORDEN_SLOTS:
-        sufijo = SLOT_A_SUFIJO.get(slot, "")
+        sufijo = SUFIJO_ESCRITURA.get(slot, "")
         nombre_salida = base + sufijo
         ruta_entrada = grupo["slots"].get(slot)
         origen = None
@@ -732,7 +900,7 @@ def _procesar_base(base: str, grupo: dict, mani: JobManifest,
         dims_origen = [tex.ancho, tex.alto]
         ancho2, alto2, que = ajustar_tamano(tex.ancho, tex.alto,
                                             mani.max_lado_textura)
-        tex = redimensionar(tex, ancho2, alto2)
+        tex = redimensionar(tex, ancho2, alto2, slot=slot)
 
         declarada = ruta_declarada(categoria, mani.job_id, nombre_salida)
         destino = ws.ruta_segura(
