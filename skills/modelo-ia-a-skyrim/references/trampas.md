@@ -645,7 +645,7 @@ agregado.
 captura la componente difusa del BSDF, y un Principled con `Metallic = 1.0` no
 tiene. El color está en *Base Color*, que ese pase no lee. `[MEASURED]` Mismo
 objeto, 1024²: con `DIFFUSE` el atlas pesaba 82.538 bytes, casi todo negro; con
-`EMIT` y la misma red de color, 450.652 y completo (#36).
+`EMIT` y la misma red de color, 450.652 y completo (medición 36, abajo).
 
 **Arreglo:** hornear el albedo con `type='EMIT'`: conectar *Base Color* a un
 `ShaderNodeEmission` y ponerlo como salida del material solo durante ese bake.
@@ -664,8 +664,8 @@ cuero leían **83 % rojo**.
 
 **Por qué:** las caras nuevas del Bevel heredan UV interpoladas de las vecinas
 y caen **encima** de las originales. `census/parser_uv.py` sobre el NIF
-exportado: `solape_huella` **0,093** antes, **0,0** después de
-re-unwrappear (#37).
+exportado: `solape_huella` **0,093** antes, **0,0** después de re-unwrappear
+(medición 37, abajo).
 
 **Arreglo:** unwrappear **después** de todo modificador que agregue caras. Y
 medir `solape_huella` sobre el archivo escrito, no confiar en el orden de los
@@ -731,9 +731,13 @@ las hojas se **trasladan enteras** lo justo para seguir pegadas. Es monótono,
 así que no puede plegar la malla. Control: cada vértice de hoja trasladado sin
 deformarse (desvío 1e-17).
 
-Confirmado en el juego: "quedó genial". Los scripts son `afinar_v2.py` y
-`afinar_v3.py` del hacha; los números de arriba son de ese modelo, **no los
-copies**: medí el perfil del tuyo.
+Confirmado en el juego: "quedó genial". Estos arreglos se aplicaron con dos
+scripts ad hoc del proyecto del hacha (`afinar_v2.py` y `afinar_v3.py`); no se
+incluyeron en el repo porque la geometría es distinta para cada arma y los
+parámetros (fin del tramo recto, eje, límites de la rampa, factor) salen del
+perfil de cada modelo. **No copies los números de arriba** de este texto: medí
+el perfil del tuyo y codificalo sobre esa medida. Los ingredientes que sí se
+pueden copiar son los cinco pasos del arreglo.
 
 ### 35. Hornear con una muestra por texel desde una textura más grande es aliasing {#35}
 
