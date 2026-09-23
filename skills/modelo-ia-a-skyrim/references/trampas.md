@@ -1,4 +1,4 @@
-# Trampas: treinta y tres fallos que no tiran error
+# Trampas: treinta y cinco fallos que no tiran error
 
 Casi todas se pagaron en el proyecto de origen (`Centurion_Marfil_SE_v01`,
 reemplazo del Dwarven Steam Centurion); de la 28 en adelante salieron de otros
@@ -32,6 +32,8 @@ ya está en la lista.
 | El conteo de aristas de borde es absurdamente alto | [22](#22) |
 | El render sale como una lámina gris que tapa todo | [24](#24), [25](#25) |
 | Filtraste algo y sigue apareciendo | [25](#25) |
+| Afinaste una parte y quedó un cono o se torció donde cambia el grosor | [34](#34) |
+| Achicar una pieza deformó lo que tiene pegado | [34](#34) |
 | La criatura entra con las piezas desparramadas | [26](#26), [5](#5) |
 | **Rig** | |
 | Falta articulación (pie plano, cara muerta) | [12](#12) |
@@ -44,6 +46,7 @@ ya está en la lista.
 | Textura en negro | [16](#16), [31](#31) |
 | El metal sale negro en el atlas y el cuero bien | [31](#31) |
 | Una isla de la textura muestra el color de otro material | [32](#32) |
+| Bordes dentados en el horneado, sobre todo en el normal map | [35](#35) |
 | Texturas desordenadas, varias piezas sobre el mismo pedazo | [17](#17) |
 | El archivo no tiene texturas ni UV | [10](#10) |
 | El asset se ve sucio, con sombras que no se mueven | [21](#21) |
@@ -684,6 +687,85 @@ metadata y cae en `SKYRIM`. `[MEASURED]` Mismo estático: default → `bs_versio
 y verificar `bs_version == 100` en el archivo escrito. Es pariente de la
 trampa 13 de `asset-nuevo-skyrim`: ahí el default era LE; acá lo es aunque
 pidas SE.
+
+### 34. Afinar una parte: la rampa y el centro deforman sin avisar {#34}
+
+Salió del hacha de Tencent, que venía con un mango más grueso que el de
+cualquier arma de dos manos vanilla y hubo que afinarlo al 59 %.
+
+**Síntoma:** en el juego, "una pequeña imperfección en el mango donde se
+reduce". De cerca eran dos defectos, y la malla sin afinar no tenía ninguno:
+
+1. **Un cono.** La transición del factor iba de `y_norm` 0,45 a 0,60, pero el
+   palo recto llegaba hasta 0,5525. El último tramo del palo volvía a engordar
+   antes de la cabeza.
+2. **Una torsión.** Se escalaba alrededor del centro de la caja del palo entre
+   0,05 y 0,45, y esa caja agarraba el pomo, que está corrido: el "centro"
+   quedaba **2,2 cm** al costado del eje real. Escalar alrededor de un centro
+   corrido desplaza la sección (0,022 × 0,41 ≈ 0,9 cm); dentro de la rampa ese
+   desplazamiento volvía a cero, y el palo se torcía hacia la cabeza.
+
+**Por qué no lo ves venir:** los dos pasan cualquier control de salud de malla
+(sin bordes, sin pliegues, una pieza) y el factor promedio del palo da bien.
+
+**Arreglo, medido sobre la malla densa antes de tocar nada:**
+
+- **El perfil por rebanadas.** Para cada franja de altura, el semiancho y el
+  centro de su caja. Ahí se ve dónde termina el tramo recto (en el hacha, el
+  semiancho es constante hasta 0,5525 y salta en 0,555: el collar).
+- **El eje es la mediana de los centros de rebanada** del tramo recto, no el
+  centro de una caja que puede agarrar otra pieza.
+- **La transición va en una discontinuidad que ya existe** —la cara inferior
+  del collar, 3 mm—, nunca adentro de un tramo recto. El palo "entra en su
+  casquillo" y no hay cono posible.
+- **El control que atrapa los dos defectos:** cada rebanada del tramo tiene que
+  quedar **exactamente** al factor y con su centro donde manda la semejanza.
+  Una rampa adentro o un eje corrido lo hacen fallar en el acto.
+- **La misma función al modelo alto y al bajo**, o el horneado sale corrido.
+
+**Achicar una pieza sin deformar lo que tiene pegado.** Después se achicó la
+columna de la cabeza, donde se montan las hojas. Escalar todo por igual achica
+también las hojas. Lo que funcionó: un mapa en la dirección de las hojas con
+derivada `g` en el núcleo y 1 afuera, suave entre medio. El núcleo se escala y
+las hojas se **trasladan enteras** lo justo para seguir pegadas. Es monótono,
+así que no puede plegar la malla. Control: cada vértice de hoja trasladado sin
+deformarse (desvío 1e-17).
+
+Confirmado en el juego: "quedó genial". Los scripts son `afinar_v2.py` y
+`afinar_v3.py` del hacha; los números de arriba son de ese modelo, **no los
+copies**: medí el perfil del tuyo.
+
+### 35. Hornear con una muestra por texel desde una textura más grande es aliasing {#35}
+
+**Síntoma:** bordes dentados en el horneado, sobre todo en el normal map. Sin
+ningún error.
+
+**Por qué:** el bake de Cycles corre con `samples = 1`: cada texel del destino
+lee **un** punto del modelo alto. El modelo de Tripo trae mapas de **4096²**; si
+el destino es de 2048², es muestreo puntual de una textura dos veces más grande.
+
+**Arreglo:** hornear al doble (4096, con el margen también al doble) y reducir
+2×2 filtrando **cada mapa como lo que es**:
+
+| mapa | cómo se promedia | por qué |
+|---|---|---|
+| albedo | sRGB → lineal, promedio, → sRGB | promediar los valores sRGB oscurece los bordes |
+| normal | promediar los vectores y **renormalizar** | el promedio de cuatro unitarios distintos es más corto que 1 |
+| metal / rugosidad | promedio simple | son datos lineales |
+
+El archivo final pesa lo mismo. Control: la media de cada canal no se mueve más
+que el redondeo (en el hacha, 0,00014 como máximo). En el normal map, entre el
+0,03 y el 0,05 % de los texels —los de las costuras de UV— promediaban menos
+de 0,5 de largo.
+
+**Y al pasar a DDS:** `texconv -f BC7_UNORM_SRGB -srgb` para el albedo, y
+**comprobarlo**: decodificar la DDS y comparar con el PNG. En el hacha las
+medias coinciden a 0,02 y el error medio es 0,65/255, que es la compresión BC7.
+Si `texconv` hubiera convertido la gamma, la media se movería decenas.
+
+Lo que **no** se midió: cuánto mejora a la vista. El mecanismo es sólido y el
+hacha salió bien, pero ese cambio vino junto con otros y la mejora del
+horneado no se aisló.
 
 ## Proceso
 
