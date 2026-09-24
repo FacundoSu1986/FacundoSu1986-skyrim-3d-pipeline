@@ -48,6 +48,9 @@ import sys
 import bpy
 from mathutils import Vector
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from correr_en_blender import correr  # noqa: E402
+
 # Azimut 0 pone la camara en -Y mirando a +Y, o sea muestra la cara que apunta
 # a -Y. Para un ACTOR de Skyrim el frente es +Y, asi que la vista de frente es
 # la de azimut 180, y ese es el default.
@@ -321,4 +324,4 @@ def main():
     print("[listo] %d imagenes en %s" % (len(hechos), salida))
 
 
-main()
+correr(main)

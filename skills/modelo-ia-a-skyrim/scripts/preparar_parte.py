@@ -46,6 +46,9 @@ import bmesh
 import bpy
 from mathutils import Matrix
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from correr_en_blender import correr  # noqa: E402
+
 # Fraccion del alto del modelo que se usa como distancia de soldadura. Lo
 # bastante chica para no fusionar detalle real, lo bastante grande para cerrar
 # los vertices partidos por isla de UV.
@@ -230,4 +233,4 @@ def main():
               "alto." % (despues, presupuesto, SOLDADURA))
 
 
-main()
+correr(main)

@@ -28,7 +28,7 @@ brazos invisibles, la criatura peleando de espaldas, texturas superpuestas, una
 articulación perdida que nadie nota hasta que camina.
 
 Por eso la parte más valiosa de este repo no es el pipeline: son las listas de
-**fallos silenciosos** —36 en `modelo-ia-a-skyrim` y 24 en
+**fallos silenciosos** —39 en `modelo-ia-a-skyrim` y 24 en
 `asset-nuevo-skyrim`— con su síntoma y su arreglo, y la disciplina de
 verificación que los atrapa.
 
@@ -41,7 +41,7 @@ La skill [`modelo-ia-a-skyrim`](skills/modelo-ia-a-skyrim):
 | [`SKILL.md`](skills/modelo-ia-a-skyrim/SKILL.md) | El flujo completo y la disciplina de verificación |
 | [`references/pedir-a-la-ia-3d.md`](skills/modelo-ia-a-skyrim/references/pedir-a-la-ia-3d.md) | Cómo escribir el pedido al generador: plantillas, negative prompts, cómo expresar proporciones |
 | [`references/limites-skyrim.md`](skills/modelo-ia-a-skyrim/references/limites-skyrim.md) | Límites del motor: presupuestos de polígonos medidos, formatos de textura, estructura del NIF, rig y particiones |
-| [`references/trampas.md`](skills/modelo-ia-a-skyrim/references/trampas.md) | 36 fallos que no tiran error, con índice por síntoma |
+| [`references/trampas.md`](skills/modelo-ia-a-skyrim/references/trampas.md) | 39 fallos que no tiran error, con índice por síntoma |
 | [`references/hd-texturas.md`](skills/modelo-ia-a-skyrim/references/hd-texturas.md) | La capa HD: hornear la malla alta de la IA sobre la baja de juego, en orden y con controles |
 | [`references/pbr-community-shaders.md`](skills/modelo-ia-a-skyrim/references/pbr-community-shaders.md) | El True PBR de Community Shaders `[PROVIDER]`: flags del NIF, ranuras y el `_rmaos`, desde su código fuente |
 | [`scripts/censo_nif.py`](skills/modelo-ia-a-skyrim/scripts/censo_nif.py) | Parser NIF en Python puro, con suite de falsificación |
@@ -52,6 +52,9 @@ La skill [`modelo-ia-a-skyrim`](skills/modelo-ia-a-skyrim):
 | [`scripts/salud_malla.py`](skills/modelo-ia-a-skyrim/scripts/salud_malla.py) | Si la malla se rompió al decimarla: aristas de borde, sobre el archivo |
 | [`scripts/hornear.py`](skills/modelo-ia-a-skyrim/scripts/hornear.py) | Hornea normal, AO, albedo, rugosidad y metal desde la malla alta (Blender) |
 | [`scripts/horneado_puro.py`](skills/modelo-ia-a-skyrim/scripts/horneado_puro.py) | Lo del horneado que no necesita Blender: reducción, margen, solape de UV |
+| [`scripts/montar.py`](skills/modelo-ia-a-skyrim/scripts/montar.py) | Pasos 5 y 6: monta las partes en el lugar de las piezas vanilla y copia sus pesos (Blender) |
+| [`scripts/montaje_puro.py`](skills/modelo-ia-a-skyrim/scripts/montaje_puro.py) | Lo del montaje que no necesita Blender: transformadas, pesos, controles, el plan |
+| [`scripts/correr_en_blender.py`](skills/modelo-ia-a-skyrim/scripts/correr_en_blender.py) | Que un script de Blender que revienta no salga con 0 |
 | [`scripts/verificar_uv.py`](skills/modelo-ia-a-skyrim/scripts/verificar_uv.py) | Que el NIF guarde la V invertida respecto del OBJ |
 | [`scripts/verificar_export.py`](skills/modelo-ia-a-skyrim/scripts/verificar_export.py) | El NIF exportado contra el vanilla: bloques, nodos, piezas, huesos |
 | [`scripts/proporciones_arma.py`](skills/modelo-ia-a-skyrim/scripts/proporciones_arma.py) | Las proporciones de un arma contra las de su clase |

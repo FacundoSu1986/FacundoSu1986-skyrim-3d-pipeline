@@ -76,12 +76,22 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
    fuente del bake. El bake (`scripts/hornear.py`) va justo después de
    desplegar las UV y **antes** de montar, y lo que agregue caras (Solidify)
    va antes de las UV: orden completo en `references/hd-texturas.md`.
-5. **Montar** — cortar cada parte en su tramo, escalar a su hueco, espejar. Dar
-   espesor **solo si la medición dice que es una cáscara abierta**: `Solidify`
-   duplica los triángulos y no siempre hace falta. Si horneaste en el paso 4,
-   el `Solidify` ya se hizo ahí, antes de las UV: hacerlo acá agrega caras
-   después del bake, sin textura horneada (trampa 32).
-6. **Riggear** — grupos de vértices por hueso, particiones de body-part.
+5. **Montar** — cada parte en el lugar de una pieza del NIF vanilla, que hace
+   de **donante**: `scripts/montar.py` (Blender) con un plan JSON. Una pieza
+   larga se alinea con el segmento entre dos huesos y se estira solo a lo
+   largo (el largo lo ponen las animaciones, el grosor es diseño); una
+   compacta se encaja en la caja de la pieza vanilla. `espejar` hace la
+   derecha con la izquierda (trampa 11). Dar espesor **solo si la medición
+   dice que es una cáscara abierta**, y en el paso 4, antes de las UV: el
+   `Solidify` duplica los triángulos, y después del bake agrega caras sin
+   textura horneada (trampa 32).
+6. **Riggear** — en el mismo `montar.py`: cada vértice copia los pesos del
+   vértice vanilla más cercano, partición incluida. Es el skin del proyecto de
+   origen: en el centurión 12 de 15 piezas pesan a un solo hueso, y los pies y
+   la cabeza heredan el reparto con `Toe0`, párpados y mandíbula (trampa 12).
+   Exporta con los flags de la trampa 33 y corre `verificar_export.py` contra
+   el donante. Las piezas que el plan no nombra quedan como en el vanilla: se
+   reemplaza de a una.
 7. **Texturas** — PBR → convención de Skyrim, a DDS con mipmaps. Si
    horneaste en el paso 4, el `_n` con máscara especular, el `_m` y los gates
    están en `references/hd-texturas.md`. Si el asset es para el True PBR de
@@ -191,7 +201,7 @@ pieza que mañana pierda una atadura.
 - **`references/limites-skyrim.md`** — presupuestos de polígonos reales, formatos
   de textura, estructura del NIF, escala y ejes, límites de huesos y
   particiones. Leelo antes de decidir presupuestos o tocar el export.
-- **`references/trampas.md`** — treinta y seis fallos que no tiran error, con el
+- **`references/trampas.md`** — treinta y nueve fallos que no tiran error, con el
   síntoma y el arreglo, más un índice por síntoma al principio. **Leelo entero
   antes de empezar**, no cuando algo falle: la mitad de estas trampas se
   descubren recién probando en el juego, y para entonces ya perdiste la
@@ -227,9 +237,10 @@ pieza que mañana pierda una atadura.
   `NiSkinPartition`. Contar triángulos de la forma obvia da cero para toda
   criatura y toda armadura.
 - **`scripts/verificar_export.py`** — el paso 8b: compara el NIF exportado
-  contra el vanilla y **devuelve exit 1 si no pasa**. Diez reglas — nombres
-  comparables, bloques, tipo de raíz, juego de nodos, posición y escala de
-  cada nodo, juego de piezas, **dónde quedó cada pieza**, y sus huesos,
+  contra el vanilla y **devuelve exit 1 si no pasa**. Sus reglas: versión del
+  NIF (trampa 33), nombres comparables, bloques, tipo de raíz, juego de
+  nodos, posición y escala de cada nodo, juego de piezas, **formato de vértice
+  de cada pieza** (trampa 39), **dónde quedó cada pieza**, y sus huesos,
   particiones y tipo de skin instance. No abre Blender: lee los bytes, porque
   el exportador es justo lo que está bajo sospecha.
 
@@ -361,6 +372,20 @@ pieza que mañana pierda una atadura.
   Blender (reducción por tipo de mapa, margen, relleno, PNG sin alfa,
   alineación, solape de UV), con `--autotest`. El CI instala numpy para que
   corran también las funciones que usa el bake real.
+- **`scripts/montar.py`** (Blender) — los pasos 5 y 6: monta las partes de la
+  IA en el lugar de las piezas de un NIF vanilla, les copia los pesos del
+  vértice vanilla más cercano, exporta y compara contra el donante. El plan
+  y lo que hace, en su cabecera. `--falsificar <donante.nif>` saca cada
+  pieza del vanilla, la corre, la gira y la escala, y exige que vuelva a su
+  lugar: con el centurión, las 15 piezas vuelven con un error máximo de
+  0,0002 unidades y el NIF pasa `verificar_export.py`.
+- **`scripts/montaje_puro.py`** — la parte del montaje que no necesita
+  Blender: las transformadas, la copia de pesos, los controles (pesos que
+  suman 1, como mucho 4 huesos por vértice, una partición, ningún hueso
+  vanilla perdido) y la validación del plan, con `--autotest`.
+- **`scripts/correr_en_blender.py`** — `correr(main)`, con lo que termina
+  todo script de Blender del repo: Blender sin interfaz sale con 0 aunque el
+  script reviente (trampa 37).
 
 ## Cómo conviene trabajar
 

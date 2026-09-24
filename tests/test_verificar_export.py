@@ -59,6 +59,8 @@ TORCEDURAS = [
                                     nif_sintetico.CUARTO_DE_VUELTA)}),
     ("orientacion", {"rot_pieza": nif_sintetico.CUARTO_DE_VUELTA}),
     ("piezas", {"nombre_pieza": "OtraPieza"}),
+    # La pieza con colores de vertice (0x20) donde el vanilla no los tiene.
+    ("formato", {"vertex_desc": 0x0000000000000004 | (0x20 << 44)}),
     ("colocacion", {"tr_pieza": (0.0, 140.0, 0.0)}),
     ("colocacion", {"esc_pieza": 0.72}),
     ("huesos/pieza", {"huesos": ("HuesoA",),
@@ -120,6 +122,31 @@ class CadaReglaPuedeFallarTests(unittest.TestCase):
     def test_una_regla_no_declarada_no_se_puede_reportar(self):
         with self.assertRaises(ValueError):
             V.Falla("inventada", "x")
+
+
+class BloquesCompartiblesTests(unittest.TestCase):
+    """El texture set compartido o repetido no es una diferencia: el vanilla
+    hace las dos cosas (9.375 y 3.734 de 13.109 NIF con 2+ shaders)."""
+
+    def test_uno_por_shape_contra_uno_compartido_es_nota(self):
+        f, n, c = V.comparar_bloques({"BSShaderTextureSet": 15,
+                                      "BSTriShape": 15},
+                                     {"BSShaderTextureSet": 1,
+                                      "BSTriShape": 15})
+        self.assertEqual([], [str(x) for x in f])
+        self.assertEqual(1, len(n))
+        self.assertIn("9.375", str(n[0]))
+        self.assertEqual(2, c)
+
+    def test_sin_ninguno_sigue_siendo_falla(self):
+        f, _n, _c = V.comparar_bloques({"BSTriShape": 1},
+                                       {"BSShaderTextureSet": 1,
+                                        "BSTriShape": 1})
+        self.assertEqual(["bloques"], [x.regla for x in f])
+
+    def test_otro_tipo_con_otra_cantidad_reprueba(self):
+        f, _n, _c = V.comparar_bloques({"BSTriShape": 2}, {"BSTriShape": 1})
+        self.assertEqual(["bloques"], [x.regla for x in f])
 
 
 class LaToleranciaEsElRedondeoDelLectorTests(unittest.TestCase):
@@ -197,12 +224,12 @@ class CeroComparacionesNoEsPasarTests(unittest.TestCase):
         El numero es exacto y no un `> 0`: con `> 0` bastaba con que contara
         los tipos de bloque, y dejar de contar las posiciones pasaba la suite.
         Para este fixture: 3 tipos de bloque + 3 nodos (raiz y dos huesos)
-        + 3 orientaciones de nodo + 1 orientacion de pieza + 1 pieza colocada
-        + 1 pieza con sus huesos = 12."""
+        + 3 orientaciones de nodo + 1 orientacion de pieza + 1 formato de
+        pieza + 1 pieza colocada + 1 pieza con sus huesos = 13."""
         datos, _e = nif_sintetico.construir_skinneado()
         r = _archivo(datos, self)
         _f, _n, n_comp = V.comparar(r, _archivo(datos, self))
-        self.assertEqual(3 + 3 + 3 + 1 + 1 + 1, n_comp)
+        self.assertEqual(3 + 3 + 3 + 1 + 1 + 1 + 1, n_comp)
 
     def test_y_crece_con_lo_que_hay_para_comparar(self):
         """Un hueso mas es una comparacion mas: el conteo sigue a los datos,
@@ -212,7 +239,7 @@ class CeroComparacionesNoEsPasarTests(unittest.TestCase):
             traslaciones=((1.0, 0.0, 0.0), (2.0, 0.0, 0.0), (3.0, 0.0, 0.0)))
         r = _archivo(datos, self)
         _f, _n, n_comp = V.comparar(r, _archivo(datos, self))
-        self.assertEqual(3 + 4 + 4 + 1 + 1 + 1, n_comp)
+        self.assertEqual(3 + 4 + 4 + 1 + 1 + 1 + 1, n_comp)
 
     def test_un_nif_ilegible_no_sale_por_un_traceback(self):
         """falsificar() ya tenia esta guarda y main() no. Un archivo que el
