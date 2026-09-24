@@ -272,7 +272,10 @@ Blender y no corre en CI. Los puntos 6 y 7 son manuales.
   tiene rectangulares.
 - **Mods HD.** Falta relevar qué resoluciones usan los mods HD publicados.
 
-## Rama opcional: Community Shaders PBR
+## Rama opcional: True PBR de Community Shaders
 
-`[PROVIDER]` Es otro juego de archivos y un JSON de material propio. No se
-mezcla con el `_n` vanilla en el mismo asset y queda fuera de esta referencia.
+`[PROVIDER]` Usa los mismos mapas horneados, pero con otro destino: la fase de
+texturas con `sombreado="cs_pbr"` arma un `_rmaos` (rugosidad, metal y la
+oclusión que acá se ignora) en vez de la `_m`, y el NIF lleva otra flag y
+otros valores. No se mezcla con el `_n` vanilla en la misma pieza. Todo en
+`references/pbr-community-shaders.md`.

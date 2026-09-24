@@ -104,6 +104,18 @@ class JobManifestRechazoTests(unittest.TestCase):
         # Arrange: criatura no es MVP de esta slice
         self._assert_rechaza(asset_category="creature")
 
+    def test_sombreado_desconocido_rechazado(self):
+        """"pbr" a secas no dice para qué shader: el True PBR de Community
+        Shaders es "cs_pbr", y otro PBR tendría otras ranuras."""
+        self._assert_rechaza(sombreado="pbr")
+
+    def test_los_dos_sombreados_se_aceptan(self):
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            for s in ("vanilla", "cs_pbr"):
+                with self.subTest(sombreado=s):
+                    _manifest(raiz, mesh, sombreado=s).validar()
+
     # --- max_lado_textura ---------------------------------------------------
 
     def test_max_lado_textura_valido_se_acepta(self):

@@ -80,7 +80,9 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
 6. **Riggear** — grupos de vértices por hueso, particiones de body-part.
 7. **Texturas** — PBR → convención de Skyrim, a DDS con mipmaps. Si
    horneaste en el paso 4, el `_n` con máscara especular, el `_m` y los gates
-   están en `references/hd-texturas.md`.
+   están en `references/hd-texturas.md`. Si el asset es para el True PBR de
+   Community Shaders, las texturas y las flags del NIF son otras:
+   `references/pbr-community-shaders.md`.
 8. **Exportar y verificar** — reimportar el archivo generado y compararlo
    contra el vanilla: `scripts/verificar_export.py <nuevo.nif> <vanilla.nif>`.
    Y si el NIF lo escribió un conversor propio, además
@@ -194,6 +196,11 @@ pieza que mañana pierda una atadura.
   IA sobre la baja de juego, en qué orden (el bake va entre las UV y el
   montaje), qué controla cada paso y qué sigue sin medir. Leelo antes de
   desplegar las UV si vas a hornear.
+- **`references/pbr-community-shaders.md`** — el True PBR de Community Shaders
+  `[PROVIDER]`: el bit de `Shader_Flags_2` que lo prende, qué va en cada
+  ranura (el `_rmaos` en la 5) y qué campos del NIF cambian de significado.
+  Sale de su código fuente, fijado a un commit. Leelo antes de exportar si el
+  asset es para PBR.
 
 ## Scripts
 
@@ -287,6 +294,12 @@ pieza que mañana pierda una atadura.
   `--falsificar <carpeta meshes>` rompe el material de las 198 armas de cinco
   formas (1.434 roturas) y exige que cada una repruebe, después de comprobar
   que ninguna arma vanilla sana repruebe.
+
+  Reconoce una pieza del **True PBR de Community Shaders** (bit 23 de
+  `Shader_Flags_2`; 0 de 74.489 bloques vanilla lo tienen) y no la compara
+  con la tabla vanilla: avisa si falta el `_rmaos` en la ranura 5, si la
+  glossiness quedó en un valor vanilla o si el tipo de shader no es Default ni
+  MultiLayer (`references/pbr-community-shaders.md`).
 - **`scripts/mascara_especular.py`** — el alfa del `_n` es la máscara
   especular, y saturada deja el asset de plástico (el hacha llegó al juego con
   el 99,7 % de su máscara en blanco). Lee el alfa **sin decodificar**: en
