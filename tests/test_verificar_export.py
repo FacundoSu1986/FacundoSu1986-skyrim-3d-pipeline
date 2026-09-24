@@ -43,6 +43,8 @@ def _archivo(datos, caso):
 # entre todas cubran REGLAS entera, asi que agregar una regla sin su caso
 # rompe la suite.
 TORCEDURAS = [
+    # Un export LE (trampa 33): BS 83. Reprueba por la version y no sigue.
+    ("version", {"bs": 83}),
     ("bloques", {"bloque_extra": True}),
     ("raiz", {"raiz_tipo": "BSFadeNode"}),
     ("nodos", {"huesos": ("HuesoA", "HuesoZ")}),
@@ -103,6 +105,17 @@ class CadaReglaPuedeFallarTests(unittest.TestCase):
         self.assertEqual(set(V.REGLAS), cubiertas,
                          "sin caso que las haga fallar: %s"
                          % (set(V.REGLAS) - cubiertas))
+
+    def test_un_export_LE_reprueba_por_la_version_y_nada_mas(self):
+        """Sin la regla, el mismo archivo reprobaba por `bloques`, que no dice
+        la causa. Con ella, una sola falla, que nombra la trampa."""
+        # Con un bloque de mas: si siguiera comparando, `bloques` tambien
+        # reprobaria y taparia la causa.
+        reglas, fallas = self._reglas(bs=83, bloque_extra=True)
+        self.assertEqual({"version"}, reglas)
+        self.assertEqual(1, len(fallas))
+        self.assertIn("BS 83", str(fallas[0]))
+        self.assertIn("intuit_defaults=False", str(fallas[0]))
 
     def test_una_regla_no_declarada_no_se_puede_reportar(self):
         with self.assertRaises(ValueError):

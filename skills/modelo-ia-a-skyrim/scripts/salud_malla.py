@@ -49,15 +49,31 @@ Decimando 14 shapes vanilla al 25 % de sus triangulos, de las dos formas:
                        y las dos cerradas pasaron de 0 a 956 y a 544 bordes
 
   REGLA  borde        el numero de aristas de borde no puede aumentar
-  OBS    ratio        tri/vert soldado (~2 = cerrada, ~1 = sopa de triangulos)
-  OBS    piezas       componentes conexas por posicion soldada
-  OBS    no_manifold  aristas usadas por 3 triangulos o mas
-  OBS    winding      aristas que sus dos triangulos recorren en el mismo
+  REGLA  piezas       las componentes conexas por posicion soldada no pueden
+                      crecer (salvo si crece la cantidad de shapes: puede ser
+                      reparto por material, y ahi se informa)
+  OBS    ratio         tri/vert soldado (~2 = cerrada, ~1 = sopa de
+                      triangulos; OJO: un tetraedro tambien da 1,0 -- el ratio
+                      ABSOLUTO nunca seria regla, por eso es observacion)
+  OBS    no_manifold   aristas usadas por 3 triangulos o mas
+  OBS    winding       aristas que sus dos triangulos recorren en el mismo
                       sentido (una de las dos caras queda invisible)
 
-Las cuatro OBSERVACIONES se informan y no reprueban: no estan medidas sobre el
-corpus con la densidad que hace falta para bloquear. Medirlas es trabajo
-pendiente, no una regla implicita.
+POR QUE 'PIEZAS' SUBIO DE OBSERVACION A REGLA (y las otras tres no)
+
+El borde es un conteo NETO: puede BAJAR mientras la malla se parte. Detectado
+por el review de Codex sobre el PR #40: un grid abierto de 20x20 tiene 76
+aristas de borde, y la misma malla convertida en 12 triangulos sueltos tiene
+36 -- menos que el origen. Con la regla de borde sola, ese resultado
+destrozado salia con exit 0. La cantidad de piezas, en cambio, no puede crecer
+decimando BIEN: soldar junta, colapsar fusiona, y fusionar no parte. Por eso la
+segunda regla es estructural y no necesita medir el corpus para sostenerse;
+las otras tres observaciones siguen informandose y no reprueban porque para
+ellas SI hace falta la medicion que no esta hecha.
+
+La excepcion teorica conocida --un colapso que corta dos parches pegados en un
+unico vertice-- es una union no-manifold: si bloquea un asset real, ahi se
+mide y se afloja, no antes.
 
 EL PASO 4b: `--uv`
 
@@ -68,8 +84,9 @@ malla soldada tiene que ser la MISMA: vertices, triangulos, aristas, borde,
 no-manifold, winding y piezas. Cortar costuras parte vertices en el archivo
 exportado, y eso se informa y no reprueba.
 
-La regla de la decimacion no alcanza aca: un Solidify aplicado despues de
-desplegar (trampa 32) duplica los triangulos sin abrir ni un borde, y pasaba.
+Las reglas de la decimacion no alcanzan aca: un Solidify aplicado despues de
+desplegar (trampa 32) sobre una cascara abierta la CIERRA --baja el borde, no
+suma piezas-- y pasaba las dos.
 
 Los grupos de vertices no se comparan: en el orden de hd-texturas.md el rig
 viene despues (paso 6), y un .obj o un .nif estatico no los trae.
@@ -82,8 +99,8 @@ toda arista parece de borde. En el hacha eso daba 2.953 piezas donde habia
 382, y 382 donde en realidad habia 1. Primero se sueldan las posiciones.
 """
 import os
-import struct
 import sys
+import tempfile
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -145,7 +162,10 @@ def salud(pos, tris, min_triangulos=MIN_TRIANGULOS):
     degenerados = 0
     fuera_de_rango = 0
     for t in tris:
-        if any(i >= len(w) for i in t):
+        if any(i < 0 or i >= len(w) for i in t):
+            # el i < 0 no era de la version original y era el agujero: w[-2]
+            # es un vertice VALIDO para Python, asi que un indice negativo sin
+            # resolver no reventaba: medía otra malla. Se cuenta.
             fuera_de_rango += 1
             continue
         a, b, c = w[t[0]], w[t[1]], w[t[2]]
@@ -218,20 +238,45 @@ def total(medidas):
 
 
 def comparar(antes, despues):
-    """(fallas, notas). La REGLA: el borde no puede aumentar."""
+    """(fallas, notas). Dos REGLAS: el borde no puede aumentar y las piezas
+    tampoco. La de piezas existe porque la de borde es un conteo NETO: puede
+    BAJAR mientras la malla se parte, y ese resultado Severamente roto pasaba
+    (lo mostro el review de Codex sobre el PR #40: un grid abierto de 20x20
+    tiene 76 aristas de borde; partido en 12 triangulos sueltos, 36)."""
     fallas, notas = [], []
     if antes is None or despues is None:
         fallas.append("no hubo nada que medir en uno de los dos archivos")
         return fallas, notas
     if despues["borde"] > antes["borde"]:
+        # contra 0 no hay multiplicador que valga: la primera version imprimia
+        # "(x59078.0)" sobre el hacha --el caso mas importante de todos-- y ese
+        # numero no es un ratio, es el numerador disfrazado.
+        cuanto = ("x%.1f" % (despues["borde"] / float(antes["borde"]))
+                  if antes["borde"] else "el origen estaba CERRADO")
         fallas.append(
-            "REGLA borde: %d aristas de borde contra %d del origen (x%.1f). "
+            "REGLA borde: %d aristas de borde contra %d del origen (%s). "
             "La malla se ABRIO. Decimando 14 shapes vanilla al 25 %%, soldar "
             "antes de decimar nunca aumento el borde (peor caso x0,70); "
             "decimar directo lo multiplico hasta x25,5."
-            % (despues["borde"], antes["borde"],
-               despues["borde"] / float(antes["borde"])
-               if antes["borde"] else float(despues["borde"])))
+            % (despues["borde"], antes["borde"], cuanto))
+    if (despues["piezas"] > antes["piezas"]
+            and despues["shapes"] <= antes["shapes"]):
+        # soldar junta, la decimacion colapsa (fusiona vertices), y fusionar
+        # no parte: el numero de piezas NO puede crecer decimando bien. Si
+        # crece, lo que crecieron son parches sueltos -- el defecto del hacha
+        # en su forma pura. Cuando ademas crece la cantidad de shapes, el
+        # aumento puede ser reparto por material del exportador y ahi se
+        # informa en vez de reprobar; la salvedad teorica (un colapso que corta
+        # dos parches pegados en un UNICO vertice) es una union no-manifold:
+        # si bloquea un asset real, se mide y se afloja entonces, no antes.
+        fallas.append(
+            "REGLA piezas: %d piezas sueltas contra %d del origen, con la "
+            "misma cantidad de shapes (%d->%d). La malla se RASGO en parches. "
+            "Que el borde no crezca no salva: el conteo de borde es NETO y "
+            "puede bajar mientras la malla se parte (20x20 abierto: 76 bordes; "
+            "12 triangulos sueltos: 36)."
+            % (despues["piezas"], antes["piezas"],
+               antes["shapes"], despues["shapes"]))
     for campo, texto in (("piezas", "piezas sueltas"),
                          ("no_manifold", "aristas no-manifold"),
                          ("winding", "aristas con winding incoherente")):
@@ -278,15 +323,52 @@ def comparar_uv(antes, despues):
 # --------------------------------------------------------------------------
 # lectura
 # --------------------------------------------------------------------------
+def _indice_obj(tok, n):
+    """Indice de cara del .obj, ya en 0-based.
+
+    La spec de Wavefront permite dos escrituras: 1-based positiva, y NEGATIVA
+    relativa al ultimo vertice definido hasta esa linea ("f -1 -2 -3" son los
+    tres ultimos v leidos). El 0 no existe en el formato.
+    """
+    try:
+        i = int(tok.split("/")[0])
+    except ValueError:
+        return -10 ** 12
+    if i > 0:
+        return i - 1
+    if i < 0:
+        return n + i
+    return -10 ** 12
+
+
 def _leer_obj(ruta):
+    """Vertices y caras del .obj.
+
+    La primera version hacia `int(tok) - 1` para TODO token: un indice
+    negativo, que es valido, quedaba barajado (-1 apuntaba al penultimo
+    vertice en vez del ultimo) y un -len reventaba con IndexError. Barajado es
+    el modo peor: la malla se media TUERTA y el control no lo decia. Ahora el
+    negativo se resuelve como dice la spec, contra los v definidos hasta esa
+    linea, y lo demas (0, basura, pasarse del rango) sale como indice
+    imposible que salud() cuenta en `fuera_de_rango` en vez de omitir en
+    silencio o de explotar.
+    """
     pos, tris = [], []
     with open(ruta, "r", errors="ignore") as fh:
         for linea in fh:
             if linea.startswith("v "):
                 p = linea.split()
-                pos.append((float(p[1]), float(p[2]), float(p[3])))
+                try:
+                    pos.append((float(p[1]), float(p[2]), float(p[3])))
+                except (ValueError, IndexError):
+                    # un v incompleto NO se descarta: descartarlo correria un
+                    # puesto los indices de TODAS las caras siguientes, que es
+                    # exactamente la corrupcion silenciosa que se quiere
+                    # evitar. Entra como NaN; salud() lo filtra y cuenta afuera
+                    # las caras que lo tocan.
+                    pos.append((float("nan"), 0.0, 0.0))
             elif linea.startswith("f "):
-                idx = [int(t.split("/")[0]) - 1 for t in linea.split()[1:]]
+                idx = [_indice_obj(t, len(pos)) for t in linea.split()[1:]]
                 for i in range(1, len(idx) - 1):
                     tris.append((idx[0], idx[i], idx[i + 1]))
     return [{"nombre": os.path.basename(ruta), "pos": pos, "tris": tris}]
@@ -301,7 +383,7 @@ def leer(ruta):
     elif ext == ".nif":
         shapes = censo_nif.Nif(ruta).geometria()
     else:
-        raise SystemExit("extension no soportada: %s (.nif o .obj)" % ext)
+        raise ValueError("extension no soportada: %s (.nif o .obj)" % ext)
 
     medidas, avisos = [], []
     for s in shapes:
@@ -365,6 +447,11 @@ def autotest():
     hechas = [0]
 
     def exigir(cond, texto):
+        # el contador se lleva aca y se imprime abajo: la primera version
+        # hardcodeaba "18 comprobaciones" en el print, y cuando el banco crecio
+        # siguio imprimiendo 18. Es EL defecto que esta herramienta existe para
+        # cazar — reportar lo que se cree y no lo que se cuenta — cometido por
+        # la herramienta. Un numero de este archivo no se toca a mano jamas.
         hechas[0] += 1
         if not cond:
             fallas.append(texto)
@@ -423,6 +510,46 @@ def autotest():
     exigir(m_nm["no_manifold"] == 1,
            "no-manifold: %d, se esperaba 1" % m_nm["no_manifold"])
 
+    # --- el .obj, que es la otra mitad del contrato -------------------------
+    # La spec de Wavefront permite caras con indices negativos: "f -8 -6 -7"
+    # son (0,2,1) contados desde el final. La primera version del lector hacia
+    # int(tok)-1 para todo token: el negativo quedaba barajado y un -8
+    # reventaba con IndexError, o sea: medida otra malla, o crash con
+    # traceback. El mismo cubo escrito con negativos tiene que dar el MISMO
+    # numero que con positivos, y la basura tiene que terminar en
+    # fuera_de_rango, no en silencio.
+    with tempfile.TemporaryDirectory() as tmp:
+        ruta_neg = os.path.join(tmp, "cubo_neg.obj")
+        with open(ruta_neg, "w") as fh:
+            fh.write("".join("v %r %r %r\n" % p for p in pos))
+            fh.write("".join("f %d %d %d\n" % (a - len(pos), b - len(pos),
+                                               c - len(pos))
+                             for a, b, c in tris))
+        s = _leer_obj(ruta_neg)[0]
+        mo = salud(s["pos"], s["tris"], 1)
+        exigir(mo is not None and mo["borde"] == 0 and mo["tris"] == 12
+               and mo["fuera_de_rango"] == 0,
+               "obj con indices negativos: no mide el mismo cubo (%s)"
+               % str(mo and (mo["borde"], mo["tris"], mo["fuera_de_rango"])))
+
+        ruta_basura = os.path.join(tmp, "basura.obj")
+        with open(ruta_basura, "w") as fh:
+            fh.write("v 0 0\n")                       # v incompleto -> NaN
+            fh.write("".join("v %r %r %r\n" % p for p in pos[1:]))
+            fh.write("f -99 1 2\nf x 2 3\nf 0 1 2\n")  # imposibles
+            fh.write("f 5 6 7\nf 6 7 8\n")            # 2 caras validas, que
+            # no tocan el vertice roto (la cara 1 toca el NaN y contaria afuera
+            # tambien: 3 fuera y no 4, y el banco tiene que saber por que falla)
+        s = _leer_obj(ruta_basura)[0]
+        exigir(len(s["pos"]) == 8,
+               "el v incompleto se descarto y corrio los indices: %d"
+               % len(s["pos"]))
+        mb = salud(s["pos"], s["tris"], 1)
+        exigir(mb is not None and mb["fuera_de_rango"] == 3
+               and mb["tris"] == 2,
+               "indices imposibles: se esperaban 3 fuera_de_rango y 2 tri, "
+               "salio %s" % str(mb and (mb["fuera_de_rango"], mb["tris"])))
+
     # --- la REGLA -----------------------------------------------------------
     cerrada = total([salud(pos, tris, 1)])
     rota = total([salud(*_partir_por_costura(pos, tris[2:]), min_triangulos=1)])
@@ -441,6 +568,54 @@ def autotest():
 
     f, _ = comparar(cerrada, None)
     exigir(f, "contra un archivo sin nada medible: la REGLA no reprobo")
+
+    # --- la segunda REGLA: el caso que encontro Codex ------------------------
+    # Un grid abierto de 20x20 tiene 76 aristas de borde; "decimado" a 12
+    # triangulos sueltos tiene 36: el numero NETO de borde BAJA y la primera
+    # REGLA no lo ve. Las piezas (1 -> 12) no pueden fingir eso.
+    def _grid(n):
+        gp = [(float(i), float(j), 0.0) for i in range(n) for j in range(n)]
+        gt = []
+        for i in range(n - 1):
+            for j in range(n - 1):
+                a = i * n + j
+                gt.append((a, a + 1, a + n))
+                gt.append((a + 1, a + n + 1, a + n))
+        return gp, gt
+
+    def _sueltos(k):
+        sp, st = [], []
+        for q in range(k):
+            b = q * 3
+            sp += [(float(q * 10), 0.0, 0.0), (float(q * 10) + 1, 0.0, 0.0),
+                   (float(q * 10), 0.0, 1.0)]
+            st.append((b, b + 1, b + 2))
+        return sp, st
+
+    grid = total([salud(*_grid(20), 1)])
+    sueltos = total([salud(*_sueltos(12), 1)])
+    exigir(grid["borde"] == 76 and sueltos["borde"] == 36,
+           "el caso Codex tiene que BAJAR el borde neto (76 -> 36); si no, "
+           "no prueba nada: borde %d -> %d" % (grid["borde"], sueltos["borde"]))
+    f, _ = comparar(grid, sueltos)
+    exigir(f and any("REGLA piezas" in x for x in f),
+           "grid -> 12 parches sueltos: la REGLA piezas no reprobo")
+
+    # decimar BIEN el mismo grid (20x20 -> 10x10, soldado, una pieza): menos
+    # borde, menos tri, MISMA cantidad de piezas -> pasa. Sin margen: un criterio
+    # que reprobara la decimacion buena no es un criterio.
+    f, _ = comparar(grid, total([salud(*_grid(10), 1)]))
+    exigir(not f, "grid decimado correctamente: la REGLA piezas reprobo")
+
+    # el reparto por material del exportador: misma geometria, mas shapes. Las
+    # piezas suben por el corte, y ahi la REGLA piezas NO reprueba (se informa).
+    # OJO el borde SI sube (por shape se pierden las soldaduras entre tramos):
+    # esa limitacion es anterior y queda documentada en la cabecera.
+    f2, _ = comparar(total([salud(pos, tris, 1)]),
+                     total([salud(pos, tris[:6], 1), salud(pos, tris[6:], 1)]))
+    exigir(not any("REGLA piezas" in x for x in f2),
+           "cubo partido en 2 shapes (material): la REGLA piezas no debia "
+           "reprobar y dijo: %s" % f2)
 
     # --- la REGLA del paso 4b: rehacer las UV no cambia la geometria --------
     partida = total([salud(*_partir_por_costura(pos, tris), min_triangulos=1)])
@@ -596,14 +771,20 @@ def falsificar(raiz):
                 fallas.append("%s / %s: %s no crecio (%d -> %d)"
                               % (os.path.basename(ruta), nombre, campo,
                                  m[campo], m2[campo]))
-            if campo == "borde":
+            if campo in ("borde", "piezas"):
+                # las dos REGLAS duras tienen que pescar sus mutaciones.
+                # "duplicar al lado" mueve piezas; si la REGLA de piezas no
+                # lo ve, el banco tiene que decirlo.
                 f, _ = comparar(base_total, total([m2]))
                 if not f:
                     fallas.append("%s / %s: la REGLA no reprobo"
                                   % (os.path.basename(ruta), nombre))
 
-    print("falsificar: %d archivos x %d roturas = %d comprobaciones, %d fallas"
-          % (usados, roturas // max(1, usados), roturas, len(fallas)))
+    # roturas por archivo NO es constante: "agujerear" e "invertir" solo existen
+    # si hay triangulos interiores, un file totalmente abierto recibe 2 y no 4.
+    # La primera version imprimia el promedio como si fuera "x 4" exacto.
+    print("falsificar: %d archivos medibles, %d roturas, %d fallas"
+          % (usados, roturas, len(fallas)))
     for x in fallas:
         print("  FALLA %s" % x)
     if usados == 0:
@@ -612,7 +793,26 @@ def falsificar(raiz):
     return 1 if fallas else 0
 
 
+def _ext_ok(*rutas):
+    """Valida las extensiones ANTES de leer nada.
+
+    Un .txt es un argumento que no sirve, y el contrato de arriba dice que
+    eso sale con 2, no con 1: un automatizador tiene que poder distinguir
+    "el control no entendi que le pasaron" de "el control fallo", sin leer
+    stderr. La primera version tiraba SystemExit con mensaje y salia con 1.
+    """
+    malas = [r for r in rutas
+             if os.path.splitext(r)[1].lower() not in (".nif", ".obj")]
+    if malas:
+        print("no se puede medir %s: las entradas son .nif o .obj"
+              % ", ".join(malas), file=sys.stderr)
+        return False
+    return True
+
+
 def _comparar_archivos(antes, despues, regla):
+    if not _ext_ok(antes, despues):
+        return 2
     if os.path.abspath(antes) == os.path.abspath(despues):
         print("los dos caminos son el mismo archivo: no hay que comparar")
         return 2
@@ -639,6 +839,8 @@ def main(argv):
     if len(argv) == 2 and argv[0] == "--falsificar":
         return falsificar(argv[1])
     if len(argv) == 1:
+        if not _ext_ok(argv[0]):
+            return 2
         medidas, avisos = informe(argv[0])
         return 0 if medidas else 1
     if len(argv) == 2:

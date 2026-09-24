@@ -525,7 +525,7 @@ Es la misma familia que la trampa [19](#19): allá el error estaba en la cámara
 acá en el archivo. El síntoma es el mismo y la consecuencia también — juzgar un
 modelo sobre un render mal etiquetado.
 
-### 28. Soldar bien y no comprobarlo despues no alcanza {#28}
+### 28. Soldar bien y no comprobarlo después no alcanza {#28}
 
 **Síntoma:** el arma llega al juego con agujeros por los que se ve el interior.
 Ningún paso dio error: el archivo se escribió bien, el juego lo cargó, y el
@@ -545,7 +545,18 @@ aristas de borde **nunca aumentó** (peor caso x0,70); sin soldar creció en 12 
 **Arreglo:** `scripts/salud_malla.py <antes> <despues>`. Corre sobre el
 **archivo**, sin Blender, y reprueba si el número de aristas de borde aumentó.
 Sobre los archivos reales del hacha, la cadena vieja sale con exit 1 y la nueva
-con exit 0.
+con exit 0. Sale con exit 2 si el argumento no sirve (otra extensión), para que
+quien automatiza no confunda "no le entendí" con "falló" — y corre sobre los
+`.obj` de Preparar, antes de Montar: sobre un `.nif` skinneado no hay geometría
+inline que medir, y eso es aviso, no reproche.
+
+**Son dos números duros, no uno:** el borde **y** las piezas sueltas. El review
+de Codex sobre este PR mostró el hueco de mirar solo el borde: es un conteo
+NETO, y puede **bajar** mientras la malla se parte — un grid abierto de 20×20
+tiene 76 aristas de borde, partido en 12 triangulos sueltos quedan 36 y con
+una sola regla ese resultado salía con exit 0. Las piezas no pueden crecer
+decimando bien (colapsar fusiona, fusionar no parte); si crecen con la misma
+cantidad de shapes, la malla se rasgó.
 
 **Lo que NO se puede exigir:** que la malla esté cerrada. `[MEASURED]` Solo el
 **15,1 %** de los shapes vanilla lo están; la mediana tiene el 15,4 % de sus
@@ -685,7 +696,8 @@ metadata y cae en `SKYRIM`. `[MEASURED]` Mismo estático: default → `bs_versio
 27.421 bytes, leído con `census/parser_nif.py` (issue #35 del repo).
 
 **Arreglo:** pasar **siempre** `target_game='SKYRIMSE', intuit_defaults=False`,
-y verificar `bs_version == 100` en el archivo escrito. Es pariente de la
+y verificar la versión en el archivo escrito: `scripts/verificar_export.py`
+reprueba por la regla `version` si no es la del vanilla (BS 100). Es pariente de la
 trampa 13 de `asset-nuevo-skyrim`: ahí el default era LE; acá lo es aunque
 pidas SE.
 

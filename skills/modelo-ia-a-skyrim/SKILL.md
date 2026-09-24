@@ -66,8 +66,12 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
    varias figuras en el archivo.
 4. **Preparar** — soldar, decimar al presupuesto, orientar si hace falta.
    `scripts/preparar_parte.py`. Y **comprobar que la malla no se abrió**:
-   `scripts/salud_malla.py <antes> <despues>`. Soldar bien y no verificarlo
-   después no alcanza — ver trampa 28. Si vas a hornear texturas HD, agregá
+   `scripts/salud_malla.py <antes> <despues>`, sobre los `.obj` de este paso,
+   **antes de Montar**. Soldar bien y no verificarlo después no alcanza — ver
+   trampa 28. Sobre un `.nif` skinneado el control no mide: la geometría está
+   en el NiSkinPartition y sale `exit 1` con un AVISO "sin geometría medible".
+   Eso no es la malla rota; para saber si un skinneado está roto hay que medir
+   la fuente, no el archivo del juego. Si vas a hornear texturas HD, agregá
    `--guardar-alto <alto.blend>`: guarda la malla sin decimar, que es la
    fuente del bake. El bake (`scripts/hornear.py`) va justo después de
    desplegar las UV y **antes** de montar, y lo que agregue caras (Solidify)
@@ -324,18 +328,28 @@ pieza que mañana pierda una atadura.
   fallar correcto. Trae `--autotest`.
 - **`scripts/salud_malla.py`** — mide si la malla se **rompió** al decimarla, y
   lo hace sobre el **archivo** (`.nif` o `.obj`), sin Blender. Con dos
-  argumentos aplica la REGLA: el número de aristas de borde no puede aumentar.
+  argumentos aplica **dos** REGLAS: el número de aristas de borde no puede
+  aumentar, y las piezas sueltas tampoco —esta segunda existe porque el conteo
+  de borde es neto y puede *bajar* mientras la malla se parte (un grid abierto
+  de 20×20 tiene 76 aristas de borde, partido en 12 parches quedan 36: la
+  primera regla sola lo dejaba pasar; lo mostró el review de Codex del #40).
   Con `--uv <antes> <despues>`, la del paso 4b: rehacer las UV no puede
   cambiar la malla soldada. Con uno, informa. Trae `--autotest` (figuras de
-  respuesta conocida; cuenta sus comprobaciones y dice cuántas hizo) y
-  `--falsificar <carpeta>`, que rompe mallas vanilla de cuatro formas
-  distintas y exige que el control las pesque.
+  respuesta conocida; cuántas comprobaciones son las imprime el banco porque
+  **se cuentan, no se declaran**) y `--falsificar <carpeta>`, que rompe
+  mallas vanilla de hasta cuatro formas por archivo —el número depende de si
+  hay triángulos interiores— y exige que el control las pesque. Sale con `2`
+  si los argumentos no sirven (otra extensión), para que un automatizador
+  distinga "no le entendí" de "falló".
 
   La regla es **relacional** y no "la malla tiene que estar cerrada", porque eso
   es falso: solo el 15,1 % de los shapes vanilla lo están. Todo lo demás
-  —ratio tri/vert, piezas sueltas, no-manifold, winding— se informa como
-  OBSERVACIÓN y no reprueba: no está medido sobre el corpus con la densidad que
-  hace falta para bloquear.
+  —ratio tri/vert, no-manifold, winding— se informa como OBSERVACIÓN y no
+  reprueba: no está medido sobre el corpus con la densidad que hace falta para
+  bloquear. Piezas sí pasó a regla porque es **estructural** (soldar junta,
+  colapsar fusiona, fusionar no parte) y no necesita medición para sostenerse;
+  si el exportador reparte el mesh en shapes por material, las piezas crecen
+  sin rasgado y ahí la guarda es la cantidad de shapes: se informa, no reprueba.
 - **`scripts/hornear.py`** (Blender) — hornea la malla alta que guarda
   `preparar_parte.py --guardar-alto` sobre la baja ya desplegada: normal, AO,
   albedo, rugosidad y metalicidad, al doble de resolución y reducidos. Antes

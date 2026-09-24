@@ -22,6 +22,7 @@ Una OBSERVACION se informa y no reprueba. La distincion importa porque el modo
 de fallar de este repo es al reves del habitual: no que falten reglas, sino que
 sobren inventadas.
 
+  REGLA  version        la misma version de NIF que el vanilla (SE: BS 100)
   REGLA  comparables    ningun nombre repetido (si no, no hay como decidir)
   REGLA  bloques        mismos tipos y cantidades de bloque
   REGLA  raiz           mismo TIPO de raiz (el nombre es observacion)
@@ -130,7 +131,7 @@ def _nombre_raiz(nif):
 # cabecera para que el test pueda exigir que CADA UNA tenga un caso que la haga
 # fallar. Agregar una regla sin ese caso es agregar una garantia que no se sabe
 # si puede fallar -- el modo de error mas caro que tuvo este repo.
-REGLAS = ("comparables", "bloques", "raiz", "nodos", "posiciones",
+REGLAS = ("version", "comparables", "bloques", "raiz", "nodos", "posiciones",
           "orientacion", "piezas", "colocacion", "huesos/pieza",
           "body parts", "skin")
 
@@ -171,6 +172,25 @@ def comparar(ruta_nuevo, ruta_vanilla):
     van = censo_nif.Nif(ruta_vanilla)
     fallas, notas = [], []
     n_comp = 0
+
+    # --- version ------------------------------------------------------------
+    # PyNifly exporta en formato LE (BS 83, NiTriShape + NiTriShapeData)
+    # aunque se le pida target_game='SKYRIMSE', si no se pasa
+    # intuit_defaults=False (trampa 33, issue #35). Sin esta regla reprobaba
+    # igual, pero por `bloques` --"NiTriShape: nuevo 1, vanilla 0"--, que no
+    # dice la causa. Del corpus: 22.393 NIF con BS 100 y uno con BS 83. Si la
+    # version no coincide no se compara nada mas: los bloques de LE y de SE
+    # no se corresponden, y seguir daria una lista de fallas que tapa esta.
+    # No suma a n_comp, igual que `comparables`: es una precondicion. Contarla
+    # haria que un NIF de solo cabecera tuviera "1 comparacion" y pasara.
+    if (nuevo.bs, nuevo.version) != (van.bs, van.version):
+        fallas.append(Falla(
+            "version",
+            "nuevo BS %d (version 0x%08X), vanilla BS %d (0x%08X). BS 83 es "
+            "Skyrim LE: PyNifly lo escribe aunque se pida SKYRIMSE si no se "
+            "le pasa intuit_defaults=False (trampa 33)"
+            % (nuevo.bs, nuevo.version, van.bs, van.version)))
+        return fallas, notas, n_comp
 
     # --- lo que impide comparar ---------------------------------------------
     # Indexar por nombre no puede decidir nada sobre un nombre repetido: el

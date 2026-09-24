@@ -111,6 +111,19 @@ class MedicionTests(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertEqual(m["fuera_de_rango"], 1)
 
+    def test_indice_negativo_no_indexa_desde_el_final(self):
+        """`w[-2]` es un vertice VALIDO para Python: un indice negativo que
+        nadie resolvio no revienta, mide OTRA malla. La guarda de salud() es
+        `i < 0 or i >= len(w)` y el agujero era la segunda mitad nada mas.
+        (-1,-2,-3) son los tres ultimos vertices del cubo: una cara que
+        existe, y contada como si fuera un triangulo nuevo daria bordes de
+        sobra. Fuera de rango es la unica lectura honesta de un indice que el
+        llamador no resolvio."""
+        m = salud_malla.salud(CUBO_POS, [(-1, -2, -3)] + CUBO_TRIS, 1)
+        self.assertEqual(m["fuera_de_rango"], 1)
+        self.assertEqual(m["tris"], len(CUBO_TRIS))
+        self.assertEqual(m["borde"], 0)
+
     def test_el_minimo_de_triangulos_descarta_lo_que_no_dice_nada(self):
         """Un cartel de dos triangulos tiene el 100 % de borde y esta bien."""
         self.assertIsNone(salud_malla.salud(CUBO_POS, CUBO_TRIS[:2]))
@@ -153,6 +166,68 @@ class ReglaTests(unittest.TestCase):
         fallas, _ = salud_malla.comparar(None, None)
         self.assertTrue(fallas)
 
+    # --- el caso que encontro el review de Codex (P1 sobre #40) --------------
+
+    def _grid(self, n):
+        pos = [(float(i), float(j), 0.0) for i in range(n) for j in range(n)]
+        tris = []
+        for i in range(n - 1):
+            for j in range(n - 1):
+                a = i * n + j
+                tris.append((a, a + 1, a + n))
+                tris.append((a + 1, a + n + 1, a + n))
+        return pos, tris
+
+    def _sueltos(self, k):
+        pos, tris = [], []
+        for q in range(k):
+            b = q * 3
+            pos += [(float(q * 10), 0.0, 0.0), (float(q * 10) + 1.0, 0.0, 0.0),
+                    (float(q * 10), 0.0, 1.0)]
+            tris.append((b, b + 1, b + 2))
+        return pos, tris
+
+    def test_borde_que_baja_con_la_malla_rasgada_reprueba_por_piezas(self):
+        """Un grid abierto de 20x20 tiene 76 aristas de borde; partido en 12
+        triangulos sueltos, 36: el conteo NETO BAJA y con la regla de borde
+        sola ese resultado destrozado salia con exit 0. La cantidad de piezas
+        (1 -> 12) es lo que el rasgado no puede fingir."""
+        grid = self._t(*self._grid(20))
+        sueltos = self._t(*self._sueltos(12))
+        self.assertEqual(grid["borde"], 76)
+        self.assertEqual(sueltos["borde"], 36)
+        self.assertLess(sueltos["borde"], grid["borde"],
+                        "la premisa del caso es que el borde BAJE; si eso "
+                        "cambia, este test deja de probar lo que dice")
+        fallas, _ = salud_malla.comparar(grid, sueltos)
+        self.assertTrue(any("REGLA piezas" in f for f in fallas), fallas)
+
+    def test_decimacion_correcta_del_grid_pasa_sin_margen(self):
+        """20x20 soldado -> 10x10 soldado: menos borde, menos tri, una pieza.
+        Un criterio que reprobara la decimacion buena no es un criterio, y no
+        lleva margen: la regla de piezas es estructural (colapsar fusiona,
+        fusionar no parte), no statistica."""
+        fallas, _ = salud_malla.comparar(self._t(*self._grid(20)),
+                                         self._t(*self._grid(10)))
+        self.assertFalse(fallas)
+
+    def test_reparto_por_material_no_la_corta_la_regra_de_piezas(self):
+        """El exportador parte un mesh en shapes por material: las piezas
+        crecen por el corte, no por rasgado. La guarda es la cantidad de
+        shapes: ahi se informa y no reprueba. (El BORDE si sube en este caso,
+        cada tramo pierde sus soldaduras entre shapes: esa limitacion es
+        anterior a la regla de piezas y queda documentada, no tapada.)"""
+        antes = self._t(CUBO_POS, CUBO_TRIS)
+        despues = salud_malla.total([
+            salud_malla.salud(CUBO_POS, CUBO_TRIS[:6], 1),
+            salud_malla.salud(CUBO_POS, CUBO_TRIS[6:], 1)])
+        self.assertGreater(despues["shapes"], antes["shapes"])
+        self.assertGreater(despues["piezas"], antes["piezas"],
+                           "si el cubo partido no sube piezas, el subTest "
+                           "de arriba no esta discriminando nada")
+        fallas, _ = salud_malla.comparar(antes, despues)
+        self.assertFalse(any("REGLA piezas" in f for f in fallas), fallas)
+
 
 class ReglaUvTests(unittest.TestCase):
     """REGLA del paso 4b [INVARIANT]: rehacer las UV no cambia la geometria
@@ -170,15 +245,14 @@ class ReglaUvTests(unittest.TestCase):
         self.assertIn("8 -> 36", notas[0])
 
     def test_caras_agregadas_despues_reprueban(self):
-        """Un Solidify aplicado despues de desplegar (trampa 32): el borde
-        no crece --la regla de la decimacion lo dejaba pasar-- pero los
-        triangulos si."""
-        pos2 = CUBO_POS + [(x + 10, y, z) for x, y, z in CUBO_POS]
-        tris2 = CUBO_TRIS + [(a + 8, b + 8, c + 8) for a, b, c in CUBO_TRIS]
-        antes, despues = self._t(CUBO_POS, CUBO_TRIS), self._t(pos2, tris2)
+        """Caras que CIERRAN un hueco despues de desplegar (un Solidify sobre
+        una cascara, trampa 32): el borde baja y las piezas no cambian, asi
+        que las reglas de la decimacion lo dejan pasar. Los triangulos no."""
+        antes = self._t(CUBO_POS, CUBO_TRIS[2:])
+        despues = self._t(CUBO_POS, CUBO_TRIS)
         self.assertEqual(salud_malla.comparar(antes, despues)[0], [])
         fallas, _ = salud_malla.comparar_uv(antes, despues)
-        self.assertTrue(any("REGLA uv tris: 24 contra 12" in f
+        self.assertTrue(any("REGLA uv tris: 12 contra 10" in f
                             for f in fallas), fallas)
 
     def test_una_cara_de_menos_reprueba(self):
@@ -234,6 +308,52 @@ class LecturaNifTests(unittest.TestCase):
             medidas, avisos = salud_malla.leer(ruta)
             self.assertEqual(medidas, [])
             self.assertTrue(avisos)
+        finally:
+            os.unlink(ruta)
+
+
+class LecturaObjTests(unittest.TestCase):
+    """La spec de Wavefront permite `f -1 -2 -3`: indices negativos relativos
+    al ultimo vertice definido. La primera version del lector hacia
+    `int(tok) - 1` para TODO token: el negativo quedaba barajado (y media una
+    malla torcida sin avisar, el peor fallo posible) y un -len reventaba con
+    IndexError. La segunda mitad del contrato del archivo (.nif o .obj) no
+    puede tener un camino que mienta o truene."""
+
+    def _escribir(self, lineas):
+        return _archivo(("\n".join(lineas) + "\n").encode("ascii"), ".obj")
+
+    def test_mismo_cubo_escrito_con_negativos(self):
+        lineas = ["v %f %f %f" % p for p in CUBO_POS]
+        for a, b, c in CUBO_TRIS:
+            lineas.append("f %d %d %d" % (a - len(CUBO_POS),
+                                          b - len(CUBO_POS),
+                                          c - len(CUBO_POS)))
+        ruta = self._escribir(lineas)
+        try:
+            medidas, _ = salud_malla.leer(ruta)
+            self.assertEqual(len(medidas), 1)
+            self.assertEqual(medidas[0]["borde"], 0)
+            self.assertEqual(medidas[0]["tris"], len(CUBO_TRIS))
+            self.assertEqual(medidas[0]["fuera_de_rango"], 0)
+        finally:
+            os.unlink(ruta)
+
+    def test_indices_imposibles_se_cuentan_no_se_omiten(self):
+        """v incompleto (placeholder NaN para que las caras no se corran),
+        cara con el 0 que no existe, un fuera de rango, un token ilegible:
+        todo tiene que salir medido y con `fuera_de_rango`, no en traceback."""
+        lineas = (["v 0 0"]
+                  + ["v %f %f %f" % p for p in CUBO_POS[1:]]
+                  + ["f -99 1 2", "f x 2 3", "f 0 1 2",
+                     "f 5 6 7", "f 6 7 8"])
+        ruta = self._escribir(lineas)
+        try:
+            s = salud_malla._leer_obj(ruta)[0]
+            self.assertEqual(len(s["pos"]), len(CUBO_POS))
+            m = salud_malla.salud(s["pos"], s["tris"], 1)
+            self.assertEqual(m["fuera_de_rango"], 3)
+            self.assertEqual(m["tris"], 2)
         finally:
             os.unlink(ruta)
 
@@ -383,8 +503,30 @@ class LineaDeComandosTests(unittest.TestCase):
                 os.unlink(r)
 
     def test_sin_argumentos_o_con_extension_rara_no_dice_que_paso(self):
+        """`2` es "los argumentos no sirven" segun el contrato de arriba del
+        archivo. Un .txt es exactamente eso: la primera version tiraba un
+        SystemExit con mensaje y salia con 1, que es el codigo de "el control
+        fallo" — un automatizador que lea el exit code sin la salida no los
+        puede distinguir."""
         self.assertEqual(self._correr()[0], 2)
         self.assertEqual(self._correr("a", "b", "c")[0], 2)
+        fd, txt = tempfile.mkstemp(suffix=".txt")
+        os.close(fd)
+        fd, otro = tempfile.mkstemp(suffix=".txt")
+        os.close(fd)
+        try:
+            codigo, salida = self._correr(txt)
+            self.assertEqual(codigo, 2, salida)
+            self.assertIn(".nif o .obj", salida)
+            # Dos archivos DISTINTOS: con el mismo dos veces salia 2 por "mismo
+            # archivo" y el chequeo de extension no se probaba.
+            for args in ((txt, otro), ("--uv", txt, otro)):
+                codigo, salida = self._correr(*args)
+                self.assertEqual(codigo, 2, salida)
+                self.assertIn(".nif o .obj", salida)
+        finally:
+            os.unlink(txt)
+            os.unlink(otro)
 
     def test_un_archivo_sin_nada_medible_no_sale_cero(self):
         """Medir nada no es pasar."""
