@@ -41,6 +41,15 @@ CONTROLES
                es una alta sin la transformacion de la baja, y no da error.
   UV activa    la capa que se hornea es la activa; si no es tambien la de
                render, sale con error en vez de elegir por vos.
+  solape UV    ANTES de hornear, sobre todas las bajas juntas. Dos islas en el
+               mismo lugar reciben el horneado de dos lugares de la alta y
+               gana la ultima, sin error (trampa 32). Mas de 0,001 de la
+               huella solapada (el "nada de solape" del censo) sale con
+               error; `--permitir-solape` lo deja pasar si el apilado es a
+               proposito, y el numero queda en el reporte.
+  nada horneado  sin texeles cubiertos, o sin un solo rayo que encuentre la
+               alta, sale con error ANTES de hornear los mapas: escribir PNG
+               de relleno y terminar bien daba un texture set plano.
   cobertura    % del atlas que ocupan las islas. Un 2048 con 25 % de
                cobertura es un 1024 lleno que pesa como 2048.
   fallidos     % de texeles de isla donde el rayo no encontro la alta.
@@ -60,12 +69,13 @@ CONTROLES
                evidencia, no prueba: la suciedad pintada en los huecos
                tambien correlaciona.
 
-Los umbrales de aviso son criterio `[no medido]`; los numeros se escriben
-siempre en `<base>_horneado.json` para poder auditarlos.
+Los umbrales de aviso son criterio `[no medido]`; los numeros, y los avisos
+mismos, se escriben siempre en `<base>_horneado.json` para poder auditarlos.
 
 Uso:
   blender -b --python hornear.py -- <baja.blend> <carpeta> <res> <alta.blend> [<alta.blend> ...]
-          [--extrusion F] [--muestras-ao N] [--force]
+          [--extrusion F] [--muestras-ao N] [--distancia-ao F]
+          [--permitir-solape] [--force]
 
   <res>           resolucion FINAL, potencia de 2 (se hornea a 2*res)
   --extrusion     distancia del cage como fraccion de la diagonal de la baja
@@ -133,7 +143,10 @@ def args_cli():
             opciones[a] = type(opciones[a])(args[i + 1])
             i += 2
             continue
-        if a != "--force":
+        if a.startswith("--") and a not in ("--force", "--permitir-solape"):
+            # Antes caia como una ruta de alta mas y reventaba al cargarla.
+            raise SystemExit("opcion desconocida: %s" % a)
+        if not a.startswith("--"):
             posicionales.append(a)
         i += 1
     if len(posicionales) < 4:
@@ -145,7 +158,7 @@ def args_cli():
                          "en 32.241 texturas vanilla)" % res)
     return (baja, carpeta, res, posicionales[3:], opciones["--extrusion"],
             opciones["--muestras-ao"], opciones["--distancia-ao"],
-            "--force" in args)
+            "--force" in args, "--permitir-solape" in args)
 
 
 def mallas(objetos):
@@ -204,6 +217,15 @@ def caja_mundo(obj):
     co = [obj.matrix_world @ v.co for v in obj.data.vertices]
     return (tuple(min(c[i] for c in co) for i in range(3)),
             tuple(max(c[i] for c in co) for i in range(3)))
+
+
+def triangulos_uv(obj):
+    """[((u,v), (u,v), (u,v))] de la capa UV activa, por triangulo."""
+    me = obj.data
+    me.calc_loop_triangles()
+    uv = me.uv_layers.active.data
+    return [tuple(tuple(uv[i].uv) for i in t.loops)
+            for t in me.loop_triangles]
 
 
 def areas(obj):
@@ -270,6 +292,12 @@ def destino_en_baja(baja, img):
     """Nodo de imagen activo en cada material de la baja: ahi escribe el bake."""
     if not baja.data.materials:
         baja.data.materials.append(bpy.data.materials.new(baja.name + "_bake"))
+    # Una ranura vacia (None) no tiene arbol donde poner el nodo: reventaba
+    # con AttributeError. Se le da un material de bake; el .blend no se guarda.
+    for i, mat in enumerate(baja.data.materials):
+        if mat is None:
+            baja.data.materials[i] = bpy.data.materials.new(
+                "%s_bake_%d" % (baja.name, i))
     nodos = []
     for mat in baja.data.materials:
         mat.use_nodes = True
@@ -291,9 +319,14 @@ def materiales(objetos):
 
 def entrada_como_emision(altas, entrada):
     """La entrada `entrada` del Principled -> Emission -> salida, solo durante
-    el bake (trampa 31). Devuelve con que restaurar y los materiales sin
-    Principled."""
-    restaurar, sin_principled = [], []
+    el bake (trampa 31). Devuelve con que restaurar, los materiales sin
+    Principled y los que tienen mas de uno llegando a la salida.
+
+    El Principled es el que ALIMENTA la salida activa
+    (`horneado_puro.principled_conectado`), no el primero del arbol: uno
+    suelto, o el de otra rama, horneaba colores que el material no muestra.
+    """
+    restaurar, sin_principled, ambiguos = [], [], []
     for mat in materiales(altas):
         if not mat.use_nodes:
             sin_principled.append(mat.name)
@@ -302,12 +335,13 @@ def entrada_como_emision(altas, entrada):
         salida = next((n for n in arbol.nodes
                        if n.type == 'OUTPUT_MATERIAL' and n.is_active_output),
                       None)
-        bsdf = next((n for n in arbol.nodes if n.type == 'BSDF_PRINCIPLED'),
-                    None)
-        if salida is None or bsdf is None:
+        bsdfs = hp.principled_conectado(salida) if salida is not None else []
+        if not bsdfs:
             sin_principled.append(mat.name)
             continue
-        socket = bsdf.inputs[entrada]
+        if len(bsdfs) > 1:
+            ambiguos.append(mat.name)
+        socket = bsdfs[0].inputs[entrada]
         previo = [l.from_socket for l in salida.inputs["Surface"].links]
         emi = arbol.nodes.new("ShaderNodeEmission")
         if socket.links:
@@ -318,7 +352,7 @@ def entrada_como_emision(altas, entrada):
                 tuple(v) if hasattr(v, "__len__") else (v, v, v, 1.0))
         arbol.links.new(emi.outputs["Emission"], salida.inputs["Surface"])
         restaurar.append((arbol, salida, emi, previo))
-    return restaurar, sin_principled
+    return restaurar, sin_principled, ambiguos
 
 
 def restaurar_materiales(restaurar):
@@ -358,7 +392,7 @@ def muestrear(*arrays):
 
 def main():
     (ruta_baja, carpeta, res, rutas_altas, frac, muestras_ao, frac_ao,
-     forzar) = args_cli()
+     forzar, permitir_solape) = args_cli()
 
     bpy.ops.wm.open_mainfile(filepath=os.path.abspath(ruta_baja))
     bajas = mallas(bpy.context.scene.objects)
@@ -366,6 +400,19 @@ def main():
         raise SystemExit("%s no trae mallas" % ruta_baja)
     for b in bajas:
         print("[uv] %s: se hornea la capa '%s'" % (b.name, capa_uv(b).name))
+
+    # Antes de cargar las altas, que es lo caro: sobre TODAS las bajas juntas,
+    # porque comparten atlas y una isla de una pieza puede pisar otra.
+    solape = hp.solape_uv([t for b in bajas for t in triangulos_uv(b)])
+    print("[uv] solape de la huella: %.4f" % solape)
+    if solape > hp.TOPE_SOLAPE and not permitir_solape:
+        raise SystemExit(
+            "%.1f %% de la huella UV esta pisada por dos o mas triangulos. En "
+            "un bake cada texel recibe UN punto de la alta: las islas que se "
+            "pisan se hornean una encima de la otra y gana la ultima (trampa "
+            "32). Separalas, o pasa --permitir-solape si el apilado es a "
+            "proposito." % (solape * 100))
+
     altas = cargar_altas(rutas_altas)
     pares = emparejar(bajas, altas)
 
@@ -421,6 +468,16 @@ def main():
     cobertura = n_cub / float(cubierto.size)
     fallidos = (int((cubierto & ~acierto).sum()) / float(n_cub)
                 if n_cub else None)
+    # Sin nada que hornear se sale ACA, antes de escribir un solo PNG: los
+    # mapas saldrian enteros de relleno neutro y la fase de texturas los
+    # convertiria en un texture set plano, sin error.
+    if n_cub == 0:
+        raise SystemExit("la baja no cubre ningun texel del atlas: UV vacias "
+                         "o colapsadas. No se escribio nada.")
+    if not acierto.any():
+        raise SystemExit("ningun rayo encontro la alta (%d texeles de isla): "
+                         "extrusion muy corta o alta en otro lugar. No se "
+                         "escribio nada." % n_cub)
 
     finales = {}
 
@@ -443,11 +500,12 @@ def main():
                           imagen("ao2", lado, "Non-Color", VACIO), extrusion))
     escena.cycles.samples = 1
 
-    sin_principled = set()
+    sin_principled, ambiguos = set(), set()
     for mapa, entrada in (("albedo", "Base Color"), ("roughness", "Roughness"),
                           ("metallic", "Metallic")):
-        restaurar, sin = entrada_como_emision(altas, entrada)
+        restaurar, sin, amb = entrada_como_emision(altas, entrada)
         sin_principled.update(sin)
+        ambiguos.update(amb)
         try:
             arr = hornear('EMIT', altas, baja,
                           imagen(mapa + "2", lado, mapas[mapa][1], VACIO),
@@ -462,13 +520,42 @@ def main():
     media_albedo = hp.media(m_lum, m_cub)
     corr = hp.correlacion(m_lum, m_ao, m_cub)
 
+    avisos = []
+    if solape > hp.TOPE_SOLAPE:
+        avisos.append("%.1f %% de la huella UV solapada, horneada igual por "
+                      "--permitir-solape" % (solape * 100))
+    if fallidos > AVISO_FALLIDOS:
+        avisos.append("%.1f %% de los texeles de isla no encontro la alta: "
+                      "subi --extrusion o revisa la alineacion"
+                      % (fallidos * 100))
+    if dispersion is not None and dispersion > AVISO_DENSIDAD:
+        avisos.append("densidad de texel dispareja entre piezas (max/min "
+                      "%.2f): %s" % (dispersion, {
+                          k: None if v is None else round(v, 2)
+                          for k, v in densidades.items()}))
+    if media_albedo is not None and media_albedo < 0.02:
+        avisos.append("albedo casi negro sobre lo cubierto (media %.4f): "
+                      "revisa los materiales de la alta (trampa 31)"
+                      % media_albedo)
+    if corr is not None and corr > AVISO_CORRELACION:
+        avisos.append("el albedo correlaciona con el AO (r=%.2f): posible luz "
+                      "horneada del generador (trampa 21)" % corr)
+    if sin_principled:
+        avisos.append("materiales sin un Principled conectado a la salida, "
+                      "salen negros en albedo/rugosidad/metalicidad: %s"
+                      % sorted(sin_principled))
+    if ambiguos:
+        avisos.append("materiales con mas de un Principled llegando a la "
+                      "salida; se horneo el primero: %s" % sorted(ambiguos))
+
     reporte = {
         "blender": bpy.app.version_string, "res": res, "horneado_a": lado,
         "extrusion": extrusion, "muestras_ao": muestras_ao,
         "distancia_ao": distancia_ao,
         "piezas": piezas,
+        "solape_uv": round(solape, 4),
         "cobertura": round(cobertura, 4),
-        "fallidos": None if fallidos is None else round(fallidos, 4),
+        "fallidos": round(fallidos, 4),
         "densidad_texel": {k: None if v is None else round(v, 2)
                            for k, v in densidades.items()},
         "densidad_max_sobre_min": (None if dispersion is None
@@ -477,6 +564,10 @@ def main():
                                   else round(media_albedo, 4)),
         "correlacion_albedo_ao": None if corr is None else round(corr, 3),
         "materiales_sin_principled": sorted(sin_principled),
+        "materiales_ambiguos": sorted(ambiguos),
+        # Los avisos van en el reporte, no solo en la consola: el gate de
+        # hd-texturas.md se lee de este archivo.
+        "avisos": avisos,
         "salidas": {m: rutas[m] for m in mapas},
     }
     with open(rutas["json"], "w", encoding="utf-8") as f:
@@ -489,27 +580,6 @@ def main():
     for m in mapas:
         print("  %-9s %s" % (m, rutas[m]))
     print("  reporte   %s" % rutas["json"])
-
-    avisos = []
-    if n_cub == 0:
-        avisos.append("la baja no cubre ningun texel: UV vacias o colapsadas")
-    if fallidos is not None and fallidos > AVISO_FALLIDOS:
-        avisos.append("%.1f %% de los texeles de isla no encontro la alta: "
-                      "subi --extrusion o revisa la alineacion"
-                      % (fallidos * 100))
-    if dispersion is not None and dispersion > AVISO_DENSIDAD:
-        avisos.append("densidad de texel dispareja entre piezas (max/min "
-                      "%.2f): %s" % (dispersion, reporte["densidad_texel"]))
-    if media_albedo is not None and media_albedo < 0.02:
-        avisos.append("albedo casi negro sobre lo cubierto (media %.4f): "
-                      "revisa los materiales de la alta (trampa 31)"
-                      % media_albedo)
-    if corr is not None and corr > AVISO_CORRELACION:
-        avisos.append("el albedo correlaciona con el AO (r=%.2f): posible luz "
-                      "horneada del generador (trampa 21)" % corr)
-    if sin_principled:
-        avisos.append("materiales sin Principled, salen negros en albedo/"
-                      "rugosidad/metalicidad: %s" % sorted(sin_principled))
     for a in avisos:
         print("[aviso] %s" % a)
 

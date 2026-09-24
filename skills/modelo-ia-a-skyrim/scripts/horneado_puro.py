@@ -14,8 +14,17 @@ lo que se puede separar de Blender vive aca, con autotest:
                          del PNG
   alineacion             control grueso de que la alta y la baja esten en el
                          mismo lugar
+  solape_uv              que fraccion de la huella UV pisan dos triangulos;
+                         en un bake, cada texel tiene que tener UN origen
+  principled_conectado   el Principled que de verdad alimenta la salida de
+                         un material (sobre nodos de Blender o imitaciones)
   densidad_texel         texeles por unidad de una pieza, para comparar piezas
   media / correlacion    estadisticas sobre los texeles CUBIERTOS
+
+El autotest cuenta sus comprobaciones y dice cuantas SALTEO por no tener
+numpy. Las que necesitan numpy son justo las que usa el bake real (dilatar,
+rellenar_vacios, reducir_np): el CI instala numpy, y
+tests/test_horneado_puro.py falla si en CI faltara.
 
 REDUCCION (trampa 35)
 ---------------------
@@ -292,9 +301,15 @@ def alineacion(caja_baja, caja_alta, tol_centro=0.10, tol_escala=1.25):
     Devuelve una lista de motivos; vacia es que pasa. Las tolerancias son
     criterio, no medicion `[no medido]`: estan para atrapar el olvido de una
     transformacion (una alta sin girar, sin escalar, corrida), no para medir
-    un ajuste fino. Un eje casi plano en la baja (menos del 1 % de la
-    diagonal) no se compara: una pieza plana puede venir con espesor en la
-    alta.
+    un ajuste fino. No se compara un eje:
+
+      * casi plano en la baja (menos del 1 % de la diagonal): una pieza plana
+        puede venir con espesor en la alta;
+      * casi plano en la alta si en la baja es DELGADO (menos del 25 %): una
+        cascara abierta de la IA se solidifica en la baja antes de las UV
+        (hd-texturas.md, paso 4) y la alta sigue sin espesor. Sin esto, el
+        caso que el flujo recomienda no se podia hornear. Si en la baja ese
+        eje es largo, una alta plana ahi es una alta girada, y se compara.
     """
     lo_b, hi_b = caja_baja
     lo_a, hi_a = caja_alta
@@ -314,11 +329,118 @@ def alineacion(caja_baja, caja_alta, tol_centro=0.10, tol_escala=1.25):
     for i, eje in enumerate("XYZ"):
         if lados_b[i] < 0.01 * diag:
             continue
+        if lados_a[i] < 0.01 * diag and lados_b[i] < 0.25 * diag:
+            continue
         r = lados_a[i] / lados_b[i]
         if r > tol_escala or r < 1.0 / tol_escala:
             motivos.append("eje %s: la alta mide %.2f veces la baja"
                            % (eje, r))
     return motivos
+
+
+# Resolucion del rasterizador y tope de solape: los mismos del censo
+# (census/parser_uv.py: GRID; hallazgos_uv.md, hallazgo 3: "nada de solape" es
+# < 0,001).
+GRID_UV = 512
+TOPE_SOLAPE = 0.001
+
+
+def rasterizar_uv(tris_uv, res=GRID_UV):
+    """{(gx, gy): cuantos triangulos cubren el centro de esa celda}.
+
+    COPIA de `census/parser_uv.rasterizar`, porque la skill empaquetada no
+    lleva census/. tests/test_horneado_puro.py exige que las dos den lo
+    mismo. La regla de relleno TOP-LEFT es la que importa: sin ella, cada
+    arista compartida cuenta como una linea de celdas solapadas (el censo
+    midio 816 falsas en un atlas de 4 islas separadas).
+    """
+    g = {}
+    paso = 1.0 / res
+    eps = 1e-12
+    for p0, p1, p2 in tris_uv:
+        if ((p1[0] - p0[0]) * (p2[1] - p0[1]) -
+                (p2[0] - p0[0]) * (p1[1] - p0[1])) < 0:
+            p1, p2 = p2, p1
+        x0, y0 = p0
+        x1, y1 = p1
+        x2, y2 = p2
+        if abs((x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)) < 1e-15:
+            continue
+        tl = []
+        for (ax, ay), (bx, by) in (((x0, y0), (x1, y1)),
+                                   ((x1, y1), (x2, y2)),
+                                   ((x2, y2), (x0, y0))):
+            dx, dy = bx - ax, by - ay
+            tl.append(dy > 0 or (dy == 0 and dx < 0))
+        gx0 = max(0, min(res - 1, int(min(x0, x1, x2) * res)))
+        gx1 = max(0, min(res - 1, int(max(x0, x1, x2) * res)))
+        gy0 = max(0, min(res - 1, int(min(y0, y1, y2) * res)))
+        gy1 = max(0, min(res - 1, int(max(y0, y1, y2) * res)))
+        a0, b0 = -(y1 - y0), (x1 - x0)
+        a1, b1 = -(y2 - y1), (x2 - x1)
+        a2, b2 = -(y0 - y2), (x0 - x2)
+        px0 = (gx0 + 0.5) * paso
+        py0 = (gy0 + 0.5) * paso
+        f0 = a0 * (px0 - x0) + b0 * (py0 - y0)
+        f1 = a1 * (px0 - x1) + b1 * (py0 - y1)
+        f2 = a2 * (px0 - x2) + b2 * (py0 - y2)
+        dx0, dx1, dx2 = a0 * paso, a1 * paso, a2 * paso
+        dy0, dy1, dy2 = b0 * paso, b1 * paso, b2 * paso
+        tl0, tl1, tl2 = tl
+        for gy in range(gy0, gy1 + 1):
+            e0, e1, e2 = f0, f1, f2
+            for gx in range(gx0, gx1 + 1):
+                if ((e0 > eps or (e0 > -eps and tl0)) and
+                        (e1 > eps or (e1 > -eps and tl1)) and
+                        (e2 > eps or (e2 > -eps and tl2))):
+                    g[(gx, gy)] = g.get((gx, gy), 0) + 1
+                e0 += dx0
+                e1 += dx1
+                e2 += dx2
+            f0 += dy0
+            f1 += dy1
+            f2 += dy2
+    return g
+
+
+def solape_uv(tris_uv, res=GRID_UV):
+    """Fraccion de la huella UV cubierta por dos o mas triangulos (la
+    `solape_huella` del censo). 0.0 si no hay huella.
+
+    En vanilla, pisar UV es el reuso normal (hallazgos_uv.md: 8 de cada 9
+    mallas lo hacen), y por eso el censo no lo trata como defecto. En un BAKE
+    si lo es: cada texel recibe el color de UN punto de la alta, y dos islas
+    en el mismo lugar se pisan --gana la ultima que se horneo--.
+    """
+    g = rasterizar_uv(tris_uv, res)
+    if not g:
+        return 0.0
+    return sum(1 for v in g.values() if v >= 2) / float(len(g))
+
+
+def principled_conectado(salida):
+    """Los Principled BSDF que alimentan la entrada Surface de `salida`, en el
+    orden en que se los alcanza yendo hacia atras por los vinculos.
+
+    Sirve con nodos de Blender o con cualquier objeto que tenga `type`,
+    `inputs` (con `["Surface"]` e iterable) y, en cada entrada, `links` con
+    `from_node`. Buscar "el primer Principled del arbol" tomaba uno suelto o
+    el de otra rama; lo que se hornea es lo que llega a la salida.
+    """
+    vistos, encontrados = set(), []
+    cola = [l.from_node for l in salida.inputs["Surface"].links]
+    while cola:
+        n = cola.pop(0)
+        if id(n) in vistos:
+            continue
+        vistos.add(id(n))
+        if n.type == "BSDF_PRINCIPLED":
+            encontrados.append(n)
+            continue
+        for entrada in n.inputs:
+            for l in entrada.links:
+                cola.append(l.from_node)
+    return encontrados
 
 
 def densidad_texel(area_3d, area_uv, res):
@@ -360,10 +482,20 @@ def autotest():
     import tempfile
 
     fallas = []
+    cuenta = [0]
 
     def exigir(cond, texto):
+        cuenta[0] += 1
         if not cond:
             fallas.append(texto)
+
+    def exigir_error(fn, args, que):
+        try:
+            fn(*args)
+        except ValueError:
+            exigir(True, que)
+        else:
+            exigir(False, "%s no fallo" % que)
 
     # --- reducir (puro) ---
     pix = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0,
@@ -404,11 +536,7 @@ def autotest():
     for args, que in (((pos, 3, 2, "lineal"), "lado impar"),
                       ((pos[:-1], 4, 2, "lineal"), "largo corto"),
                       ((pos, 4, 2, "srgb"), "modo invalido")):
-        try:
-            reducir(*args)
-            fallas.append("%s no fallo" % que)
-        except ValueError:
-            pass
+        exigir_error(reducir, args, que)
 
     # --- reducir_np == reducir (solo si hay numpy) ---
     if np is not None:
@@ -502,11 +630,8 @@ def autotest():
             exigir((w, h, c) == (2, 2, canales),
                    "png %d: cabecera %r" % (canales, (w, h, c)))
             exigir(leido == datos, "png %d: los datos no vuelven" % canales)
-        try:
-            escribir_png(os.path.join(tmp, "x.png"), 2, 2, 3, b"\x00")
-            fallas.append("png con datos cortos no fallo")
-        except ValueError:
-            pass
+        exigir_error(escribir_png, (os.path.join(tmp, "x.png"), 2, 2, 3,
+                                    b"\x00"), "png con datos cortos")
     finally:
         for f in os.listdir(tmp):
             os.remove(os.path.join(tmp, f))
@@ -527,6 +652,84 @@ def autotest():
     plana = ((0, 0, 0), (1, 2, 0))             # baja plana en Z
     exigir(alineacion(plana, ((0, 0, -0.05), (1, 2, 0.05))) == [],
            "una baja plana no compara el eje plano")
+    # la cascara de la IA solidificada en la baja (paso 4) y la alta sin
+    # espesor: tiene que pasar. Reprobaba: "la alta mide 0.02 veces la baja".
+    exigir(alineacion(((0, 0, -0.5), (30, 10, 0.5)),
+                      ((0, 0, -0.01), (30, 10, 0.01))) == [],
+           "una baja solidificada sobre una alta sin espesor no paso")
+    # pero una alta plana GIRADA 90 grados (plana en el eje largo de la baja)
+    # no se saltea: eso no es un Solidify
+    exigir(alineacion(((0, 0, 0), (30, 10, 0)),
+                      ((15, 0, -15), (15, 10, 15))) != [],
+           "una alta plana girada 90 grados paso")
+
+    # --- solape de UV ---
+    quad = [((0.1, 0.1), (0.4, 0.1), (0.4, 0.4)),
+            ((0.1, 0.1), (0.4, 0.4), (0.1, 0.4))]
+    exigir(solape_uv(quad) == 0.0,
+           "dos triangulos que comparten arista contaron solape: %r"
+           % solape_uv(quad))
+    otra = [((0.6, 0.6), (0.9, 0.6), (0.9, 0.9))]
+    exigir(solape_uv(quad + otra) == 0.0, "islas separadas contaron solape")
+    exigir(solape_uv(quad + quad) == 1.0, "una isla apilada no dio 1,0")
+    espejada = [tuple((1.0 - u - 0.5, v) for u, v in t) for t in quad]
+    exigir(solape_uv(quad + espejada) == 1.0,
+           "una isla espejada encima (giro invertido) no dio 1,0: %r"
+           % solape_uv(quad + espejada))
+    medio = solape_uv(quad + [((0.1, 0.1), (0.4, 0.1), (0.4, 0.4))])
+    exigir(0.4 < medio < 0.6, "medio quad apilado: %r" % medio)
+    exigir(solape_uv([]) == 0.0, "sin triangulos")
+    # aristas compartidas que pasan JUSTO por centros de celda, en las tres
+    # orientaciones (vertical, horizontal, diagonal): sin la regla top-left
+    # esos centros se cuentan dos veces y aparece un solape que no existe
+    c = [(k + 0.5) / 64.0 for k in (8, 24, 40, 48, 60)]
+    abanico = [((c[0], c[0]), (c[1], c[0]), (c[1], c[1])),
+               ((c[0], c[0]), (c[1], c[1]), (c[0], c[1])),
+               ((c[1], c[0]), (c[2], c[0]), (c[2], c[1])),
+               ((c[1], c[0]), (c[2], c[1]), (c[1], c[1])),
+               ((c[0], c[1]), (c[1], c[1]), (c[1], c[2])),
+               ((c[0], c[1]), (c[1], c[2]), (c[0], c[2])),
+               # la arista compartida en la SEGUNDA posicion del triangulo
+               ((c[4], c[3]), (c[4], c[4]), (c[3], c[3])),
+               ((c[3], c[4]), (c[3], c[3]), (c[4], c[4]))]
+    exigir(solape_uv(abanico, 64) == 0.0,
+           "aristas sobre centros de celda contaron solape: %r"
+           % solape_uv(abanico, 64))
+
+    # --- el Principled que llega a la salida ---
+    class Nodo(object):
+        def __init__(self, tipo, **entradas):
+            self.type = tipo
+            self._e = {k: Entrada(v) for k, v in entradas.items()}
+            self.inputs = self
+
+        def __getitem__(self, k):
+            return self._e[k]
+
+        def __iter__(self):
+            return iter(self._e.values())
+
+    class Entrada(object):
+        def __init__(self, nodos):
+            self.links = [Vinculo(n) for n in nodos]
+
+    class Vinculo(object):
+        def __init__(self, n):
+            self.from_node = n
+
+    a = Nodo("BSDF_PRINCIPLED")
+    b = Nodo("BSDF_PRINCIPLED")
+    suelto = Nodo("BSDF_PRINCIPLED")
+    mezcla = Nodo("MIX_SHADER", Fac=[], Shader=[a], Shader_001=[b])
+    salida = Nodo("OUTPUT_MATERIAL", Surface=[mezcla])
+    encontrados = principled_conectado(salida)
+    exigir([n is a for n in encontrados] == [True, False]
+           and encontrados[1] is b and suelto not in encontrados,
+           "principled_conectado: tomo el suelto o perdio uno de la mezcla")
+    exigir(principled_conectado(Nodo("OUTPUT_MATERIAL", Surface=[a])) == [a],
+           "principled_conectado: el directo")
+    exigir(principled_conectado(Nodo("OUTPUT_MATERIAL", Surface=[])) == [],
+           "principled_conectado: sin vinculo tiene que dar []")
 
     # --- densidad ---
     exigir(densidad_texel(1.0, 1.0, 1024) == 1024.0, "densidad 1:1")
@@ -546,8 +749,11 @@ def autotest():
 
     for f in fallas:
         print("[FALLA] %s" % f)
-    print("autotest: %s%s" % ("OK" if not fallas else "%d fallas" % len(fallas),
-                              "" if np is not None else " (sin numpy)"))
+    print("autotest: %d comprobaciones, %d fallas%s"
+          % (cuenta[0], len(fallas),
+             "" if np is not None else
+             "  -- SIN NUMPY: salteadas las de reducir_np, dilatar y "
+             "rellenar_vacios, que son las que usa el bake"))
     return 1 if fallas else 0
 
 

@@ -11,8 +11,12 @@ camino.
 
 Lo que dice "medido" en esta página se midió con Blender 4.5.14 LTS (el `bpy`
 de pip), sobre un asset sintético: una esfera con relieve, un albedo con una
-franja de sombra pintada y un ORM con zonas. **No** se probó todavía con un
-asset real de un generador ni dentro del juego.
+franja de sombra pintada y un ORM con zonas. Después se repitió el camino
+entero con **Blender 4.4.1**, el que documenta el repo: `.glb` →
+`preparar_parte --guardar-alto` → UV → `hornear.py` a 512 (4 s) → fase de
+texturas, que armó un solo texture set con el alfa del `_n` desde la
+rugosidad y el `_m` desde el metal, sin pedir revisión. **No** se probó
+todavía con un asset real de un generador ni dentro del juego.
 
 ## El orden
 
@@ -25,8 +29,13 @@ asset real de un generador ni dentro del juego.
     textura: un solo atlas, con area proporcional al area 3D (trampa 17).
     salud_malla.py otra vez: cortar costuras parte vertices.
 4c. hornear.py -- baja.blend texturas/ 2048 X_alto.blend [...]
-    Aca la alta y la baja todavia coinciden sin hacer nada: salieron juntas
-    de preparar_parte.
+    Aca la alta y la baja coinciden: salieron juntas de preparar_parte, y lo
+    que deformo la baja en el paso 4 (afinar) se le aplico tambien a la alta.
+    El Solidify no se repite en la alta: el control de alineacion saltea el
+    eje delgado de una baja solidificada. Lo que si pasa es que la cara de
+    atras y el canto de la baja no tienen alta enfrente: cuentan como
+    fallidos (medido con Blender 4.4.1: 55,8 % en una chapa de 30 x 10
+    solidificada a 1,0) y los llena el margen. El aviso es esperable ahi.
 5.  Montar: cortar, escalar, espejar. No toca las UV: la textura sigue
     valiendo y a la alta no hay que aplicarle nada.
 6.  Riggear. Los pesos no tocan las UV.
@@ -64,9 +73,11 @@ Salida, con el nombre del `.blend` de la baja como base:
 | `<base>_ao.png` | gris |
 | `<base>_horneado.json` | los controles |
 
-Son los nombres de entrada de la fase de texturas del pipeline (PR #51). Esa
-fase arma el alfa del `_n` como `255 - rugosidad` y el `_m` desde la
-metalicidad. Sin la rugosidad y la metalicidad horneadas sobre las UV nuevas,
+Son los nombres de entrada de la fase de texturas del pipeline
+(`pipeline/texturas.py`, PR #51). **Esta capa depende de ese PR**: los nombres
+`_normalgl`, `_metallic` y `_ao`, y la lectura del DDS sin comprimir en
+`mascara_especular.py`, llegan con él. Se mergea antes. Esa fase arma el alfa
+del `_n` como `255 - rugosidad` y el `_m` desde la metalicidad. Sin la rugosidad y la metalicidad horneadas sobre las UV nuevas,
 nadie producía la máscara especular ni el `_m` después de re-desplegar.
 Medido corriendo esa fase sobre esta salida: `_n` con 0,04 % de bloques
 saturados, sin pedir revisión.
@@ -80,6 +91,18 @@ Qué hace, y por qué, medido:
   de su baja (centro corrido más del 10 % de la diagonal, o un eje fuera de
   ×1,25), sale con error sin escribir nada. Los topes son criterio.
 - **UV activa = UV de render**, o sale con error. No elige por vos.
+- **Las islas no se pisan**, o sale con error antes de cargar la alta. En el
+  juego pisar UV es normal: 8 de cada 9 mallas vanilla lo hacen
+  (`census/hallazgos_uv.md`), y por eso el censo no lo trata como defecto. En
+  un bake sí lo es: cada téxel recibe el color de **un** punto de la alta, y
+  dos islas en el mismo lugar se hornean una encima de la otra (gana la
+  última, trampa 32). El tope es 0,001 de la huella, el "nada de solape" del
+  censo. `--permitir-solape` lo deja pasar si el apilado es a propósito, y el
+  número queda en el reporte.
+- **Nada que hornear es un error.** Sin téxeles cubiertos, o sin un solo rayo
+  que encuentre la alta, sale antes de escribir los mapas. Antes escribía PNG
+  de relleno neutro y terminaba bien: la fase de texturas los convertía en un
+  texture set plano.
 - **El normal incluye el bump o el normal map del material de la alta**, no
   solo la geometría. Medido: con fuerza 0 sale plano, con fuerza 1 la
   desviación del canal R es 0,42. Si el generador trae un normal map
@@ -126,7 +149,8 @@ principal, 2048 alcanza (ver la tabla de resolución).
 
 | Control | Qué mide | Aviso |
 |---|---|---|
-| `cobertura` | fracción del atlas ocupada por islas | — (se informa el tamaño equivalente lleno) |
+| `solape_uv` | fracción de la huella UV pisada por 2+ triángulos | > 0,001 es error, salvo `--permitir-solape` |
+| `cobertura` | fracción del atlas ocupada por islas | 0 es error; si no, se informa el tamaño equivalente lleno |
 | `fallidos` | fracción de téxeles de isla donde el rayo no encontró la alta | > 1 % |
 | `densidad_texel` | téxeles por unidad de cada pieza | max/min > 2 |
 | `albedo_media_cubierta` | luminancia media, **solo** sobre téxeles cubiertos | < 0,02 (trampa 31) |
@@ -134,7 +158,10 @@ principal, 2048 alcanza (ver la tabla de resolución).
 
 La cobertura se validó contra el área UV de la malla: 24,1 % medido contra
 24,09 % calculado. Los umbrales de aviso son criterio `[no medido]`. Los
-números se guardan siempre, para poder auditarlos.
+números, y la lista de avisos (`avisos`), se guardan siempre en el JSON para
+poder auditarlos; también `materiales_sin_principled` y `materiales_ambiguos`.
+El Principled que se hornea es el que **llega a la salida** del material, no
+el primero del árbol.
 
 La correlación con el AO es **evidencia**, no prueba, de luz horneada. Detecta
 la sombra que cae donde hay oclusión: huecos y contactos. No detecta una sombra
@@ -213,8 +240,9 @@ Por asset, en este orden:
 1. `salud_malla.py` después de 4 y de 4b.
 2. `hornear.py`: sin error de alineación ni de UV, y sin avisos en
    `<base>_horneado.json`, o con los avisos entendidos.
-3. `census/parser_uv.py`: `solape_huella` = 0 sobre el archivo escrito
-   (trampa 32).
+3. `census/parser_uv.py` sobre el NIF escrito: que el solape siga como lo
+   dejó el bake (lo mide `hornear.py` antes de hornear; acá se comprueba que
+   el export no lo cambió, trampa 32).
 4. `mascara_especular.py [--arma]` sobre el `_n` **sin comprimir**.
 5. `verificar_export.py nuevo.nif vanilla.nif`, que también compara rutas de
    textura.
@@ -224,7 +252,11 @@ Por asset, en este orden:
    girar.
 
 El CI cubre `horneado_puro.py` (autotest: la reducción, el margen, el
-relleno, el PNG, la alineación y las estadísticas). `hornear.py` necesita
+relleno, el PNG, la alineación, el solape de UV, el Principled conectado y
+las estadísticas). El margen, el relleno y la reducción con numpy --lo que
+usa el bake real-- necesitan numpy: el CI lo instala, y
+`tests/test_horneado_puro.py` falla si en CI faltara. Sin numpy el autotest
+dice cuáles salteó en vez de dar un "OK" pelado. `hornear.py` necesita
 Blender y no corre en CI. Los puntos 6 y 7 son manuales.
 
 ## Qué sigue abierto

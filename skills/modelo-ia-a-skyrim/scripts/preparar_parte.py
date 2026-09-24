@@ -19,6 +19,10 @@ importa:
      tarde: girar despues de repartir la geometria en piezas les cambia el lado
      y cada una queda atada al hueso opuesto.
 
+     Para decidir, mira la parte de perfil y fijate hacia donde apuntan la
+     cara, el pico o los dedos del pie. La heuristica de masa de
+     medir_parte.py es una pista, no una prueba.
+
 Opcional, para la capa HD (references/hd-texturas.md): `--guardar-alto
 <alto.blend>` guarda TAMBIEN la malla soldada SIN decimar. Es la fuente del
 bake (`hornear.py`): el detalle que el decimado tira no se recupera
@@ -27,10 +31,6 @@ las dos, o el horneado sale corrido (trampa 34)--. El bake va justo despues de
 desplegar las UV, cuando las dos todavia coinciden; lo que deforme la baja
 ANTES (afinar) hay que aplicarselo igual a la alta. Montar va despues del bake
 y no toca las UV.
-
-     Para decidir, mira la parte de perfil y fijate hacia donde apuntan la
-     cara, el pico o los dedos del pie. La heuristica de masa de
-     medir_parte.py es una pista, no una prueba.
 
 Uso:
   blender -b --python preparar_parte.py -- <entrada> <salida.blend> <tris> [--girar-180] [--guardar-alto <alto.blend>] [--force]
@@ -157,7 +157,10 @@ def main():
             "puede perder trabajo: usa --force si de verdad queres pisarlo."
             % destino)
     if alto_destino:
-        if alto_destino == destino:
+        # normcase: en Windows `Parte.blend` y `parte.blend` son el mismo
+        # archivo, y la alta --que se guarda segunda-- pisaba a la baja.
+        if (os.path.normcase(os.path.realpath(alto_destino))
+                == os.path.normcase(os.path.realpath(destino))):
             raise SystemExit("--guardar-alto no puede ser el mismo archivo "
                              "que la salida: pisaria la malla baja.")
         if os.path.exists(alto_destino) and "--force" not in args:

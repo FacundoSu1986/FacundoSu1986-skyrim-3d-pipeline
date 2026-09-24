@@ -74,7 +74,9 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
    va antes de las UV: orden completo en `references/hd-texturas.md`.
 5. **Montar** — cortar cada parte en su tramo, escalar a su hueco, espejar. Dar
    espesor **solo si la medición dice que es una cáscara abierta**: `Solidify`
-   duplica los triángulos y no siempre hace falta.
+   duplica los triángulos y no siempre hace falta. Si horneaste en el paso 4,
+   el `Solidify` ya se hizo ahí, antes de las UV: hacerlo acá agrega caras
+   después del bake, sin textura horneada (trampa 32).
 6. **Riggear** — grupos de vértices por hueso, particiones de body-part.
 7. **Texturas** — PBR → convención de Skyrim, a DDS con mipmaps. Si
    horneaste en el paso 4, el `_n` con máscara especular, el `_m` y los gates
@@ -185,6 +187,10 @@ pieza que mañana pierda una atadura.
   antes de empezar**, no cuando algo falle: la mitad de estas trampas se
   descubren recién probando en el juego, y para entonces ya perdiste la
   iteración. Cuando algo falle, volvé al índice por síntoma.
+- **`references/hd-texturas.md`** — la capa HD: hornear la malla alta de la
+  IA sobre la baja de juego, en qué orden (el bake va entre las UV y el
+  montaje), qué controla cada paso y qué sigue sin medir. Leelo antes de
+  desplegar las UV si vas a hornear.
 
 ## Scripts
 
@@ -289,6 +295,17 @@ pieza que mañana pierda una atadura.
   —ratio tri/vert, piezas sueltas, no-manifold, winding— se informa como
   OBSERVACIÓN y no reprueba: no está medido sobre el corpus con la densidad que
   hace falta para bloquear.
+- **`scripts/hornear.py`** (Blender) — hornea la malla alta que guarda
+  `preparar_parte.py --guardar-alto` sobre la baja ya desplegada: normal, AO,
+  albedo, rugosidad y metalicidad, al doble de resolución y reducidos. Antes
+  de hornear sale con error si la alta no está donde está la baja, si la UV
+  activa no es la de render, si las islas se pisan o si no hay nada que
+  hornear. Deja los controles y los avisos en `<base>_horneado.json`. Orden y
+  gates en `references/hd-texturas.md`.
+- **`scripts/horneado_puro.py`** — la parte del horneado que no necesita
+  Blender (reducción por tipo de mapa, margen, relleno, PNG sin alfa,
+  alineación, solape de UV), con `--autotest`. El CI instala numpy para que
+  corran también las funciones que usa el bake real.
 
 ## Cómo conviene trabajar
 
