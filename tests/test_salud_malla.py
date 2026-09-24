@@ -154,6 +154,44 @@ class ReglaTests(unittest.TestCase):
         self.assertTrue(fallas)
 
 
+class ReglaUvTests(unittest.TestCase):
+    """REGLA del paso 4b [INVARIANT]: rehacer las UV no cambia la geometria
+    soldada. Cortar costuras parte vertices; nada mas."""
+
+    def _t(self, pos, tris):
+        return salud_malla.total([salud_malla.salud(pos, tris, 1)])
+
+    def test_cortar_costuras_pasa(self):
+        partida = self._t(*salud_malla._partir_por_costura(CUBO_POS,
+                                                            CUBO_TRIS))
+        fallas, notas = salud_malla.comparar_uv(self._t(CUBO_POS, CUBO_TRIS),
+                                                partida)
+        self.assertEqual(fallas, [])
+        self.assertIn("8 -> 36", notas[0])
+
+    def test_caras_agregadas_despues_reprueban(self):
+        """Un Solidify aplicado despues de desplegar (trampa 32): el borde
+        no crece --la regla de la decimacion lo dejaba pasar-- pero los
+        triangulos si."""
+        pos2 = CUBO_POS + [(x + 10, y, z) for x, y, z in CUBO_POS]
+        tris2 = CUBO_TRIS + [(a + 8, b + 8, c + 8) for a, b, c in CUBO_TRIS]
+        antes, despues = self._t(CUBO_POS, CUBO_TRIS), self._t(pos2, tris2)
+        self.assertEqual(salud_malla.comparar(antes, despues)[0], [])
+        fallas, _ = salud_malla.comparar_uv(antes, despues)
+        self.assertTrue(any("REGLA uv tris: 24 contra 12" in f
+                            for f in fallas), fallas)
+
+    def test_una_cara_de_menos_reprueba(self):
+        fallas, _ = salud_malla.comparar_uv(self._t(CUBO_POS, CUBO_TRIS),
+                                            self._t(CUBO_POS, CUBO_TRIS[2:]))
+        self.assertTrue(fallas)
+
+    def test_sin_nada_que_medir_reprueba(self):
+        fallas, _ = salud_malla.comparar_uv(self._t(CUBO_POS, CUBO_TRIS),
+                                            None)
+        self.assertTrue(fallas)
+
+
 class LecturaNifTests(unittest.TestCase):
     """censo_nif.geometria(): recupera la geometria, o dice que no pudo."""
 
@@ -325,6 +363,24 @@ class LineaDeComandosTests(unittest.TestCase):
         finally:
             os.unlink(sano)
             os.unlink(roto)
+
+    def test_uv_por_linea_de_comandos(self):
+        pos2 = CUBO_POS + [(x + 10, y, z) for x, y, z in CUBO_POS]
+        tris2 = CUBO_TRIS + [(a + 8, b + 8, c + 8) for a, b, c in CUBO_TRIS]
+        antes = _obj(pos2, tris2)
+        costuras = _obj(*salud_malla._partir_por_costura(pos2, tris2))
+        mas_caras = _obj(pos2 + [(0.5, 0.5, 2.0)], tris2 + [(4, 5, 16),
+                                                           (5, 6, 16)])
+        try:
+            codigo, salida = self._correr("--uv", antes, costuras)
+            self.assertEqual(codigo, 0, salida)
+            codigo, salida = self._correr("--uv", antes, mas_caras)
+            self.assertEqual(codigo, 1, salida)
+            self.assertIn("REGLA uv", salida)
+            self.assertEqual(self._correr("--uv", antes, antes)[0], 2)
+        finally:
+            for r in (antes, costuras, mas_caras):
+                os.unlink(r)
 
     def test_sin_argumentos_o_con_extension_rara_no_dice_que_paso(self):
         self.assertEqual(self._correr()[0], 2)

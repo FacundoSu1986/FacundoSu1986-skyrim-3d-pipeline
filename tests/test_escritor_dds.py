@@ -107,6 +107,67 @@ class EscribirYReleerTests(unittest.TestCase):
         self.assertNotIn("normal_con_alfa", malas)
 
 
+def _cabecera(ruta):
+    import struct
+    with open(ruta, "rb") as fh:
+        cab = fh.read(128)
+    return {"flags": struct.unpack_from("<I", cab, 8)[0],
+            "pitch": struct.unpack_from("<I", cab, 20)[0],
+            "pf": struct.unpack_from("<I", cab, 80)[0],
+            "fourcc": cab[84:88],
+            "caps": struct.unpack_from("<I", cab, 108)[0]}
+
+
+class CabeceraVanillaTests(unittest.TestCase):
+    """Los campos que ponen los DDS vanilla, medidos en el corpus: caps
+    0x401008 en los 22.001 DXT con mipmaps y en 1.999 de 1.999 sin comprimir
+    de 32 bpp (muestra de un archivo de cada tres); flags 0xA1007 en 21.998
+    de esos DXT (los otros 3 son cubemaps)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = self.tmp.name
+
+    def test_sin_comprimir_con_mipmaps_lleva_las_caps_vanilla(self):
+        """DDSCAPS_MIPMAP es 0x400000. Con 0x400 salian 0x1408."""
+        ruta = escritor_dds.escribir(os.path.join(self.dir, "a.dds"), 16, 16,
+                                     degradado(16, 16))
+        c = _cabecera(ruta)
+        self.assertEqual(c["caps"], 0x401008)
+        self.assertEqual(c["flags"], 0x2100F)
+
+    def test_sin_mipmaps_solo_la_caps_de_textura(self):
+        ruta = escritor_dds.escribir(os.path.join(self.dir, "b.dds"), 16, 16,
+                                     degradado(16, 16), con_mipmaps=False)
+        self.assertEqual(_cabecera(ruta)["caps"], 0x1000)
+
+    def test_dxt_lleva_la_cabecera_vanilla(self):
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest("DXT necesita numpy")
+        for fmt, lineal in (("DXT1", 16 * 8 * 8), ("DXT5", 16 * 8 * 16)):
+            with self.subTest(fmt=fmt):
+                ruta = escritor_dds.escribir(
+                    os.path.join(self.dir, fmt + ".dds"), 64, 32,
+                    degradado(64, 32), formato=fmt)
+                c = _cabecera(ruta)
+                self.assertEqual(c["flags"], 0xA1007)
+                self.assertEqual(c["pf"], 0x4)
+                self.assertEqual(c["fourcc"], fmt.encode())
+                self.assertEqual(c["caps"], 0x401008)
+                self.assertEqual(c["pitch"], lineal)
+                d = parser_dds.leer(ruta)
+                self.assertEqual(d["formato"], fmt)
+                self.assertTrue(d["tamano_cuadra"])
+
+    def test_formato_desconocido_se_rechaza(self):
+        with self.assertRaises(ValueError):
+            escritor_dds.escribir(os.path.join(self.dir, "c.dds"), 8, 8,
+                                  degradado(8, 8), formato="BC7")
+
+
 class NivelesTests(unittest.TestCase):
 
     def test_la_cadena_de_una_textura_no_cuadrada(self):

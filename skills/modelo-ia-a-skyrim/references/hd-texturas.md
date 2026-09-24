@@ -27,7 +27,8 @@ todavía con un asset real de un generador ni dentro del juego.
     la medicion dijo cascara, afinar (trampa 34, a la alta tambien).
 4b. UV de la baja, en Blender (trampa 32). Varias piezas que comparten
     textura: un solo atlas, con area proporcional al area 3D (trampa 17).
-    salud_malla.py otra vez: cortar costuras parte vertices.
+    salud_malla.py --uv antes despues: la malla soldada tiene que ser la
+    misma (cortar costuras parte vertices, y nada mas).
 4c. hornear.py -- baja.blend texturas/ 2048 X_alto.blend [...]
     Aca la alta y la baja coinciden: salieron juntas de preparar_parte, y lo
     que deformo la baja en el paso 4 (afinar) se le aplico tambien a la alta.
@@ -74,9 +75,9 @@ Salida, con el nombre del `.blend` de la baja como base:
 | `<base>_horneado.json` | los controles |
 
 Son los nombres de entrada de la fase de texturas del pipeline
-(`pipeline/texturas.py`, PR #51). **Esta capa depende de ese PR**: los nombres
-`_normalgl`, `_metallic` y `_ao`, y la lectura del DDS sin comprimir en
-`mascara_especular.py`, llegan con él. Se mergea antes. Esa fase arma el alfa
+(`pipeline/texturas.py`, PR #51): los nombres `_normalgl`, `_metallic` y
+`_ao`, y la lectura del DDS sin comprimir en `mascara_especular.py`, llegaron
+con ese PR. Esa fase arma el alfa
 del `_n` como `255 - rugosidad` y el `_m` desde la metalicidad. Sin la rugosidad y la metalicidad horneadas sobre las UV nuevas,
 nadie producía la máscara especular ni el `_m` después de re-desplegar.
 Medido corriendo esa fase sobre esta salida: `_n` con 0,04 % de bloques
@@ -190,11 +191,14 @@ Si no hay recortes (pelo, rejas), no hace falta alfa: DXT1. Con alfa, DXT5.
 - **DXT5 o BC7.** `limites-skyrim.md` recomienda BC7 lineal para normales de
   contenido nuevo en SE. El corpus vanilla usa DXT5 en el 100 % de sus 12.075
   `_n` y no tiene ningún BC7. Las dos opciones sirven.
-- **La máscara se mide antes de comprimir.** `mascara_especular.py` no lee el
-  alfa de un BC7 ya escrito: es un límite de la herramienta, no del formato.
-  Medila sobre el DDS sin comprimir de 32 bpp que escribe la fase de texturas
-  (PR #51, que le agrega a `mascara_especular.py` la lectura de ese formato).
-  Después comprimí al formato que elijas.
+- **La máscara se mide sobre lo que se entrega.** `mascara_especular.py` lee
+  el alfa de un DXT5 y de un sin comprimir de 32 bpp, no el de un BC7: es un
+  límite de la herramienta, no del formato. La fase de texturas del pipeline
+  escribe DXT con `compresion="dxt"` (`census/compresor_dxt.py`): el `_n` en
+  DXT5, los mapas opacos en DXT1, y mide la máscara sobre el DXT5 escrito.
+  Medido sobre esta capa: la máscara da lo mismo antes y después de comprimir
+  (0 % de bloques en blanco; media 92,4 contra 92,6). Si elegís BC7, medila
+  antes, sobre el sin comprimir, y comprimí después.
 - Máscara gris, no blanca. En armas: `mascara_especular.py --arma` (como mucho
   10 % de bloques en blanco; las armas del corpus están por debajo del 6,9 %).
 - Mipmaps siempre. Potencia de 2 siempre: 0 excepciones en 32.241 texturas.
@@ -237,13 +241,15 @@ compartida. Si lo es, usá una ruta propia y cambiala en el NIF.
 
 Por asset, en este orden:
 
-1. `salud_malla.py` después de 4 y de 4b.
+1. `salud_malla.py antes despues` después de 4, y `salud_malla.py --uv`
+   después de 4b.
 2. `hornear.py`: sin error de alineación ni de UV, y sin avisos en
    `<base>_horneado.json`, o con los avisos entendidos.
 3. `census/parser_uv.py` sobre el NIF escrito: que el solape siga como lo
    dejó el bake (lo mide `hornear.py` antes de hornear; acá se comprueba que
    el export no lo cambió, trampa 32).
-4. `mascara_especular.py [--arma]` sobre el `_n` **sin comprimir**.
+4. `mascara_especular.py [--arma]` sobre el `_n` que se entrega: DXT5 o sin
+   comprimir. Un BC7 no se puede medir; medí el sin comprimir antes.
 5. `verificar_export.py nuevo.nif vanilla.nif`, que también compara rutas de
    textura.
 6. Render con luz rasante y sin albedo: el relieve tiene que salir hacia
@@ -265,9 +271,8 @@ Blender y no corre en CI. Los puntos 6 y 7 son manuales.
 - **Asset real.** Falta probarlo con la salida real de un generador (Tripo,
   Meshy…).
 - **Luz horneada.** No hay corrección automática del albedo, solo el aviso.
-- **Compresión.** DXT5 o BC7 con cadena de mipmaps: el repo todavía no tiene
-  compresor (la fase del PR #51 escribe sin comprimir). El corpus corta los
-  mipmaps en 2×2; nadie lo fija todavía.
+- **BC7.** El repo comprime a DXT1/DXT5, no a BC7. El corpus corta los
+  mipmaps en 2×2 (el 96,4 %); el escritor baja hasta 1×1, como 109 vanilla.
 - **Atlas no cuadrados.** `hornear.py` solo hornea cuadrados. Vanilla también
   tiene rectangulares.
 - **Mods HD.** Falta relevar qué resoluciones usan los mods HD publicados.
