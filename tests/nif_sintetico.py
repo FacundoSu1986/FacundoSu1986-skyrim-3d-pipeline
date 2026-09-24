@@ -155,7 +155,8 @@ def _trishape(nombre_idx, skin_ref, traslacion=(0.0, 0.0, 0.0), escala=1.0,
 
 
 def _trishape_estatico(nombre_idx, pos, tris, traslacion=(0.0, 0.0, 0.0),
-                       escala=1.0, rot=IDENTIDAD, data_size=None, uvs=None):
+                       escala=1.0, rot=IDENTIDAD, data_size=None, uvs=None,
+                       shader_ref=-1):
     """BSTriShape ESTATICO: la geometria va inline, despues de dataSize.
 
     SIN uvs el vertexDesc declara stride 12 --solo XYZ-- porque
@@ -173,7 +174,7 @@ def _trishape_estatico(nombre_idx, pos, tris, traslacion=(0.0, 0.0, 0.0),
     """
     p = _avobject_sin_hijos(nombre_idx, traslacion, escala, rot)
     p += struct.pack("<4f", 0.0, 0.0, 0.0, 0.0)      # esfera envolvente
-    p += struct.pack("<3i", -1, -1, -1)              # skin, shader, alpha
+    p += struct.pack("<3i", -1, shader_ref, -1)      # skin, shader, alpha
     if uvs is None:
         vdesc = 0x0000000000000003                   # stride 12, sin UV
         cuerpo = b"".join(struct.pack("<3f", *v) for v in pos)
@@ -236,6 +237,99 @@ def construir_estatico(pos, tris, nombre_pieza=PIEZA_NOMBRE, data_size=None,
                 "uvs": None if uvs is None
                        else [tuple(float(c) for c in uv) for uv in uvs]}
     return datos, esperado
+
+
+def _lighting_shader(tipo, flags1, flags2, texset_ref, glossiness, spec_str,
+                     env_scale):
+    """BSLightingShaderProperty de SSE (BS 100), escrito desde nif.xml.
+
+    Va escrito aca y no importado de material_arma.py a proposito: si el
+    lector y el fixture salieran del mismo codigo, un campo corrido en los dos
+    lados pasaria igual. Solo los tipos Default (0), EnvMap (1) y Glow (2);
+    EnvMap es el unico de los tres que agrega un campo al final.
+    """
+    if tipo not in (0, 1, 2):
+        raise ValueError("este fixture solo arma los tipos 0, 1 y 2")
+    p = struct.pack("<I", tipo)                      # Skyrim Shader Type
+    p += struct.pack("<i", -1)                       # Name
+    p += struct.pack("<I", 0)                        # numExtraData
+    p += struct.pack("<i", -1)                       # controller
+    p += struct.pack("<2I", flags1, flags2)
+    p += struct.pack("<2f", 0.0, 0.0)                # UV offset
+    p += struct.pack("<2f", 1.0, 1.0)                # UV scale
+    p += struct.pack("<i", texset_ref)
+    p += struct.pack("<3f", 0.0, 0.0, 0.0)           # emissive color
+    p += struct.pack("<f", 1.0)                      # emissive multiple
+    p += struct.pack("<I", 3)                        # texture clamp mode
+    p += struct.pack("<f", 1.0)                      # alpha
+    p += struct.pack("<f", 0.0)                      # refraction strength
+    p += struct.pack("<f", glossiness)
+    p += struct.pack("<3f", 1.0, 1.0, 1.0)           # specular color
+    p += struct.pack("<f", spec_str)
+    p += struct.pack("<2f", 0.3, 2.0)                # lighting effect 1 y 2
+    if tipo == 1:
+        p += struct.pack("<f", env_scale)            # environment map scale
+    return p
+
+
+def construir_con_material(tipo=1, flags1=0x80, flags2=0,
+                           rutas=("a.dds", "a_n.dds", "", "",
+                                  "textures\\cubemaps\\shinydull_e.dds",
+                                  "a_m.dds", "", "", ""),
+                           glossiness=80.0, spec_str=1.0, env_scale=1.0,
+                           nombre_pieza="HojaDePrueba", con_shader=True):
+    """(bytes, esperado) de un NIF con UNA pieza estatica y su material.
+
+        0  BSFadeNode                   hijo: la pieza
+        1  BSTriShape  <nombre_pieza>   un triangulo, shader -> 2
+        2  BSLightingShaderProperty     texture set -> 3
+        3  BSShaderTextureSet           `rutas`, nueve ranuras
+
+    `con_shader=False` deja la pieza sin shader (ref -1) y sin los bloques 2
+    y 3: un NIF sin material que medir.
+    """
+    tipos = ["BSFadeNode", "BSTriShape"]
+    strings = [RAIZ_NOMBRE, nombre_pieza]
+    pos = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (0.0, 10.0, 0.0)]
+    bloques = [
+        _avobject(0, [], (0.0, 0.0, 0.0), [1]),
+        _trishape_estatico(1, pos, [(0, 1, 2)],
+                           shader_ref=2 if con_shader else -1),
+    ]
+    if con_shader:
+        tipos += ["BSLightingShaderProperty", "BSShaderTextureSet"]
+        texset = struct.pack("<i", len(rutas))
+        for r in rutas:
+            texset += _larga(r)
+        bloques += [_lighting_shader(tipo, flags1, flags2, 3, glossiness,
+                                     spec_str, env_scale),
+                    texset]
+
+    h = bytearray(CABECERA)
+    h += struct.pack("<I", VERSION)
+    h += struct.pack("<B", 1)
+    h += struct.pack("<I", USER)
+    h += struct.pack("<I", len(bloques))
+    h += struct.pack("<I", BS)
+    h += _corta("")
+    h += _corta("")
+    h += _corta("")
+    h += struct.pack("<H", len(tipos))
+    for t in tipos:
+        h += _larga(t)
+    for k in range(len(bloques)):
+        h += struct.pack("<H", k)
+    for b in bloques:
+        h += struct.pack("<I", len(b))
+    h += struct.pack("<I", len(strings))
+    h += struct.pack("<I", max(len(s) for s in strings))
+    for s in strings:
+        h += _larga(s)
+    h += struct.pack("<I", 0)
+    esperado = {"pieza": nombre_pieza, "tipo": tipo, "gloss": glossiness,
+                "spec_str": spec_str, "env_scale": env_scale,
+                "rutas": list(rutas) if con_shader else []}
+    return bytes(h) + b"".join(bloques), esperado
 
 
 def construir_con_colision(dims, radio, masa, inercia, motion=3,
@@ -385,6 +479,53 @@ def construir(raiz_tipo="BSFadeNode"):
         "cola_esperada": 0,
     }
     return datos, esperado
+
+
+def construir_arma(prn="WeaponBack"):
+    """Un NIF de arma minimo: la raiz con un NiStringExtraData `Prn` y el
+    BSXFlags. `prn=None` lo arma sin Prn.
+
+    En SSE un NiStringExtraData son dos indices a la tabla de strings: el
+    nombre ("Prn") y el valor ("WeaponBack"). El Prn es el nodo del esqueleto
+    del que cuelga el arma envainada (census/hallazgos_plugins.md, entrada 17).
+    """
+    tipos = ["BSFadeNode", "BSXFlags"]
+    strings = [RAIZ_NOMBRE, BSX_NOMBRE]
+    extra = [1]
+    bloques_extra = []
+    if prn is not None:
+        tipos.append("NiStringExtraData")
+        strings += ["Prn", prn]
+        extra = [1, 2]
+        bloques_extra = [struct.pack("<ii", 2, 3)]
+    bloques = [
+        _avobject(0, extra, (0.0, 0.0, 0.0), []),
+        struct.pack("<i", 1) + struct.pack("<i", BSX_VALOR),
+    ] + bloques_extra
+
+    h = bytearray(CABECERA)
+    h += struct.pack("<I", VERSION)
+    h += struct.pack("<B", 1)
+    h += struct.pack("<I", USER)
+    h += struct.pack("<I", len(bloques))
+    h += struct.pack("<I", BS)
+    h += _corta("")
+    h += _corta("")
+    h += _corta("")
+    h += struct.pack("<H", len(tipos))
+    for t in tipos:
+        h += _larga(t)
+    for k in range(len(bloques)):
+        h += struct.pack("<H", k)
+    for b in bloques:
+        h += struct.pack("<I", len(b))
+    h += struct.pack("<I", len(strings))
+    h += struct.pack("<I", max(len(s) for s in strings))
+    for s in strings:
+        h += _larga(s)
+    h += struct.pack("<I", 0)
+    return bytes(h) + b"".join(bloques), {"strings": list(strings),
+                                          "prn": prn}
 
 
 def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,

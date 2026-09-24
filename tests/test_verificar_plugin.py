@@ -222,6 +222,129 @@ class LecturaTests(unittest.TestCase):
         self.assertIn("TES4", info["error"])
 
 
+class ReglasWeapTests(unittest.TestCase):
+    """Lo que mide el corpus sobre las 3.359 WEAP vanilla: DATA de 10 bytes y
+    DNAM de 100 en todas, y el WNAM de las 463 armas base que lo tienen
+    apunta siempre a un STAT. Se prueba sobre BYTES, no sobre dicts: la
+    regla vale lo que vale la lectura del subrecord."""
+
+    def _juzgar(self, **kw):
+        datos, esperado = plugin_sintetico.construir_weap(**kw)
+        fd, ruta = tempfile.mkstemp(suffix=".esp")
+        os.write(fd, datos)
+        os.close(fd)
+        self.addCleanup(os.unlink, ruta)
+        info = vp.leer(ruta)
+        self.assertIsNone(info["error"])
+        return vp.juzgar(info), esperado
+
+    def test_un_arma_sana_no_tiene_fallas(self):
+        (fallas, notas), _ = self._juzgar()
+        self.assertEqual(fallas, [])
+        self.assertTrue(any("1 WEAP" in n for n in notas), notas)
+
+    def test_un_data_que_no_mide_10_reprueba(self):
+        for n in (8, 12, 14):
+            with self.subTest(data=n):
+                (fallas, _), _ = self._juzgar(data_len=n)
+                self.assertTrue(any("REGLA WEAP DATA" in f for f in fallas),
+                                fallas)
+
+    def test_un_dnam_que_no_mide_100_reprueba(self):
+        for n in (96, 104):
+            with self.subTest(dnam=n):
+                (fallas, _), _ = self._juzgar(dnam_len=n)
+                self.assertTrue(any("REGLA WEAP DNAM" in f for f in fallas),
+                                fallas)
+
+    def test_un_wnam_propio_que_no_existe_reprueba(self):
+        """Se afirma la RAZON. Sin la rama de "no existe", el caso caia en la
+        de "no es un STAT" y reprobaba igual diciendo "es un None": el test
+        que solo pedia el marcador lo dejaba pasar. Lo encontro una mutacion."""
+        (fallas, _), _ = self._juzgar(wnam="roto")
+        self.assertTrue(any("REGLA WEAP WNAM" in f and "no existe" in f
+                            for f in fallas), fallas)
+
+    def test_un_wnam_propio_que_no_es_un_stat_reprueba(self):
+        (fallas, _), _ = self._juzgar(wnam="a_si_mismo")
+        self.assertTrue(any("REGLA WEAP WNAM" in f and "STAT" in f
+                            for f in fallas), fallas)
+
+    def test_un_wnam_a_un_master_no_se_puede_juzgar_y_lo_dice(self):
+        (fallas, notas), _ = self._juzgar(wnam="master")
+        self.assertEqual(fallas, [])
+        self.assertTrue(any("master" in n and "WNAM" in n for n in notas),
+                        notas)
+
+    def test_sin_wnam_es_observacion_no_falla(self):
+        """Las 9 armas vanilla sin WNAM son conjuradas, maniquies o de mision:
+        no hay base para reprobar, pero se avisa."""
+        (fallas, notas), esperado = self._juzgar(wnam=None)
+        self.assertEqual(fallas, [])
+        fid = "%08X" % esperado["fid_weap"]
+        self.assertTrue(any("sin WNAM" in n and fid in n for n in notas),
+                        "ninguna nota nombra al arma %s: %r" % (fid, notas))
+
+    def test_subrecords_que_no_embaldosan_el_record_no_se_juzgan(self):
+        """La identidad del repo, un nivel mas abajo: si los subrecords no
+        cierran exacto en el fin del record, un tamano declarado miente y
+        cualquier lectura de DATA o DNAM es de bytes corridos. Eso es un
+        error de lectura, no un arma que pasa."""
+        for n in (1, 3, 5):
+            with self.subTest(basura=n):
+                datos, _ = plugin_sintetico.construir_weap(basura=n)
+                fd, ruta = tempfile.mkstemp(suffix=".esp")
+                os.write(fd, datos)
+                os.close(fd)
+                self.addCleanup(os.unlink, ruta)
+                info = vp.leer(ruta)
+                self.assertIsNotNone(info["error"],
+                                     "%d bytes sueltos pasaron" % n)
+                self.assertIn("embaldosan", info["error"])
+                self.assertTrue(vp.juzgar(info)[0])
+
+    def test_la_regla_ve_adentro_de_un_record_comprimido(self):
+        (fallas, _), _ = self._juzgar(data_len=12, comprimir=True)
+        self.assertTrue(any("REGLA WEAP DATA" in f for f in fallas), fallas)
+
+    def test_la_regla_sobrevive_al_escape_xxxx(self):
+        (fallas, _), _ = self._juzgar(con_escape=True)
+        self.assertEqual(fallas, [])
+        (fallas, _), _ = self._juzgar(con_escape=True, dnam_len=96)
+        self.assertTrue(any("REGLA WEAP DNAM" in f for f in fallas), fallas)
+
+
+class LectorDeSubrecordsTests(unittest.TestCase):
+    """El script de la skill no puede importar census/ (build_skill.py no lo
+    empaqueta), asi que lleva su propio lector de subrecords. Este test lo
+    ata al de census/parser_esm.py sobre los mismos bytes: si uno cambia y el
+    otro no, se entera aca, no en el juego."""
+
+    def test_coincide_con_parser_esm(self):
+        sys.path.insert(0, os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+        from census.parser_esm import Plugin
+        for kw in ({}, {"comprimir": True}, {"con_escape": True},
+                   {"con_escape": True, "comprimir": True}):
+            with self.subTest(**kw):
+                datos, _ = plugin_sintetico.construir_weap(**kw)
+                fd, ruta = tempfile.mkstemp(suffix=".esp")
+                os.write(fd, datos)
+                os.close(fd)
+                try:
+                    p = Plugin(ruta)
+                    for tipo, off, _tam, _prof in p.recorrer():
+                        if tipo in ("GRUP",):
+                            continue
+                        censo = [(t, bytes(b)) for t, b
+                                 in Plugin.subrecords(p.datos(off))]
+                        mio = [(t, bytes(b)) for t, b
+                               in vp.subrecords(datos, off)]
+                        self.assertEqual(mio, censo, tipo)
+                finally:
+                    os.unlink(ruta)
+
+
 class LineaDeComandosTests(unittest.TestCase):
 
     def _correr(self, *args):

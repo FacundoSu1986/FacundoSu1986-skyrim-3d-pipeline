@@ -1,6 +1,6 @@
 ---
 name: asset-nuevo-skyrim
-description: Crea un asset NUEVO y equipable para Skyrim SE — escudo, arma, pieza de armadura, clutter — desde el modelado en Blender hasta el plugin que lo registra. Usala cuando haya que hacer un item nuevo (no un replacer); cuando el item ya esté en el inventario pero no se equipe o sea invisible al equiparlo; cuando salga girado, flotando al costado del brazo o con el agarre lejos de la mano; cuando al soltarlo se hunda o salga volando; cuando haya que escribir, reparar o inspeccionar records ARMO/ARMA de un .esp, convertir un plugin a ESL, poner colisión Havok a un objeto suelto, o hacer un panel transparente estilo vidrio de Skyrim. También cuando el mod no aparezca con `help "..." 0`, o cuando haya que decidir qué campos llenar en el Creation Kit.
+description: Crea un asset NUEVO y equipable para Skyrim SE — escudo, arma, pieza de armadura, clutter — desde el modelado en Blender hasta el plugin que lo registra. Usala cuando haya que hacer un item nuevo (no un replacer); cuando el item ya esté en el inventario pero no se equipe o sea invisible al equiparlo; cuando salga girado, flotando al costado del brazo o con el agarre lejos de la mano; cuando al soltarlo se hunda o salga volando; cuando haya que escribir, reparar o inspeccionar records ARMO/ARMA o WEAP de un .esp; cuando un arma pese 0 o haga 0 de daño con el valor bien, no se vea en primera persona o cuelgue envainada en el lugar equivocado; convertir un plugin a ESL, poner colisión Havok a un objeto suelto, o hacer un panel transparente estilo vidrio de Skyrim. También cuando el mod no aparezca con `help "..." 0`, o cuando haya que decidir qué campos llenar en el Creation Kit.
 ---
 
 # Un asset nuevo y equipable para Skyrim SE
@@ -222,8 +222,13 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
 - **`references/plugin-armo-arma.md`** — ARMO y ARMA campo por campo, qué se
   rompe sin cada uno, las razas adicionales, el layout binario del TES4, ESL, y
   el mapeo a los campos del Creation Kit. **Leelo antes de tocar el .esp.**
-- **`references/trampas.md`** — veintidós fallos que no tiran error, con índice
-  por síntoma. **Leelo entero antes de empezar**, no cuando algo falle.
+- **`references/plugin-weap.md`** — un **arma**: clonar un `WEAP` base de la
+  misma clase, los nueve campos que cambian, el `STAT` de primera persona, el
+  `Prn` por tipo de arma, el set de impactos y el `TES4`. Medido sobre las
+  3.359 `WEAP` vanilla y probado en el juego con el hacha de Tencent. **Leelo
+  antes de hacer un arma.**
+- **`references/trampas.md`** — veinticuatro fallos que no tiran error, con
+  índice por síntoma. **Leelo entero antes de empezar**, no cuando algo falle.
 
 ## Scripts
 
@@ -275,19 +280,29 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   `--autotest` y `--falsificar <carpeta meshes>`, que tuerce cuatro campos de
   cajas vanilla reales y exige que el control las pesque.
 - **`scripts/verificar_plugin.py`** — lee un `.esp`/`.esl` **terminado** y
-  reprueba lo que el juego lee mal sin avisar. Dos REGLAS: **`formVersion ==
-  44`** en cada record (10.273 de 10.273 en los plugins autorados para SE) y
+  reprueba lo que el juego lee mal sin avisar. Cuatro REGLAS: **`formVersion
+  == 44`** en cada record (10.273 de 10.273 en los plugins autorados para SE),
   **índice de mod ≤ cantidad de masters** (1.188.810 de 1.188.811; la
-  excepción es un `GMST` sucio de `Skyrim.esm`).
+  excepción es un `GMST` sucio de `Skyrim.esm`), en cada **`WEAP`** `DATA` de
+  10 bytes, `DNAM` de 100 y un `WNAM` que apunte a un `STAT` existente (3.359
+  de 3.359 `WEAP` vanilla pasan), y el **`Prn`** del NIF según el tipo de arma
+  (305 de 306 armas del jugador; los bastones son observación). Para el `Prn`
+  busca el NIF en `meshes/` al lado del plugin: corrélo sobre la carpeta del
+  mod.
 
   Es para **tu** plugin. Pasado sobre `Skyrim.esm` reprueba 1,1 millones de
   records que el juego carga perfecto: los masters de 2011 conservan la versión
   de la última edición de cada record, y por eso el corpus entero da 7,65 % en
   44. Medir ahí invierte la regla.
 
-  Usa el recorrido de `esl.py`, no uno propio. `--autotest` (75 casos) y
-  `--falsificar <carpeta Data>`, que tuerce un record de cada plugin autorado
-  para SE a 0, 39, 45 y a un índice de mod inexistente.
+  Usa el recorrido de `esl.py`, no uno propio. Los subrecords los lee con una
+  copia del lector de `census/parser_esm.py` —la skill no puede importar
+  `census/`—, y un test ata las dos lecturas sobre los mismos bytes, con `XXXX`
+  y con zlib. `--autotest` (166 casos) y `--falsificar <carpeta Data>`, que
+  tuerce un record de cada plugin autorado para SE a 0, 39, 45 y a un índice
+  de mod inexistente, y un `WEAP` real a `DATA` de 12, `DNAM` de 96 y un
+  `WNAM` a la nada. `--falsificar-prn <carpeta Data> <carpeta meshes>` le pone
+  a cada arma base real cada `Prn` equivocado: 324 armas, 1.944 roturas.
 
 ## Cómo conviene trabajar
 

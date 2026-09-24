@@ -115,3 +115,56 @@ def construir(comprimir_stat=False, con_escape=False, masters=(), version=44):
         "masters": list(masters),
     }
     return datos, esperado
+
+
+def construir_weap(data_len=10, dnam_len=100, wnam="propio", comprimir=False,
+                   con_escape=False, masters=("Skyrim.esm",), basura=0, anim=6,
+                   modl=r"Weapons\Prueba\arma.nif"):
+    """Un plugin con un WEAP y el STAT de su primera persona.
+
+    Lo que mide el corpus (census/hallazgos_plugins.md): DATA de 10 bytes y
+    DNAM de 100 en las 3.359 WEAP vanilla; el WNAM de las 463 que lo tienen
+    apunta a un STAT.
+
+    `wnam`: "propio" -> el STAT de este plugin; "roto" -> un FormID propio que
+    no existe; "a_si_mismo" -> el propio WEAP; "master" -> un FormID de un
+    master (no verificable sin el master); None -> sin WNAM.
+
+    `anim` va en DNAM[0], el tipo de animacion (6 = hacha de dos manos).
+    `modl` es la ruta del NIF, relativa a meshes/ y sin ese prefijo.
+
+    `basura`: bytes sueltos al final del WEAP, dentro del tamano declarado del
+    record: los subrecords dejan de embaldosarlo.
+    """
+    n = len(masters)
+    fid_weap = (n << 24) | 0x800
+    fid_stat = (n << 24) | 0x801
+    destino = {"propio": fid_stat, "roto": (n << 24) | 0xABC,
+               "a_si_mismo": fid_weap, "master": 0x00012345, None: None}[wnam]
+
+    stat = _sub(b"EDID", _cstr("PruebaArma1aPersona"))
+    stat += _sub(b"MODL", _cstr(r"Weapons\Prueba\arma.nif"))
+    r_stat = _record(b"STAT", stat, fid_stat)
+
+    w = _sub(b"EDID", _cstr("PruebaArma"))
+    w += _sub(b"MODL", _cstr(modl))
+    if con_escape:
+        grande = b"\x00" * 70000
+        w += _sub(b"XXXX", struct.pack("<I", len(grande)))
+        w += b"DESC" + struct.pack("<H", 0) + grande
+    if destino is not None:
+        w += _sub(b"WNAM", struct.pack("<I", destino))
+    w += _sub(b"DATA", (struct.pack("<IfH", 2750, 27.0, 26)
+                        + b"\x00" * max(0, data_len - 10))[:data_len])
+    w += _sub(b"DNAM", bytes([anim]) + b"\x00" * (dnam_len - 1))
+    w += b"\xAA" * basura
+    r_weap = _record(b"WEAP", w, fid_weap, comprimir=comprimir)
+
+    cuerpo = _grupo(b"STAT", r_stat) + _grupo(b"WEAP", r_weap)
+    cab = _sub(b"HEDR", struct.pack("<fiI", 1.71, 4, (n << 24) | 0x802))
+    for m in masters:
+        cab += _sub(b"MAST", _cstr(m))
+        cab += _sub(b"DATA", struct.pack("<Q", 0))
+    datos = _record(b"TES4", cab, 0) + cuerpo
+    return datos, {"fid_weap": fid_weap, "fid_stat": fid_stat,
+                   "wnam": destino}

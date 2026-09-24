@@ -185,3 +185,58 @@ entendemos.
 **EXCEPCIONES**: **1**, con nombre: el `GMST` **`iDaysToRespawnVendor`** (`0123C00E`) de `Skyrim.esm`, índice 1 en un archivo **sin** masters —apunta a un plugin que no existe—. La regla lo marca, y el juego carga `Skyrim.esm` igual. Por qué ese record no rompe nada **no está medido**.
 
 **Lo que la regla no ve.** El `.esl` del hacha del 20/9 tenía el `WEAP` en `00000800`: índice 0, un override de `Skyrim.esm`. Estructuralmente válido, así que pasa. Pero `00000800` **no existe** en `Skyrim.esm` —el más cercano es `00000810`—: el plugin estaba *inyectando* un record en el espacio del master. La inyección es una técnica usada y funciona, pero choca si una actualización ocupa ese número. Verificarlo exige cargar el master; no hay un N que la vuelva regla, y queda como observación. La línea `OBS` de `verificar_plugin.py` —`0 propio(s), 1 override(s)`— es lo que lo dejó a la vista.
+
+---
+
+## Armas (`WEAP`)
+
+El hacha de Tencent fue la primera arma que hizo el recorrido entero hasta el juego. Estas entradas miden lo que su plugin daba por sentado.
+
+### 14. `DATA` mide 10 bytes y `DNAM` 100 en todas las `WEAP`
+
+**AFIRMACIÓN**: Las **3.359** `WEAP` de los 10 plugins tienen `DATA` de **10 bytes** y `DNAM` de **100**. El `DATA` es valor `u32`, peso `f32`, daño `u16`: con esa lectura el hacha dio **valor 2750, peso 27 y daño 26 en el juego**.
+**CONSULTA**: `len()` del `DATA` y del `DNAM` de cada `WEAP`.
+**N**: 3.359.
+**EXCEPCIONES**: 0. `verificar_plugin.py` lo exige (REGLA 3), y sobre las 3.359 reprueba **cero**.
+
+### 15. El primer byte del `DNAM` es el tipo de animación
+
+**AFIRMACIÓN**: `DNAM[0]` vale 1 espada de una mano, 2 daga, 3 hacha de una mano, 4 maza, 5 espada de dos manos, **6 hacha de dos manos y martillo** (comparten el valor), 7 arco, 8 bastón, 9 ballesta. En las armas base cuyo `EDID` nombra el tipo coincide en **245 de 253**.
+**CONSULTA**: `DNAM[0]` contra `battleaxe`, `warhammer`, `greatsword`, `dagger`, `waraxe`, `mace`, `bow` en el `EDID`.
+**N**: 253.
+**EXCEPCIONES**: las **8** que no coinciden son maniquíes y armas conjuradas —`DummyDagger`, `CWDummyWarhammerSons`, `DLC2BoundWeaponDagger`…—, todas con 1. Ninguna es un arma del jugador.
+
+### 16. Las plantillas traen modelo, y el `WNAM` apunta siempre a un `STAT`
+
+**AFIRMACIÓN**: **2.868** `WEAP` tienen plantilla (`CNAM`) y **las 2.868 traen su propio `MODL`**: la plantilla no quita el modelo, como yo suponía. Las armas base —sin `CNAM`— son **472**, y son las que sirven de donante. De esas, **463** tienen `WNAM` (el modelo de primera persona) y **las 463 apuntan a un `STAT`**.
+**CONSULTA**: el `WNAM` resuelto como lo resuelve el motor —índice de mod contra la lista de masters—, no por los 24 bits bajos. La primera corrida lo resolvió por los 24 bits bajos y dio basura (`REFR`, `CELL`, `LAND`…), porque el mismo índice de objeto existe en varios plugins.
+**N**: 472 armas base.
+**EXCEPCIONES**: las **9** sin `WNAM` son `BoundWeaponBattleaxe`, `BoundWeaponBow` y sus variantes místicas, tres maniquíes `DummyBattleaxe`, `DemoQuestSword1` y un emblema de misión de Dawnguard. Sobre las 3.359 `WEAP` hay 28 sin `WNAM`, contando las de plantilla. Por eso la falta de `WNAM` es observación y no regla.
+
+### 17. El `Prn` del NIF sigue al tipo de arma
+
+**AFIRMACIÓN**: El `NiStringExtraData` `Prn` —dónde se cuelga el arma envainada— corresponde al tipo de animación en **305 de 306** armas del jugador:
+
+| `DNAM[0]` | tipo | `Prn` | N |
+|---|---|---|---|
+| 1 | espada de una mano | `WeaponSword` | 80/80 |
+| 2 | daga | `WeaponDagger` | 35/35 |
+| 3 | hacha de una mano | `WeaponAxe` | 26/26 |
+| 4 | maza | `WeaponMace` | 23/23 |
+| 5 | espada de dos manos | `WeaponBack` | 30/31 |
+| 6 | hacha de dos manos, martillo | `WeaponBack` | 53/53 |
+| 7 | arco | `WeaponBow` | 54/54 |
+| 9 | ballesta | `WeaponBow` | 4/4 |
+
+**CONSULTA**: el `Prn` del NIF de cada arma base, filtrando de forma mecánica: NIF dentro de una carpeta `weapons` y sin `Dummy` ni `Bound` en el `EDID` ni en la ruta.
+**N**: 306 armas de 163 NIF distintos.
+**EXCEPCIONES**: **1**, `DLC02\Weapons\Nordic\NordicGreatSword.nif`: espada de dos manos con `WeaponSword`. Los **bastones no tienen regla**: `WeaponStaff` en 21 y `SHIELD` en 18 (Miraak, Magnus, Forsworn, los dwemer). Quedaron afuera 60 records que no son armas del jugador (`Clutter\DummyItems`, un pico decorativo) y 66 cuyo NIF no estaba extraído. El hacha lleva `WeaponBack` y **cuelga en la espalda en el juego**.
+
+`verificar_plugin.py` lo exige (REGLA 4). `--falsificar-prn` corre sin el filtro de carpeta: sobre las armas base de los 10 plugins, **324** pasan tal cual y a cada una se le pone cada `Prn` equivocado y ninguno: **1.944 roturas, 0 fallas**. Las 41 que no pasan tal cual se listan: 30 maniquíes de `Clutter\DummyItems`, 6 del arco de la esfera dwemer (`SHIELD`), 3 picos decorativos, un emblema y `NordicGreatSword`.
+
+### 18. Dos convenciones del `TES4` que el motor no exige
+
+**AFIRMACIÓN**: Los 10 plugins vanilla tienen la bandera `LOCALIZED` (`0x80`), y en los 10 el `numRecords` del `HEDR` es **records + `GRUP`s**, exacto.
+**CONSULTA**: los flags del `TES4` y el `HEDR` contra un recorrido que cuenta records y grupos por separado.
+**N**: 10 de 10 en las dos.
+**EXCEPCIONES**: ninguna en vanilla, pero **no son reglas**. El hacha cargó con `HEDR` = 105 (v1) y = 2 (v2), las dos mal, así que el motor no lo valida. Y cargó **sin** `LOCALIZED`, con `FULL` y `DESC` como cadenas literales. Qué hace el motor con `LOCALIZED` y cadenas literales —el formato dice que las leería como IDs de la tabla de cadenas— **no está medido acá**. Copiar los flags del `TES4` de un plugin de Bethesda trae ese bit de arrastre.

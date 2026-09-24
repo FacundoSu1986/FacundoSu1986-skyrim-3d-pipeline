@@ -1,7 +1,8 @@
-# Trampas: veintisiete fallos que no tiran error
+# Trampas: treinta y seis fallos que no tiran error
 
-Todas estas se pagaron en el proyecto de origen (`Centurion_Marfil_SE_v01`,
-reemplazo del Dwarven Steam Centurion). **Ninguna tira excepción.** El pipeline
+Casi todas se pagaron en el proyecto de origen (`Centurion_Marfil_SE_v01`,
+reemplazo del Dwarven Steam Centurion); de la 28 en adelante salieron de otros
+assets, y cada una lo dice. **Ninguna tira excepción.** El pipeline
 termina "bien", el archivo se escribe, el mod se instala, y el problema aparece
 mirando el archivo generado o probando en el juego.
 
@@ -31,6 +32,8 @@ ya está en la lista.
 | El conteo de aristas de borde es absurdamente alto | [22](#22) |
 | El render sale como una lámina gris que tapa todo | [24](#24), [25](#25) |
 | Filtraste algo y sigue apareciendo | [25](#25) |
+| Afinaste una parte y quedó un cono o se torció donde cambia el grosor | [34](#34) |
+| Achicar una pieza deformó lo que tiene pegado | [34](#34) |
 | La criatura entra con las piezas desparramadas | [26](#26), [5](#5) |
 | **Rig** | |
 | Falta articulación (pie plano, cara muerta) | [12](#12) |
@@ -40,13 +43,20 @@ ya está en la lista.
 | La malla se deforma en las uniones entre particiones | [23](#23) |
 | Proporciones de hueso disparatadas | [1](#1) |
 | **Texturas** | |
-| Textura en negro | [16](#16) |
+| Textura en negro | [16](#16), [31](#31) |
+| El metal sale negro en el atlas y el cuero bien | [31](#31) |
+| Una isla de la textura muestra el color de otro material | [32](#32) |
+| Bordes dentados en el horneado, sobre todo en el normal map | [35](#35) |
 | Texturas desordenadas, varias piezas sobre el mismo pedazo | [17](#17) |
 | El archivo no tiene texturas ni UV | [10](#10) |
 | El asset se ve sucio, con sombras que no se mueven | [21](#21) |
 | En una cueva queda negro | [21](#21) |
 | `TypeError: slice indices must be integers` | [18](#18) |
 | `context is incorrect` en Blender sin interfaz | [17](#17) |
+| **Exportación** | |
+| El NIF "de SE" sale con `NiTriShape` y `bs_version 83` | [33](#33) |
+| El export dice `Export successful` y los verificadores de geometría no ven ninguna malla | [33](#33) |
+| El arma se ve opaca al lado de las vanilla, con la malla y las texturas bien | [36](#36) |
 
 ---
 
@@ -626,6 +636,196 @@ cuál de los dos sobresale.
 un método que contradice la verdad conocida en el único caso donde la verdad se
 conoce. Cuando hay un caso con respuesta independiente, ese caso manda sobre el
 agregado.
+
+### 31. Hornear el albedo con `DIFFUSE` deja negro todo lo metálico {#31}
+
+**Síntoma:** el atlas horneado sale a medias: el cuero marrón, el hierro
+**negro**. Blender no da error.
+
+**Por qué:** `[INVARIANT]` de Cycles, no de Skyrim. El pase `DIFFUSE` solo
+captura la componente difusa del BSDF, y un Principled con `Metallic = 1.0` no
+tiene. El color está en *Base Color*, que ese pase no lee. `[MEASURED]` Mismo
+objeto, 1024²: con `DIFFUSE` el atlas pesaba 82.538 bytes, casi todo negro; con
+`EMIT` y la misma red de color, 450.652 y completo (issue #36 del repo).
+
+**Arreglo:** hornear el albedo con `type='EMIT'`: conectar *Base Color* a un
+`ShaderNodeEmission` y ponerlo como salida del material solo durante ese bake.
+Alternativa: `Metallic = 0` durante el bake, y restaurarlo — pero **solo con
+`pass_filter={'COLOR'}`**. El operador trae `pass_filter=set()`, que toma la
+configuración de la escena, y ahí `use_pass_direct`, `use_pass_indirect` y
+`use_pass_color` vienen en `True`: el `DIFFUSE` por defecto hornea color × luz,
+una textura iluminada con las sombras fijas de la trampa [21](#21). El `EMIT`
+no tiene ese problema porque la emisión no depende de la luz.
+
+### 32. Un Bevel después del unwrap superpone las UV {#32}
+
+**Síntoma:** en el atlas, las islas de un material muestrean los píxeles de
+otro. `[MEASURED]` Con emisión pura (hierro rojo, cuero verde), las caras de
+cuero leían **83 % rojo**.
+
+**Por qué:** las caras nuevas del Bevel heredan UV interpoladas de las vecinas
+y caen **encima** de las originales. `census/parser_uv.py` sobre el NIF
+exportado: `solape_huella` **0,093** antes, **0,0** después de
+re-unwrappear (issue #37 del repo).
+
+**Arreglo:** unwrappear **después** de todo modificador que agregue caras. Y
+medir `solape_huella` sobre el archivo escrito, no confiar en el orden de los
+pasos.
+
+### 33. `target_game='SKYRIMSE'` no alcanza: PyNifly exporta LE igual {#33}
+
+**Síntoma:** el export dice `Export successful`, pero el NIF sale con
+`bs_version 83` y `NiTriShape` + `NiTriShapeData`: formato LE.
+
+**Por qué:** con `intuit_defaults=True` (el default), PyNifly **pisa** el
+`target_game` con el que deduce de la metadata del objeto
+(`export_nif.py`, `_discover_game`). Un objeto creado desde cero no tiene esa
+metadata y cae en `SKYRIM`. `[MEASURED]` Mismo estático: default → `bs_version
+83`, 49.730 bytes; `intuit_defaults=False` → `bs_version 100`, `BSTriShape`,
+27.421 bytes, leído con `census/parser_nif.py` (issue #35 del repo).
+
+**Arreglo:** pasar **siempre** `target_game='SKYRIMSE', intuit_defaults=False`,
+y verificar `bs_version == 100` en el archivo escrito. Es pariente de la
+trampa 13 de `asset-nuevo-skyrim`: ahí el default era LE; acá lo es aunque
+pidas SE.
+
+### 34. Afinar una parte: la rampa y el centro deforman sin avisar {#34}
+
+Salió del hacha de Tencent, que venía con un mango más grueso que el de
+cualquier arma de dos manos vanilla y hubo que afinarlo al 59 %.
+
+**Síntoma:** en el juego, "una pequeña imperfección en el mango donde se
+reduce". De cerca eran dos defectos, y la malla sin afinar no tenía ninguno:
+
+1. **Un cono.** La transición del factor iba de `y_norm` 0,45 a 0,60, pero el
+   palo recto llegaba hasta 0,5525. El último tramo del palo volvía a engordar
+   antes de la cabeza.
+2. **Una torsión.** Se escalaba alrededor del centro de la caja del palo entre
+   0,05 y 0,45, y esa caja agarraba el pomo, que está corrido: el "centro"
+   quedaba **2,2 cm** al costado del eje real. Escalar alrededor de un centro
+   corrido desplaza la sección (0,022 × 0,41 ≈ 0,9 cm); dentro de la rampa ese
+   desplazamiento volvía a cero, y el palo se torcía hacia la cabeza.
+
+**Por qué no lo ves venir:** los dos pasan cualquier control de salud de malla
+(sin bordes, sin pliegues, una pieza) y el factor promedio del palo da bien.
+
+**Arreglo, medido sobre la malla densa antes de tocar nada:**
+
+- **El perfil por rebanadas.** Para cada franja de altura, el semiancho y el
+  centro de su caja. Ahí se ve dónde termina el tramo recto (en el hacha, el
+  semiancho es constante hasta 0,5525 y salta en 0,555: el collar).
+- **El eje es la mediana de los centros de rebanada** del tramo recto, no el
+  centro de una caja que puede agarrar otra pieza.
+- **La transición va en una discontinuidad que ya existe** —la cara inferior
+  del collar, 3 mm—, nunca adentro de un tramo recto. El palo "entra en su
+  casquillo" y no hay cono posible.
+- **El control que atrapa los dos defectos:** cada rebanada del tramo tiene que
+  quedar **exactamente** al factor y con su centro donde manda la semejanza.
+  Una rampa adentro o un eje corrido lo hacen fallar en el acto.
+- **La misma función al modelo alto y al bajo**, o el horneado sale corrido.
+
+**Achicar una pieza sin deformar lo que tiene pegado.** Después se achicó la
+columna de la cabeza, donde se montan las hojas. Escalar todo por igual achica
+también las hojas. Lo que funcionó: un mapa en la dirección de las hojas con
+derivada `g` en el núcleo y 1 afuera, suave entre medio. El núcleo se escala y
+las hojas se **trasladan enteras** lo justo para seguir pegadas. Es monótono,
+así que no puede plegar la malla. Control: cada vértice de hoja trasladado sin
+deformarse (desvío 1e-17).
+
+Confirmado en el juego: "quedó genial". Se aplicó con dos scripts del proyecto
+del hacha (`afinar_v2.py` y `afinar_v3.py`), que viven en la carpeta de ese
+asset y **no están en este repo**: sus constantes —fin del tramo recto, límites
+de la rampa, factor— salieron del perfil de ese modelo. **No copies los números
+de arriba**: medí el perfil del tuyo. Lo que se reusa son los cinco pasos del
+arreglo.
+
+### 35. Hornear con una muestra por texel desde una textura más grande es aliasing {#35}
+
+**Síntoma:** bordes dentados en el horneado, sobre todo en el normal map. Sin
+ningún error.
+
+**Por qué:** el bake de Cycles corre con `samples = 1`: cada texel del destino
+lee **un** punto del modelo alto. El modelo de Tripo trae mapas de **4096²**; si
+el destino es de 2048², es muestreo puntual de una textura dos veces más grande.
+
+**Arreglo:** hornear al doble (4096, con el margen también al doble) y reducir
+2×2 filtrando **cada mapa como lo que es**:
+
+| mapa | cómo se promedia | por qué |
+|---|---|---|
+| albedo | sRGB → lineal, promedio, → sRGB | promediar los valores sRGB oscurece los bordes |
+| normal | promediar los vectores y **renormalizar** | el promedio de cuatro unitarios distintos es más corto que 1 |
+| metal / rugosidad | promedio simple | son datos lineales |
+
+El archivo final pesa lo mismo. Control: la media de cada canal no se mueve más
+que el redondeo (en el hacha, 0,00014 como máximo). En el normal map, entre el
+0,03 y el 0,05 % de los texels —los de las costuras de UV— promediaban menos
+de 0,5 de largo.
+
+**Y al pasar a DDS:** `texconv -f BC7_UNORM_SRGB -srgb` para el albedo, y
+**comprobarlo**: decodificar la DDS y comparar con el PNG. En el hacha las
+medias coinciden a 0,02 y el error medio es 0,65/255, que es la compresión BC7.
+Si `texconv` hubiera convertido la gamma, la media se movería decenas.
+
+Lo que **no** se midió: cuánto mejora a la vista. El mecanismo es sólido y el
+hacha salió bien, pero ese cambio vino junto con otros y la mejora del
+horneado no se aisló.
+
+### 36. PyNifly deja el material en `Default` y glossiness 20 {#36}
+
+Salió del hacha de Tencent, que se armó con `createShapeFromData` en vez de
+heredar el material de un donante.
+
+**Síntoma:** en el juego el arma se ve opaca al lado de las vanilla, aunque la
+malla, el color y la máscara especular estén bien. Nada refleja como metal.
+
+**Por qué:** una forma creada con `createShapeFromData` sale con el shader
+`Default` y **glossiness 20** si no se los fija. `[MEASURED]` Escribiendo un
+NIF con dos formas sin ajustar y leyéndolo con `scripts/material_arma.py`:
+las dos salen con 20. El hacha llegó así al juego.
+
+Las armas vanilla son otra cosa. `[MEASURED]` sobre la pieza principal de
+**198** armas del corpus:
+
+| | vanilla | hacha |
+|---|---|---|
+| shader `EnvMap` (reflejo de cubemap) | 149 de 198; hachas a dos manos, **16 de 17** | `Default` |
+| cubemap en la ranura 4 | 149 de 149 con EnvMap, todos en `textures\cubemaps` | — |
+| máscara `_m` en la ranura 5 | 143 de 149 con EnvMap | — |
+| glossiness | mediana **80**, p10 30 | **20** |
+
+Es lo que dice `limites-skyrim.md`: armar el NIF de cero es inventar el
+material, y lo que se inventa mal no da error.
+
+**Arreglo:** heredar el material de un arma vanilla de la misma clase, o
+fijarlo al crear la forma. Con la API de PyNifly que usó el proyecto de origen
+(`pyn.pynifly`, `pyn.nifconstants`):
+
+```python
+from pyn.nifconstants import BSLSPShaderType, ShaderFlags1
+
+p = sh.shader.properties
+p.Shader_Type = BSLSPShaderType.Environment_Map
+p.shaderflags1_set(ShaderFlags1.ENVIRONMENT_MAPPING)   # el tipo sin el flag reprueba
+p.Glossiness = 80.0
+p.Env_Map_Scale = 1.0
+sh.set_texture('EnvMap', r'textures\cubemaps\shinydull_e.dds')
+sh.set_texture('EnvMask', r'textures\weapons\MiArma\miarma_m.dds')
+sh.save_shader_attributes()
+```
+
+`[MEASURED]` Ese bloque, escrito y releído con `material_arma.py`: shader
+EnvMap con su flag, el cubemap en la ranura 4, la `_m` en la 5, glossiness 80
+y el bloque cierra exacto. La `_m` es una textura más que hay que generar (ver
+el punto 2 de "Dos cosas que sorprenden" en `limites-skyrim.md`).
+
+Después, `python scripts/material_arma.py <arma.nif>`: reprueba un EnvMap sin
+su flag o sin cubemap, e informa el shader contra el de su clase y en qué
+tramo vanilla caen la glossiness y la intensidad especular.
+
+Lo que **no** se probó: el hacha con EnvMap en el juego. Lo medido es qué
+material usan las armas vanilla y que la receta escribe ese material. Cuánto
+cambia a la vista no se comprobó.
 
 ## Proceso
 

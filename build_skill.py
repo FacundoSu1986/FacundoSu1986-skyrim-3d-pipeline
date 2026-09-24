@@ -18,14 +18,20 @@ IGNORAR_DIR = {"__pycache__", ".git"}
 IGNORAR_EXT = {".pyc", ".pyo"}
 
 
-def empaquetar(nombre):
+def empaquetar(nombre, carpeta=None):
+    """Arma `<nombre>.skill` en `carpeta` (por defecto, la raiz del repo).
+
+    `carpeta` existe para tests/test_skill_empaquetada.py, que empaqueta cada
+    skill en un temporal, la extrae lejos del repo y corre sus scripts desde
+    ahi: un script que importe algo de census/ anda en el repo y no instalado.
+    """
     origen = os.path.join(SKILLS, nombre)
     if not os.path.isdir(origen):
         raise SystemExit("no existe: %s" % origen)
     if not os.path.exists(os.path.join(origen, "SKILL.md")):
         raise SystemExit("%s no tiene SKILL.md; no es una skill" % origen)
 
-    destino = os.path.join(RAIZ, nombre + ".skill")
+    destino = os.path.join(carpeta or RAIZ, nombre + ".skill")
     n = 0
     with zipfile.ZipFile(destino, "w", zipfile.ZIP_DEFLATED) as z:
         for base, dirs, archivos in os.walk(origen):
