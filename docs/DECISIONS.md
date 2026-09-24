@@ -236,3 +236,28 @@ imposible: lo que frena ahora es PREPARE, EXPORT_NIF, READ_BACK, VALIDATE y
 PACKAGE. `tests/test_pipeline_gate_stubs.py` enumera la fase dejada como stub y
 exige que ninguna llegue a PUBLISHED; el caso del issue #23 se actualizó con una
 nota que dice por qué `process_textures` salió de esa lista.
+
+## True PBR de Community Shaders: un modo aparte, desde el código fuente
+
+El issue #57 dejó abierta una decisión: la capa HD, ¿cubre solo el `_n`/`_d`
+vanilla, o también el True PBR de Community Shaders? Se incluyó, como **modo
+aparte** del manifest (`sombreado="cs_pbr"`), no como reemplazo: el shader
+vanilla sigue siendo el default y sus tests no cambiaron.
+
+**Por qué del código fuente y no de guías.** Es `[PROVIDER]`: depende de un
+mod de terceros. Las convenciones —el bit 23 de `Shader_Flags_2` que prende
+el PBR, el `_rmaos` en la ranura 5 con rugosidad, metal, oclusión y
+reflectancia, los campos del NIF que cambian de significado— se leyeron en su
+repositorio, fijado al commit `898b167`, y se contrastaron con PBRNifPatcher y
+con los nombres de PyNifly. Todo está en
+`skills/modelo-ia-a-skyrim/references/pbr-community-shaders.md`.
+
+**Qué se midió.** Que ningún NIF vanilla tiene ese bit (0 de 74.489 bloques),
+así que la detección no puede confundirlos. Que PyNifly escribe el bit donde
+lo espera CS: un NIF hecho con la receta y leído con `material_arma.py`.
+**Qué no:** nada se vio en el juego con Community Shaders, ni sin él.
+
+**Dos decisiones de la fase.** Sin fuente de rugosidad, `cs_pbr` falla: CS
+llena la ranura 5 vacía con blanco, que es rugosidad 1 y metal 1. Y los topes
+de revisión de la máscara vanilla no se aplican: en PBR el especular sale del
+`_rmaos`, y el alfa del `_n` solo lo lee el SSR de la ruta no diferida.

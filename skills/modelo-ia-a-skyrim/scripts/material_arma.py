@@ -69,6 +69,22 @@ intensidad especular y la escala del reflejo.
 El shader `Default` en un arma NO es una regla: 46 de 198 armas vanilla lo
 usan. Es una observacion con el numero de su clase al lado.
 
+TRUE PBR DE COMMUNITY SHADERS [PROVIDER]
+
+Una pieza con el bit 23 de flags2 prendido (NifSkope: Unused01; PyNifly:
+ShaderFlags2.UNUSED01; CommonLib: kMenuScreen) la dibuja el True PBR de
+Community Shaders, y la tabla vanilla no le aplica. Se informa distinto
+(references/pbr-community-shaders.md, con el codigo fuente citado):
+
+  * la ranura 5 es el `_rmaos`; vacia, CS pone BLANCO: rugosidad 1 y metal 1
+    en toda la pieza;
+  * la glossiness es el nivel especular de lo no metalico (0,04 por defecto
+    en CS): un 80 o un 20 es el valor vanilla, o el de PyNifly, que quedo;
+  * con un tipo de shader que no sea Default o MultiLayer no esta probado, y
+    con EnvMap el material PBR no lee el campo extra de la escala del reflejo.
+
+Son observaciones y no reglas: salen del codigo de CS, no de un corpus.
+
 LA POBLACION
 
 Las armas son los NIF bajo una carpeta `weapons`, sin los de primera persona
@@ -101,6 +117,12 @@ BIT_ENVMAP = 7          # flags1
 BIT_GLOW_MAP = 6        # flags2
 RANURA_CUBEMAP = 4
 RANURA_MASCARA = 5
+# True PBR de Community Shaders (commit 898b167 de su repo): el PBR lo prende
+# el bit 23 de flags2, y la ranura 5 pasa a ser el `_rmaos`.
+BIT_PBR = 23            # flags2
+RANURA_RMAOS = 5
+NIVEL_ESPECULAR_CS = 0.04
+TIPO_MULTICAPA = 11
 # Lo que deja PyNifly si no se fija la glossiness (medido, ver arriba).
 GLOSS_PYNIFLY = 20.0
 
@@ -280,11 +302,44 @@ def _donde(v, cuantiles):
     return "?"
 
 
+def es_pbr(m):
+    """True si la pieza la dibuja el True PBR de Community Shaders."""
+    return _bit(m.get("flags2"), BIT_PBR)
+
+
+def observaciones_pbr(m):
+    """Las OBS de una pieza PBR. La tabla vanilla no le aplica: la glossiness
+    y la ranura 5 significan otra cosa."""
+    notas = ["OBS True PBR de Community Shaders (flags2 bit 23): la tabla de "
+             "las armas vanilla no aplica"]
+    if not _ranura(m, RANURA_RMAOS):
+        notas.append("OBS PBR sin `_rmaos` en la ranura 5: Community Shaders "
+                     "pone una textura BLANCA, o sea rugosidad 1 y metal 1 en "
+                     "toda la pieza")
+    gloss = round(m["gloss"], 3)
+    if gloss > 1.0:
+        extra = (" -- 20 es el que deja PyNifly si no se fija"
+                 if gloss == GLOSS_PYNIFLY else "")
+        notas.append("OBS glossiness %g: con PBR es el nivel especular de lo "
+                     "no metalico (%g por defecto en Community Shaders), y %g "
+                     "parece el valor vanilla que quedo%s"
+                     % (gloss, NIVEL_ESPECULAR_CS, gloss, extra))
+    if m["tipo"] not in (0, TIPO_MULTICAPA):
+        extra = (": el material PBR no lee el campo extra de la escala del "
+                 "reflejo" if m["tipo"] == TIPO_ENVMAP else "")
+        notas.append("OBS shader %s con PBR: PBRNifPatcher lo deja en Default "
+                     "(o MultiLayer para la capa); con otro tipo no esta "
+                     "probado%s" % (m["tipo_nombre"], extra))
+    return notas
+
+
 def observaciones(nombre, m, es_principal, clase):
     """Las OBS de una pieza. Los tramos vanilla son de PIEZAS PRINCIPALES:
     una pieza secundaria (la sangre del filo, una gema) no se compara contra
     ellos -- la sangre de daedricbattleaxe tiene glossiness 500 y seria
     'por encima del maximo' sin que eso diga nada."""
+    if es_pbr(m):
+        return observaciones_pbr(m)
     notas = []
     if es_principal:
         env, tot = ARMAS["clases"].get(clase, (None, None))
@@ -515,6 +570,31 @@ def autotest():
            "no dio el numero de la clase: %s" % texto)
     exigir("PyNifly" in texto and "entre min (6) y p10 (30)" in texto,
            "glossiness 20 mal ubicada: %s" % texto)
+
+    # 5b. una pieza del True PBR de Community Shaders no se compara con la
+    #     tabla vanilla, y avisa lo que en PBR significa otra cosa
+    pbr_f2 = 1 << BIT_PBR
+    rutas_pbr = ("a.dds", "a_n.dds", "", "", "", "a_rmaos.dds")
+    f, notas, _n = juzgar([("Hoja", 900, _mat(0, 0, pbr_f2, rutas_pbr,
+                                              gloss=0.04))], "hacha2m")
+    texto = "\n".join(notas)
+    exigir(not f and "True PBR" in texto and "16 de 17" not in texto
+           and "OBS glossiness" not in texto,
+           "PBR bien armado: %r / %s" % (f, texto))
+    f, notas, _n = juzgar([("Hoja", 900, _mat(0, 0, pbr_f2,
+                                              ("a.dds", "a_n.dds"),
+                                              gloss=80.0))], "hacha2m")
+    texto = "\n".join(notas)
+    exigir("rugosidad 1 y metal 1" in texto,
+           "PBR sin _rmaos no aviso el blanco: %s" % texto)
+    exigir("glossiness 80: con PBR es el nivel especular" in texto,
+           "PBR con glossiness vanilla no aviso: %s" % texto)
+    _f, notas, _n = juzgar([("Hoja", 900, _mat(TIPO_ENVMAP, env_f1, pbr_f2,
+                                               rutas_env, gloss=0.04))])
+    exigir(any("no lee el campo extra" in x for x in notas),
+           "PBR con tipo EnvMap no aviso: %r" % notas)
+    exigir(not es_pbr(_mat(0, 0, 1 << (BIT_PBR - 1))),
+           "el bit vecino no es el de PBR")
 
     # 6. _donde
     q = (1.0, 2.0, 3.0, 5.0, 5.0, 5.0, 9.0)

@@ -16,6 +16,13 @@ sufijos de Skyrim:
     cartel_m.dds    máscara de entorno (reflejo del cubemap)
     cartel_g/_s/_p/_b.dds   glow, subsurface, parallax, backlight
 
+Con `sombreado="cs_pbr"` en el manifest escribe para el True PBR de Community
+Shaders [PROVIDER]: en vez de `cartel_m.dds`, un `cartel_rmaos.dds` (R
+rugosidad, G metal, B oclusión, A 255) para la ranura 5; la altura pasa a ser
+el `_p`, y `texture_set.json` lleva las ranuras y los valores del NIF. Las
+convenciones salen del código fuente de CS, fijado a un commit (ver
+RANURAS_CS_PBR y references/pbr-community-shaders.md de la skill).
+
 Las conversiones de canal son las que la documentación del repo recomienda.
 Lo que tiene un número atrás se dice, y lo que es heurística también:
 
@@ -177,10 +184,38 @@ _SUFIJOS_POR_LARGO = sorted(SUFIJOS_ENTRADA, key=len, reverse=True)
 ALIAS_DE_COLOR = sorted(s for s, v in SUFIJOS_ENTRADA.items()
                         if v[1] == "color")
 
-# Lo que se escribe: solo sufijos de Skyrim.
+# Lo que se escribe: solo sufijos de Skyrim (y el `_rmaos` del True PBR de
+# Community Shaders, que es la convencion de PBRNifPatcher).
 SUFIJO_ESCRITURA = {"color": "", "normal": "_n", "entorno": "_m",
                     "glow": "_g", "subsurface": "_s",
-                    "parallax": "_p", "backlight": "_b"}
+                    "parallax": "_p", "backlight": "_b", "rmaos": "_rmaos"}
+
+# --- True PBR de Community Shaders [PROVIDER] --------------------------------
+# Sacado del codigo fuente, no de memoria: community-shaders/
+# skyrim-community-shaders, commit 898b167 (src/TruePBR/
+# BSLightingShaderMaterialPBR.h y src/TruePBR.cpp), y contrastado con
+# PBRNifPatcher (NifPatcher2.cpp). Ver references/pbr-community-shaders.md.
+#
+# En que ranura del BSShaderTextureSet va cada mapa. La 4 (cubemap) no se usa,
+# y la 5 --la `_m` de vanilla-- es el RMAOS.
+RANURAS_CS_PBR = {"color": 0, "normal": 1, "glow": 2, "parallax": 3,
+                  "rmaos": 5}
+# Lo que el NIF tiene que llevar para que CS lo trate como PBR, y como
+# reinterpreta los campos del BSLightingShaderProperty.
+NIF_CS_PBR = {
+    "shader_type": 0,
+    "shader_flags_2_bit": 23,
+    "glossiness": 0.04,
+    "specular_strength": 1.0,
+    "nota": "shader_flags_2 bit 23 (NifSkope: Unused01; CommonLib: "
+            "kMenuScreen, bit 55 de 64) prende el PBR. Con PBR, Glossiness es "
+            "el nivel especular de lo no metalico (0,04 por defecto en CS) y "
+            "Specular Strength la escala de rugosidad: NO son los valores "
+            "vanilla (glossiness 80 seria un especular 2.000 veces mayor).",
+}
+# El `_orm` y el `_arm` llevan la oclusion en R; el `_metallicRoughness` de
+# glTF NO (Tripo lo deja en 255, medido sobre el archivo real del hacha).
+_EMPAQUETADAS_CON_OCLUSION = ("_orm", "_arm", "_occlusionroughnessmetallic")
 
 # Orden de escritura: el color primero, para que un reporte truncado deje ver
 # lo más importante arriba.
@@ -999,9 +1034,19 @@ def _agrupar(rutas) -> dict:
                 f"separadores de directorio)")
         grupo = grupos.setdefault(r.base, {"slots": {}, "fuentes": {},
                                            "ignoradas": [],
+                                           "rutas_ignoradas": {},
+                                           "sufijo_fuente": {},
                                            "convencion_normal": None})
         if r.clase == "ignorada":
+            # Para el shader vanilla no tienen uso. El True PBR de Community
+            # Shaders SI usa la oclusion (azul del `_rmaos`) y la altura
+            # (`_p`): la ruta se guarda aparte, fuera de lo que va al reporte.
             grupo["ignoradas"].append({"archivo": ruta.name, "rol": r.rol})
+            if r.rol in grupo["rutas_ignoradas"]:
+                raise TexturaError(
+                    f"{ruta.name}: dos entradas de {r.rol} para {r.base} "
+                    f"({grupo['rutas_ignoradas'][r.rol].name} y {ruta.name})")
+            grupo["rutas_ignoradas"][r.rol] = ruta
             continue
         clave = "slots" if r.clase == "slot" else "fuentes"
         if r.rol in grupo[clave]:
@@ -1010,6 +1055,8 @@ def _agrupar(rutas) -> dict:
                 f"({grupo[clave][r.rol].name} y {ruta.name}); no se elige "
                 f"una en silencio")
         grupo[clave][r.rol] = ruta
+        if r.clase == "fuente":
+            grupo["sufijo_fuente"][r.rol] = r.sufijo
         if r.clase == "slot" and r.rol == "normal":
             grupo["convencion_normal"] = r.convencion
     for base, grupo in grupos.items():
@@ -1098,6 +1145,53 @@ def _al_tamano(tex: Textura, ancho: int, alto: int) -> Textura:
     return redimensionar(tex, ancho, alto, slot="datos")
 
 
+def rmaos_desde(rug: tuple, met: tuple | None, ao: tuple | None,
+                ancho: int, alto: int) -> Textura:
+    """El `_rmaos` del True PBR de Community Shaders.
+
+    R rugosidad, G metalicidad, B oclusion, A reflectancia de lo no metalico
+    (src/TruePBR/BSLightingShaderMaterialPBR.h: "Roughness in r, metallic in
+    g, AO in b, nonmetal reflectance in a"). El shader multiplica R por la
+    escala de rugosidad y A por el nivel especular del NIF
+    (Lighting.hlsl: `rawRMAOS *= float4(PBRParams1.x, 1, 1, PBRParams1.z)`),
+    asi que A en 255 deja el nivel especular del NIF tal cual.
+
+    Sin metalicidad, G = 0 (no metalico). Sin oclusion, B = 255 (nada
+    ocluido). Cada fuente es (Textura, canal, nombre) y se lleva a
+    `ancho` x `alto` como dato.
+    """
+    n = ancho * alto
+    pix = bytearray(n * 4)
+    pix[0::4] = _canal(_al_tamano(rug[0], ancho, alto), rug[1])
+    pix[1::4] = (_canal(_al_tamano(met[0], ancho, alto), met[1])
+                 if met is not None else bytes(n))
+    pix[2::4] = (_canal(_al_tamano(ao[0], ancho, alto), ao[1])
+                 if ao is not None else b"\xff" * n)
+    pix[3::4] = b"\xff" * n
+    return Textura(ancho, alto, bytes(pix))
+
+
+def _oclusion(grupo: dict, rug: tuple) -> tuple | None:
+    """(Textura, canal, nombre) de la oclusion, o None.
+
+    Un `_ao` suelto (gris, se comprueba) manda; si no, el rojo de un `_orm` o
+    `_arm`. El `_metallicRoughness` de glTF no lleva oclusion en R.
+    """
+    ruta = grupo["rutas_ignoradas"].get("oclusion")
+    if ruta is not None:
+        t = leer_textura(ruta)
+        gris = es_gris(t)
+        if not gris["gris"]:
+            raise TexturaError(
+                f"{ruta.name}: el nombre dice oclusion suelta, que es un mapa "
+                f"gris, y {gris['no_grises']} de {gris['muestra_texeles']} "
+                f"texeles de la muestra no lo son")
+        return (t, "r", ruta.name)
+    if grupo["sufijo_fuente"].get("empaquetada") in _EMPAQUETADAS_CON_OCLUSION:
+        return (rug[0], "r", rug[2])
+    return None
+
+
 def _procesar_base(base: str, grupo: dict, mani: JobManifest,
                    ws: JobWorkspace) -> dict:
     """Convierte un grupo de mapas en los DDS de su texture set."""
@@ -1115,19 +1209,74 @@ def _procesar_base(base: str, grupo: dict, mani: JobManifest,
             f"el sufijo")
 
     rug, met, desc_fuentes = _fuentes(grupo)
+    cs = mani.sombreado == "cs_pbr"
+    slots = dict(grupo["slots"])
+    ignoradas = list(grupo["ignoradas"])
+    observaciones = []
+    oclusion = None
+    if cs:
+        # True PBR de Community Shaders: el especular sale del `_rmaos`, y sin
+        # rugosidad no hay de donde armarlo. Una ranura 5 vacia no es neutra:
+        # CS pone una textura BLANCA, o sea rugosidad 1 y metal 1 en toda la
+        # pieza (BSLightingShaderMaterialPBR.cpp, defaultTextureWhite).
+        if rug is None:
+            raise TexturaError(
+                f"{base}: sombreado cs_pbr sin fuente de rugosidad. El `_rmaos` "
+                f"sale de ella, y sin `_rmaos` Community Shaders usa blanco: "
+                f"rugosidad 1 y metal 1 en toda la pieza. Dale un `_orm`, "
+                f"`_metallicRoughness` o `_roughness`")
+        if "entorno" in slots:
+            observaciones.append({
+                "textura": slots.pop("entorno").name, "clase": "ignorada",
+                "detalle": "en True PBR la ranura 5 es el `_rmaos`, no la `_m` "
+                           "de reflejo: no se escribe"})
+        # La altura, que el shader vanilla no usa, es el `_p` de CS.
+        altura = grupo["rutas_ignoradas"].get("altura")
+        if altura is not None and "parallax" not in slots:
+            slots["parallax"] = altura
+            ignoradas = [x for x in ignoradas if x["rol"] != "altura"]
+        oclusion = _oclusion(grupo, rug)
+        if grupo["rutas_ignoradas"].get("oclusion") is not None:
+            ignoradas = [x for x in ignoradas if x["rol"] != "oclusion"]
     salidas = []
     observaciones = [{"textura": x["archivo"], "clase": "ignorada",
-                      "detalle": "rol %s: sin equivalente en el shader de "
-                                 "Skyrim; no se escribe" % x["rol"]}
-                     for x in grupo["ignoradas"]]
+                      "detalle": "rol %s: sin equivalente en el shader %s; "
+                                 "no se escribe"
+                                 % (x["rol"], "de Community Shaders" if cs
+                                    else "de Skyrim")}
+                     for x in ignoradas] + observaciones
     motivos = []
+
+    def escribir(slot, nombre_salida, tex, origen, dims_origen, ajuste):
+        declarada = ruta_declarada(categoria, mani.job_id, nombre_salida)
+        destino = ws.ruta_segura(
+            Path("textures") / categoria / mani.job_id
+            / (nombre_salida + ".dds"), subdir="package")
+        escribir_dds(tex, destino, slot)
+        malas = validar_salida(destino, declarada)
+        if malas:
+            raise ArtifactValidationError(
+                f"{destino.name}: no pasa las reglas de DDS del contrato "
+                f"({', '.join(malas)}). Un DDS escrito por esta fase que no "
+                f"pasa el contrato es un error del pipeline, no del insumo")
+        return destino, {
+            "slot": slot,
+            "declarada": declarada,
+            "archivo": str(destino),
+            "origen": origen,
+            "dimensiones": [tex.ancho, tex.alto],
+            "dimensiones_origen": dims_origen,
+            "ajuste": ajuste,
+            "formato": "sin_comprimir_32bpp",
+            "sha256": _sha256(destino),
+        }
 
     for slot in ORDEN_SLOTS:
         nombre_salida = base + SUFIJO_ESCRITURA[slot]
-        ruta_entrada = grupo["slots"].get(slot)
+        ruta_entrada = slots.get(slot)
 
         if slot == "entorno" and ruta_entrada is None:
-            if met is None:
+            if cs or met is None:
                 continue
             tex, info = entorno_desde_metalico(met[0], met[1])
             observaciones.append({"textura": nombre_salida,
@@ -1172,30 +1321,8 @@ def _procesar_base(base: str, grupo: dict, mani: JobManifest,
                     "nota": "sin fuente de rugosidad: el alfa se conserva "
                             "tal cual vino"})
 
-        declarada = ruta_declarada(categoria, mani.job_id, nombre_salida)
-        destino = ws.ruta_segura(
-            Path("textures") / categoria / mani.job_id / (nombre_salida + ".dds"),
-            subdir="package")
-        escribir_dds(tex, destino, slot)
-
-        malas = validar_salida(destino, declarada)
-        if malas:
-            raise ArtifactValidationError(
-                f"{destino.name}: no pasa las reglas de DDS del contrato "
-                f"({', '.join(malas)}). Un DDS escrito por esta fase que no "
-                f"pasa el contrato es un error del pipeline, no del insumo")
-
-        entrada = {
-            "slot": slot,
-            "declarada": declarada,
-            "archivo": str(destino),
-            "origen": origen,
-            "dimensiones": [ancho2, alto2],
-            "dimensiones_origen": dims_origen,
-            "ajuste": que,
-            "formato": "sin_comprimir_32bpp",
-            "sha256": _sha256(destino),
-        }
+        destino, entrada = escribir(slot, nombre_salida, tex, origen,
+                                    dims_origen, que)
         if slot == "normal":
             medicion = medir_mascara(destino)
             entrada["mascara"] = {
@@ -1207,12 +1334,30 @@ def _procesar_base(base: str, grupo: dict, mani: JobManifest,
                 raise ArtifactValidationError(
                     f"{destino.name}: no se pudo verificar la máscara "
                     f"especular ({medicion['fallas'][0]})")
-            motivos.extend("%s: %s" % (nombre_salida, x)
-                           for x in _motivos_mascara(medicion["medicion"]))
+            # Los topes de revision son de la mascara especular VANILLA. En
+            # True PBR el especular sale del `_rmaos`; el alfa del `_n` solo lo
+            # lee la ruta no diferida para el SSR, como glossiness
+            # (Lighting.hlsl), y 255 - rugosidad es justo eso.
+            if not cs:
+                motivos.extend("%s: %s" % (nombre_salida, x)
+                               for x in _motivos_mascara(medicion["medicion"]))
+        salidas.append(entrada)
+
+    if cs:
+        ancho2, alto2, que = ajustar_tamano(rug[0].ancho, rug[0].alto,
+                                            mani.max_lado_textura)
+        tex = rmaos_desde(rug, met, oclusion, ancho2, alto2)
+        origen = "R rugosidad (%s), G metal (%s), B oclusion (%s), A 255" % (
+            rug[2], met[2] if met is not None else "sin fuente: 0",
+            oclusion[2] if oclusion is not None else "sin fuente: 255")
+        _destino, entrada = escribir("rmaos", base + SUFIJO_ESCRITURA["rmaos"],
+                                     tex, origen,
+                                     [rug[0].ancho, rug[0].alto], que)
         salidas.append(entrada)
 
     return {
         "base": base,
+        "sombreado": mani.sombreado,
         "fuente_pbr": desc_fuentes or None,
         "texturas": salidas,
         "observaciones": observaciones,
@@ -1275,17 +1420,25 @@ def fase_process_texturas(mani: JobManifest, ws: JobWorkspace) -> dict:
     # BSShaderTextureSet. Se deja en reports/ --no en package/-- porque es
     # metadata de la corrida, no un archivo que el juego cargue.
     ruta_sets = ws.subdir("reports") / "texture_set.json"
-    ruta_sets.write_text(json.dumps({
+    contenido = {
         "job_id": mani.job_id,
         "categoria": mani.asset_category,
         "formato": reporte["formato_salida"],
+        "sombreado": mani.sombreado,
         "precondicion_uv": PRECONDICION_UV,
         "texture_sets": [
             {"base": t["base"],
              "texturas": {x["slot"]: x["declarada"] for x in t["texturas"]}}
             for t in reporte["texture_sets"]
         ],
-    }, indent=2, ensure_ascii=False), encoding="utf-8")
+    }
+    if mani.sombreado == "cs_pbr":
+        # Lo que EXPORT_NIF tiene que poner en el NIF: sin esto, el `_rmaos`
+        # termina en la ranura de la `_m` vanilla y el flag PBR queda apagado.
+        contenido["ranuras"] = RANURAS_CS_PBR
+        contenido["nif"] = NIF_CS_PBR
+    ruta_sets.write_text(json.dumps(contenido, indent=2, ensure_ascii=False),
+                         encoding="utf-8")
     reporte["texture_set_json"] = ruta_sets.name
 
     sets_con_revision = [t["base"] for t in reporte["texture_sets"]

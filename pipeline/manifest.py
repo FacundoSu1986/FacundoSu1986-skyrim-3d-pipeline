@@ -14,6 +14,7 @@ Reglas de validación (todas verificables con tests):
   - extensiones por whitelist;
   - max_lado_textura: entero, potencia de dos, dentro del rango que mide el
     corpus (ver MAX_LADO_TEXTURA);
+  - sombreado: "vanilla" o "cs_pbr" (SOMBREADOS_SOPORTADOS);
   - los campos nulos/vacíos no son válidos.
 
 No hay paths hardcodeados: todas las rutas vienen del llamador.
@@ -35,6 +36,12 @@ CATEGORIAS_SOPORTADAS = frozenset({"static", "clutter"})
 # scripts existentes (medir_parte.py los aceptan). Ampliar = evidencia, no deseo.
 EXTENSIONES_MESH = frozenset({".glb", ".gltf", ".fbx", ".obj"})
 EXTENSIONES_TEXTURA = frozenset({".png", ".tga", ".dds"})
+
+# Para que shader se escriben las texturas. "vanilla" es la convencion del
+# juego (`_n` con mascara especular en el alfa, `_m` de reflejo). "cs_pbr" es
+# el True PBR de Community Shaders [PROVIDER]: `_rmaos` en la ranura 5 y sin
+# `_m`. Ver skills/modelo-ia-a-skyrim/references/pbr-community-shaders.md.
+SOMBREADOS_SOPORTADOS = frozenset({"vanilla", "cs_pbr"})
 
 # Lado máximo de textura, en téxeles. [OBSERVED] Del censo de 32.241 DDS: la
 # mediana del lado mayor es 256 en terrain, 512 en actors y clutter, 1024 en
@@ -93,6 +100,7 @@ class JobManifest:
     enabled_transformations: tuple[str, ...] = ()
     reference_asset: Path | None = None
     max_lado_textura: int = MAX_LADO_TEXTURA
+    sombreado: str = "vanilla"
 
     def __post_init__(self) -> None:
         """Normalización de tipos (el dataclass es frozen, así que va por
@@ -152,6 +160,11 @@ class JobManifest:
             problemas.append(
                 f"asset_category no soportada: {self.asset_category!r} "
                 f"(soportadas: {sorted(CATEGORIAS_SOPORTADAS)})"
+            )
+        if self.sombreado not in SOMBREADOS_SOPORTADOS:
+            problemas.append(
+                f"sombreado no soportado: {self.sombreado!r} "
+                f"(soportados: {sorted(SOMBREADOS_SOPORTADOS)})"
             )
         # El lado máximo se valida contra el corpus, no contra el gusto: una
         # textura de 3000 téxeles no es "grande", es un lado que no es potencia

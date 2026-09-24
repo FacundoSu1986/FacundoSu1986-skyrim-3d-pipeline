@@ -1038,6 +1038,134 @@ class FaseRevisionPr51Tests(EntornoTexturas):
                             for o in rep["texture_sets"][0]["observaciones"]))
 
 
+class FaseCsPbrTests(EntornoTexturas):
+    """sombreado="cs_pbr": el True PBR de Community Shaders.
+
+    Las convenciones salen de su código fuente (commit 898b167,
+    BSLightingShaderMaterialPBR.h): ranura 5 = RMAOS con rugosidad en R,
+    metalicidad en G, oclusión en B y reflectancia no metálica en A. Van
+    LITERALES acá y no leídas de pipeline.texturas: si alguien cambia la
+    constante, el test tiene que enterarse."""
+
+    COLOR = FaseTests.COLOR
+    NORMAL = FaseTests.NORMAL
+
+    def _texdir(self, espacio, job_id="job-tex"):
+        return (espacio.raiz / job_id / "package" / "textures"
+                / "static" / job_id)
+
+    def _gris(self, v):
+        return png(64, 64, rgba(64, 64, lambda x, y: (v, v, v, 255)))
+
+    def _texel(self, espacio, nombre):
+        t = tx.leer_dds(self._texdir(espacio) / nombre)
+        return tuple(t.pixeles[:4])
+
+    def _base(self):
+        self.escribir("cartel.png", png(64, 64, self.COLOR))
+        self.escribir("cartel_n.png", png(64, 64, self.NORMAL))
+
+    def test_el_metallicroughness_de_gltf_da_el_rmaos_sin_oclusion(self):
+        """El rojo del metallicRoughness de glTF no es oclusión (Tripo lo deja
+        en 255): B sale en 255, "nada ocluido"."""
+        self._base()
+        self.escribir("cartel_metallicRoughness.png",
+                      png(64, 64, rgba(64, 64, lambda x, y: (7, 200, 40, 255))))
+        rep, espacio = self.correr_fase(sombreado="cs_pbr")
+        self.assertEqual(sorted(p.name for p in self._texdir(espacio).iterdir()),
+                         ["cartel.dds", "cartel_n.dds", "cartel_rmaos.dds"])
+        self.assertEqual(self._texel(espacio, "cartel_rmaos.dds"),
+                         (200, 40, 255, 255))
+        self.assertEqual(rep["texture_sets"][0]["sombreado"], "cs_pbr")
+
+    def test_el_orm_lleva_la_oclusion_al_azul(self):
+        self._base()
+        self.escribir("cartel_orm.png",
+                      png(64, 64, rgba(64, 64, lambda x, y: (100, 200, 40, 255))))
+        _rep, espacio = self.correr_fase(sombreado="cs_pbr")
+        self.assertEqual(self._texel(espacio, "cartel_rmaos.dds"),
+                         (200, 40, 100, 255))
+
+    def test_un_ao_suelto_manda_sobre_el_rojo_del_orm(self):
+        """Es la salida de hornear.py: `_roughness`, `_metallic` y `_ao`
+        sueltos. En vanilla el AO se ignora; acá es el azul."""
+        self.escribir("cartel_albedo.png", png(64, 64, self.COLOR))
+        self.escribir("cartel_normalgl.png", png(64, 64, self.NORMAL))
+        self.escribir("cartel_roughness.png", self._gris(180))
+        self.escribir("cartel_metallic.png", self._gris(20))
+        self.escribir("cartel_ao.png", self._gris(90))
+        rep, espacio = self.correr_fase(sombreado="cs_pbr")
+        self.assertEqual(self._texel(espacio, "cartel_rmaos.dds"),
+                         (180, 20, 90, 255))
+        self.assertFalse(any(o.get("clase") == "ignorada"
+                             for o in rep["texture_sets"][0]["observaciones"]),
+                         "en cs_pbr el AO se usa, no se ignora")
+
+    def test_sin_metal_el_verde_es_cero(self):
+        self._base()
+        self.escribir("cartel_roughness.png", self._gris(120))
+        _rep, espacio = self.correr_fase(sombreado="cs_pbr")
+        self.assertEqual(self._texel(espacio, "cartel_rmaos.dds"),
+                         (120, 0, 255, 255))
+
+    def test_sin_rugosidad_no_hay_rmaos_y_es_un_error(self):
+        """Una ranura 5 vacía no es neutra: CS pone blanco, rugosidad 1 y
+        metal 1 en toda la pieza."""
+        self._base()
+        with self.assertRaises(TexturaError) as ctx:
+            self.correr_fase(sombreado="cs_pbr")
+        self.assertIn("sin fuente de rugosidad", str(ctx.exception))
+
+    def test_la_altura_es_el_p_y_la_m_no_se_escribe(self):
+        self._base()
+        self.escribir("cartel_orm.png",
+                      png(64, 64, rgba(64, 64, lambda x, y: (255, 200, 40, 255))))
+        self.escribir("cartel_height.png", self._gris(128))
+        self.escribir("cartel_m.png", self._gris(200))
+        rep, espacio = self.correr_fase(sombreado="cs_pbr")
+        nombres = sorted(p.name for p in self._texdir(espacio).iterdir())
+        self.assertIn("cartel_p.dds", nombres)
+        self.assertNotIn("cartel_m.dds", nombres)
+        detalles = [o.get("detalle", "") for o in
+                    rep["texture_sets"][0]["observaciones"]]
+        self.assertTrue(any("ranura 5 es el `_rmaos`" in d for d in detalles),
+                        detalles)
+
+    def test_en_vanilla_la_misma_entrada_da_la_m_y_no_el_rmaos(self):
+        """El par de los de arriba: el modo por defecto no cambió."""
+        self._base()
+        self.escribir("cartel_orm.png",
+                      png(64, 64, rgba(64, 64, lambda x, y: (100, 200, 40, 255))))
+        self.escribir("cartel_height.png", self._gris(128))
+        _rep, espacio = self.correr_fase()
+        self.assertEqual(sorted(p.name for p in self._texdir(espacio).iterdir()),
+                         ["cartel.dds", "cartel_m.dds", "cartel_n.dds"])
+
+    def test_la_mascara_vanilla_no_pide_revision_en_pbr(self):
+        """Rugosidad 0 da alfa 255 en el `_n`: en vanilla pide revisión; en
+        PBR el especular sale del `_rmaos` y ese alfa es solo el glossiness
+        del SSR."""
+        self._base()
+        self.escribir("cartel_roughness.png", self._gris(0))
+        rep, _espacio = self.correr_fase(sombreado="cs_pbr")
+        self.assertNotIn("requiere_revision", rep)
+
+    def test_el_texture_set_dice_ranuras_y_flag_para_el_nif(self):
+        self._base()
+        self.escribir("cartel_roughness.png", self._gris(120))
+        _rep, espacio = self.correr_fase(sombreado="cs_pbr")
+        sets = json.loads((espacio.raiz / "job-tex" / "reports"
+                           / "texture_set.json").read_text(encoding="utf-8"))
+        self.assertEqual(sets["sombreado"], "cs_pbr")
+        self.assertEqual(sets["ranuras"], {"color": 0, "normal": 1, "glow": 2,
+                                           "parallax": 3, "rmaos": 5})
+        self.assertEqual(sets["nif"]["shader_flags_2_bit"], 23)
+        self.assertEqual(sets["nif"]["shader_type"], 0)
+        self.assertEqual(sets["nif"]["glossiness"], 0.04)
+        self.assertEqual(sets["texture_sets"][0]["texturas"]["rmaos"],
+                         "textures\\static\\job-tex\\cartel_rmaos.dds")
+
+
 # ---------------------------------------------------------------------------
 # El runner, con la fase conectada de verdad
 # ---------------------------------------------------------------------------

@@ -193,6 +193,46 @@ class ObservacionesTests(_ConNif):
         self.assertIn("no esta en una carpeta cubemaps", texto)
 
 
+class PbrCommunityShadersTests(_ConNif):
+    """True PBR de Community Shaders: el bit 23 de flags2 lo prende (código
+    fuente de CS, commit 898b167; NifSkope Unused01, PyNifly UNUSED01), y 0
+    de 74.489 bloques vanilla lo tienen. El bit va LITERAL: si alguien mueve
+    la constante, estos tests tienen que romper."""
+
+    PBR = 1 << 23
+    RUTAS_PBR = ("x.dds", "x_n.dds", "", "", "", "x_rmaos.dds", "", "", "")
+
+    def test_un_pbr_bien_armado_no_se_compara_con_la_tabla_vanilla(self):
+        codigo, texto = self.revisar(self.nif(
+            tipo=0, flags1=0, flags2=self.PBR, rutas=self.RUTAS_PBR,
+            glossiness=0.04))
+        self.assertEqual(codigo, 0, texto)
+        self.assertIn("True PBR de Community Shaders", texto)
+        self.assertNotIn("16 de 17", texto)
+        self.assertNotIn("OBS glossiness", texto)
+
+    def test_sin_rmaos_avisa_el_blanco(self):
+        rutas = ("x.dds", "x_n.dds", "", "", "", "", "", "", "")
+        _codigo, texto = self.revisar(self.nif(
+            tipo=0, flags1=0, flags2=self.PBR, rutas=rutas, glossiness=0.04))
+        self.assertIn("rugosidad 1 y metal 1", texto)
+
+    def test_la_glossiness_vanilla_en_un_pbr_se_avisa(self):
+        _codigo, texto = self.revisar(self.nif(
+            tipo=0, flags1=0, flags2=self.PBR, rutas=self.RUTAS_PBR,
+            glossiness=80.0))
+        self.assertIn("glossiness 80: con PBR es el nivel especular", texto)
+
+    def test_el_bit_vecino_no_es_pbr(self):
+        """Sin esto, una constante corrida en uno pasaría: el bit 22 no es
+        el PBR y la pieza se compara con la tabla vanilla como siempre."""
+        _codigo, texto = self.revisar(self.nif(
+            tipo=0, flags1=0, flags2=1 << 22, rutas=self.RUTAS_PBR,
+            glossiness=20.0))
+        self.assertNotIn("True PBR", texto)
+        self.assertIn("de su clase (hacha2m), 16 de 17", texto)
+
+
 class TablaTests(unittest.TestCase):
     """Los numeros de las reglas, LITERALES. Si --censo los cambia, este test
     obliga a revisar tambien el docstring y SKILL.md, que los citan."""

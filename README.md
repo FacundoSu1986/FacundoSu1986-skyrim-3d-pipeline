@@ -4,8 +4,13 @@ Herramientas para llevar modelos 3D generados por IA (Tripo, Meshy, Hunyuan3D,
 Rodin, Trellis) a assets funcionales de **Skyrim Special Edition**: malla, rig,
 texturas y un NIF verificado.
 
-El contenido principal es la skill [`modelo-ia-a-skyrim`](skills/modelo-ia-a-skyrim),
-pensada para Claude Code pero legible como documentación técnica por sí sola.
+El contenido principal son dos skills, pensadas para Claude Code pero legibles
+como documentación técnica por sí solas:
+
+- [`modelo-ia-a-skyrim`](skills/modelo-ia-a-skyrim): del modelo generado por
+  la IA al asset en el juego (malla, rig, texturas, horneado HD, NIF).
+- [`asset-nuevo-skyrim`](skills/asset-nuevo-skyrim): un item **nuevo** y
+  equipable, hasta el plugin que lo registra.
 
 ---
 
@@ -22,22 +27,50 @@ problema aparece recién mirando el archivo generado o probando en el juego —
 brazos invisibles, la criatura peleando de espaldas, texturas superpuestas, una
 articulación perdida que nadie nota hasta que camina.
 
-Por eso la parte más valiosa de este repo no es el pipeline: es la lista de
-**23 fallos silenciosos** con su síntoma y su arreglo, y la disciplina de
+Por eso la parte más valiosa de este repo no es el pipeline: son las listas de
+**fallos silenciosos** —36 en `modelo-ia-a-skyrim` y 24 en
+`asset-nuevo-skyrim`— con su síntoma y su arreglo, y la disciplina de
 verificación que los atrapa.
 
 ## Contenido
+
+La skill [`modelo-ia-a-skyrim`](skills/modelo-ia-a-skyrim):
 
 | Ruta | Qué es |
 |---|---|
 | [`SKILL.md`](skills/modelo-ia-a-skyrim/SKILL.md) | El flujo completo y la disciplina de verificación |
 | [`references/pedir-a-la-ia-3d.md`](skills/modelo-ia-a-skyrim/references/pedir-a-la-ia-3d.md) | Cómo escribir el pedido al generador: plantillas, negative prompts, cómo expresar proporciones |
 | [`references/limites-skyrim.md`](skills/modelo-ia-a-skyrim/references/limites-skyrim.md) | Límites del motor: presupuestos de polígonos medidos, formatos de textura, estructura del NIF, rig y particiones |
-| [`references/trampas.md`](skills/modelo-ia-a-skyrim/references/trampas.md) | 23 fallos que no tiran error, con índice por síntoma |
+| [`references/trampas.md`](skills/modelo-ia-a-skyrim/references/trampas.md) | 36 fallos que no tiran error, con índice por síntoma |
+| [`references/hd-texturas.md`](skills/modelo-ia-a-skyrim/references/hd-texturas.md) | La capa HD: hornear la malla alta de la IA sobre la baja de juego, en orden y con controles |
+| [`references/pbr-community-shaders.md`](skills/modelo-ia-a-skyrim/references/pbr-community-shaders.md) | El True PBR de Community Shaders `[PROVIDER]`: flags del NIF, ranuras y el `_rmaos`, desde su código fuente |
 | [`scripts/censo_nif.py`](skills/modelo-ia-a-skyrim/scripts/censo_nif.py) | Parser NIF en Python puro, con suite de falsificación |
 | [`scripts/nif_nodos.py`](skills/modelo-ia-a-skyrim/scripts/nif_nodos.py) | Jerarquía de nodos y posiciones de hueso reales |
-| [`scripts/medir_parte.py`](skills/modelo-ia-a-skyrim/scripts/medir_parte.py) | Mide un GLB/FBX/OBJ recién generado |
-| [`scripts/preparar_parte.py`](skills/modelo-ia-a-skyrim/scripts/preparar_parte.py) | Soldar, decimar, orientar |
+| [`scripts/medir_parte.py`](skills/modelo-ia-a-skyrim/scripts/medir_parte.py) | Mide un GLB/FBX/OBJ recién generado (Blender) |
+| [`scripts/preparar_parte.py`](skills/modelo-ia-a-skyrim/scripts/preparar_parte.py) | Soldar, decimar, orientar; guarda la malla alta para el bake (Blender) |
+| [`scripts/render_referencia.py`](skills/modelo-ia-a-skyrim/scripts/render_referencia.py) | Renders de referencia de un asset vanilla para ControlNet (Blender) |
+| [`scripts/salud_malla.py`](skills/modelo-ia-a-skyrim/scripts/salud_malla.py) | Si la malla se rompió al decimarla: aristas de borde, sobre el archivo |
+| [`scripts/hornear.py`](skills/modelo-ia-a-skyrim/scripts/hornear.py) | Hornea normal, AO, albedo, rugosidad y metal desde la malla alta (Blender) |
+| [`scripts/horneado_puro.py`](skills/modelo-ia-a-skyrim/scripts/horneado_puro.py) | Lo del horneado que no necesita Blender: reducción, margen, solape de UV |
+| [`scripts/verificar_uv.py`](skills/modelo-ia-a-skyrim/scripts/verificar_uv.py) | Que el NIF guarde la V invertida respecto del OBJ |
+| [`scripts/verificar_export.py`](skills/modelo-ia-a-skyrim/scripts/verificar_export.py) | El NIF exportado contra el vanilla: bloques, nodos, piezas, huesos |
+| [`scripts/proporciones_arma.py`](skills/modelo-ia-a-skyrim/scripts/proporciones_arma.py) | Las proporciones de un arma contra las de su clase |
+| [`scripts/material_arma.py`](skills/modelo-ia-a-skyrim/scripts/material_arma.py) | El material de un arma contra el de las armas vanilla, o el del True PBR |
+| [`scripts/mascara_especular.py`](skills/modelo-ia-a-skyrim/scripts/mascara_especular.py) | El alfa del `_n`: cuánto de la máscara especular está saturado |
+
+La skill [`asset-nuevo-skyrim`](skills/asset-nuevo-skyrim):
+
+| Ruta | Qué es |
+|---|---|
+| [`SKILL.md`](skills/asset-nuevo-skyrim/SKILL.md) | Del modelo al item equipable y registrado en un plugin |
+| [`references/nodo-de-anclaje.md`](skills/asset-nuevo-skyrim/references/nodo-de-anclaje.md) | El nodo del que cuelga el item y su giro |
+| [`references/plugin-armo-arma.md`](skills/asset-nuevo-skyrim/references/plugin-armo-arma.md) | Los registros ARMO/ARMA de una armadura o un escudo |
+| [`references/plugin-weap.md`](skills/asset-nuevo-skyrim/references/plugin-weap.md) | Los registros WEAP y STAT de un arma |
+| [`references/trampas.md`](skills/asset-nuevo-skyrim/references/trampas.md) | 24 fallos que no tiran error |
+| [`scripts/colision_caja.py`](skills/asset-nuevo-skyrim/scripts/colision_caja.py) | Las cajas de colisión de un NIF, contra lo que hace el corpus vanilla |
+| [`scripts/esl.py`](skills/asset-nuevo-skyrim/scripts/esl.py) | Marca (o desmarca) un plugin como ESL, comprobando antes si puede |
+| [`scripts/nif_nodos.py`](skills/asset-nuevo-skyrim/scripts/nif_nodos.py) | La misma jerarquía de nodos (copia idéntica a la de la otra skill) |
+| [`scripts/verificar_plugin.py`](skills/asset-nuevo-skyrim/scripts/verificar_plugin.py) | El plugin terminado: formVersion, índices, WEAP, Prn |
 
 Y aparte, en [`census/`](census), las herramientas que producen los números:
 
@@ -46,7 +79,10 @@ Y aparte, en [`census/`](census), las herramientas que producen los números:
 | [`census/parser_nif.py`](census/parser_nif.py) | Parser NIF completo: geometría, particiones, huesos, pesos, shaders, colisión Havok |
 | [`census/verificar.py`](census/verificar.py) | Auditoría estructural bloque por bloque |
 | [`census/agregados.py`](census/agregados.py) | Las consultas del censo |
-| [`census/hallazgos.md`](census/hallazgos.md) | 15 hallazgos medidos, con consulta y N cada uno |
+| [`census/hallazgos.md`](census/hallazgos.md) | 43 hallazgos medidos sobre las mallas, con consulta y N cada uno |
+| [`census/hallazgos_plugins.md`](census/hallazgos_plugins.md) | 18 hallazgos sobre los plugins |
+| [`census/hallazgos_texturas.md`](census/hallazgos_texturas.md) | 10 hallazgos sobre las texturas |
+| [`census/hallazgos_uv.md`](census/hallazgos_uv.md) | 6 hallazgos sobre las UV |
 
 Y en [`pipeline/`](pipeline), el execution framework que orquesta todo eso:
 
@@ -59,21 +95,24 @@ Y en [`pipeline/`](pipeline), el execution framework que orquesta todo eso:
 
 ## Uso
 
-**Como skill de Claude Code.** Copiá `skills/modelo-ia-a-skyrim/` a tu carpeta
-de skills, o empaquetala:
+**Como skill de Claude Code.** Copiá `skills/modelo-ia-a-skyrim/` (o
+`skills/asset-nuevo-skyrim/`) a tu carpeta de skills, o empaquetalas. Sin
+argumentos, `build_skill.py` empaqueta cada carpeta de `skills/` que tenga un
+`SKILL.md`:
 
 ```bash
 python build_skill.py
 ```
 
-**Como scripts sueltos.** Los de `scripts/` que empiezan con `nif_` no necesitan
-nada más que Python 3. Los que tocan geometría corren dentro de Blender:
+**Como scripts sueltos.** Los que leen archivos (NIF, DDS, plugins) no
+necesitan nada más que Python 3. Los que marcan "Blender" en la tabla corren
+dentro de Blender:
 
 ```bash
 blender -b --python skills/modelo-ia-a-skyrim/scripts/medir_parte.py -- modelo.glb
 ```
 
-**Como documentación.** Los tres archivos de `references/` se leen solos.
+**Como documentación.** Los archivos de `references/` se leen solos.
 
 ## Cómo leer las afirmaciones
 
@@ -148,6 +187,13 @@ escrito como precondición). Cada DDS que escribe se verifica con
 `fixtures/comparar.py`, y la máscara del `_n` se mide con
 `scripts/mascara_especular.py` y pide revisión si queda fuera de lo que usa el
 vanilla.
+
+Con `sombreado="cs_pbr"` en el manifest, la misma fase escribe para el True PBR
+de Community Shaders: en vez de la `_m` arma un `_rmaos` (rugosidad, metal,
+oclusión), usa la altura como `_p`, y deja en `texture_set.json` las ranuras y
+los valores que el NIF tiene que llevar. Las convenciones salen del código
+fuente de Community Shaders, fijado a un commit; ver
+`references/pbr-community-shaders.md`.
 
 ## Licencia
 
