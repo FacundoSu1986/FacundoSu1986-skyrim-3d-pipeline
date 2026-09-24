@@ -104,6 +104,47 @@ class JobManifestRechazoTests(unittest.TestCase):
         # Arrange: criatura no es MVP de esta slice
         self._assert_rechaza(asset_category="creature")
 
+    # --- max_lado_textura ---------------------------------------------------
+
+    def test_max_lado_textura_valido_se_acepta(self):
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            for lado in (64, 512, 2048, 8192):
+                mani = _manifest(raiz, mesh, max_lado_textura=lado)
+                mani.validar()          # no lanza
+
+    def test_max_lado_textura_que_no_es_potencia_de_dos_rechazado(self):
+        """0 de 32.241 texturas vanilla tienen un lado que no sea potencia de
+        dos: es el invariante más limpio del corpus, y el único que se puede
+        exigir sin matices."""
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            with self.assertRaises(ConfigurationError) as ctx:
+                _manifest(raiz, mesh, max_lado_textura=3000).validar()
+            self.assertIn("potencia de dos", str(ctx.exception))
+            self.assertIn("0 de 32.241", str(ctx.exception))
+
+    def test_max_lado_textura_fuera_del_rango_del_corpus_rechazado(self):
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            with self.assertRaises(ConfigurationError) as ctx:
+                _manifest(raiz, mesh, max_lado_textura=32).validar()
+            self.assertIn("fuera de rango", str(ctx.exception))
+            self.assertIn("8192", str(ctx.exception))
+
+    def test_max_lado_textura_no_entero_rechazado(self):
+        # bool es int en Python: sin la guarda, True pasaría por 1.
+        self._assert_rechaza(max_lado_textura=True)
+        self._assert_rechaza(max_lado_textura="2048")
+        self._assert_rechaza(max_lado_textura=2048.0)
+
+    def test_el_default_esta_declarado_no_supuesto(self):
+        """El default es una decisión visible, no un número que apareció: el
+        corpus llega a 8192 en un solo archivo y la mediana de actors es 512."""
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            self.assertEqual(_manifest(raiz, mesh).max_lado_textura, 2048)
+
     def test_reporta_todos_los_problemas_de_una_vez(self):
         tmp, raiz, mesh = _raiz_y_mesh()
         with tmp:

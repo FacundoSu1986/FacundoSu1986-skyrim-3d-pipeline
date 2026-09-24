@@ -48,6 +48,15 @@ Y aparte, en [`census/`](census), las herramientas que producen los números:
 | [`census/agregados.py`](census/agregados.py) | Las consultas del censo |
 | [`census/hallazgos.md`](census/hallazgos.md) | 15 hallazgos medidos, con consulta y N cada uno |
 
+Y en [`pipeline/`](pipeline), el execution framework que orquesta todo eso:
+
+| Ruta | Qué es |
+|---|---|
+| [`pipeline/runner.py`](pipeline/runner.py) | Máquina de estados explícita, 9 fases en orden, y el gate que impide publicar si alguna fase quedó sin conectar |
+| [`pipeline/manifest.py`](pipeline/manifest.py) | Config declarativa e inmutable del job, validada antes de crear un solo directorio |
+| [`pipeline/texturas.py`](pipeline/texturas.py) | La fase PROCESS_TEXTURES: PBR del generador → DDS con la convención de Skyrim |
+| [`pipeline/staging.py`](pipeline/staging.py) | Workspace aislado por job, fail-closed ante reintentos |
+
 ## Uso
 
 **Como skill de Claude Code.** Copiá `skills/modelo-ia-a-skyrim/` a tu carpeta
@@ -118,6 +127,27 @@ también está documentada: varias de las trampas de `references/trampas.md`
 salieron de ahí, y `SKILL.md` es explícito sobre qué verifica el pipeline y qué
 no. Un asset puede pasar todos los chequeos y ser feo — ninguna métrica acá
 mide eso.
+
+**Del execution framework, qué está conectado y qué no.** De las 9 fases del
+runner, INGEST, INSPECT, PROCESS_TEXTURES y PUBLISH hacen trabajo real;
+PREPARE, EXPORT_NIF, READ_BACK, VALIDATE y PACKAGE siguen siendo stubs que se
+declaran como tales. El gate impide publicar con cualquiera de ellas sin
+conectar, así que una corrida hoy **no puede** terminar en PUBLISHED: es el
+estado honesto de un pipeline a medias, no un bug.
+
+`PROCESS_TEXTURES` convierte PNG/TGA/DDS sin comprimir a DDS sin comprimir de
+32 bpp con mipmaps, derivando el alfa del `_n` desde la rugosidad (`255 −
+roughness`, una heurística) y la máscara `_m` desde la metalicidad con el rango
+expandido. Reconoce los nombres de glTF, Substance, Poly Haven y Tripo, y
+rechaza los que traen un rol que no conoce en vez de tomarlos por color. Lo que
+**no** hace, y por qué, está escrito en el docstring de `pipeline/texturas.py`:
+no comprime a DXT/BC7 (eso es otra pieza, con su propia falsificación), no saca
+la luz horneada del albedo (se atenúa con curvas, no se recupera), no toca el
+NIF y no puede comprobar que la malla conserve las UV del generador (lo deja
+escrito como precondición). Cada DDS que escribe se verifica con
+`fixtures/comparar.py`, y la máscara del `_n` se mide con
+`scripts/mascara_especular.py` y pide revisión si queda fuera de lo que usa el
+vanilla.
 
 ## Licencia
 

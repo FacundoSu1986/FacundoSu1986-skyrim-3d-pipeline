@@ -21,7 +21,8 @@ Garantías:
   - el manifest se valida ANTES de crear cualquier directorio.
 
 Fases por defecto: INGEST (copia con hash, no mueve el original), INSPECT
-(inspección read-only de la copia) y PUBLISH (fail-closed: si el destino
+(inspección read-only de la copia), PROCESS_TEXTURES (PBR -> DDS con la
+convención de Skyrim, ver texturas.py) y PUBLISH (fail-closed: si el destino
 existe, error; copia del árbol package/ completo a un temp vecino y
 os.replace). El resto son stubs que se declaran como tales (`stub=True`,
 `ejecutada=False`): puntos de enganche donde las slices siguientes conectarán
@@ -30,7 +31,9 @@ mediante adaptadores inyectables.
 
 Ninguna fase sin conectar puede terminar en una publicación: `run()` rechaza
 PUBLISH si alguna fase ejecutada -- incluido el propio PUBLISH -- se declaró
-stub.
+stub. Con PROCESS_TEXTURES cableada, el gate sigue frenando exactamente igual:
+lo que cambia es que ahora frena por PREPARE, EXPORT_NIF, READ_BACK, VALIDATE
+y PACKAGE, que son las que de verdad faltan.
 
 Publicación: os.replace de directorio es atómico dentro del mismo volumen
 en NTFS/Linux; si la plataforma no lo garantiza, queda documentado aquí
@@ -50,6 +53,7 @@ from typing import Callable, Mapping
 from .errors import ArtifactValidationError, PipelineError, PublishError
 from .manifest import JobManifest
 from .staging import JobWorkspace
+from .texturas import copiar_entradas, fase_process_texturas
 
 
 class Phase(Enum):
@@ -102,11 +106,14 @@ def _fase_inspect(mani: JobManifest, ws: JobWorkspace) -> dict:
     reportan honestamente (inspeccionado=False), no se fingen."""
     from .inspection import inspeccionar_malla
 
-    entradas = sorted(ws.subdir("input").iterdir())
-    if not entradas:
-        raise ArtifactValidationError("fase INSPECT sin entrada en input/")
-    # Slice 2: un solo archivo fuente por job (el MVP es un asset por job).
-    return inspeccionar_malla(entradas[0])
+    # La malla se busca por SU nombre. Antes se tomaba el primer archivo de
+    # input/, y desde que INGEST copia también las texturas (input/texturas/)
+    # "el primero" podía ser esa carpeta.
+    malla = ws.subdir("input") / Path(mani.source_mesh).name
+    if not malla.is_file():
+        raise ArtifactValidationError(
+            "fase INSPECT sin entrada en input/: falta %s" % malla.name)
+    return inspeccionar_malla(malla)
 
 
 # Marca que distingue "esta fase no existe todavia" de "esta fase corrio y no
@@ -160,17 +167,28 @@ def _sha256(ruta: Path) -> str:
 
 
 def _fase_ingest(mani: JobManifest, ws: JobWorkspace) -> dict:
-    """Copia la entrada al staging. Nunca modifica ni mueve el original."""
+    """Copia la entrada al staging. Nunca modifica ni mueve el original.
+
+    Las texturas también: van a input/texturas/ y PROCESS_TEXTURES lee esas
+    copias. Así el hash del reporte y los bytes que se convierten son los
+    mismos aunque alguien reescriba el original durante la corrida.
+    """
     fuente = Path(mani.source_mesh)
     destino = ws.ruta_segura(Path(fuente.name), subdir="input")
     shutil.copyfile(fuente, destino)
-    return {
+    reporte = {
         "ejecutada": True,
         "herramienta": "shutil.copyfile",
         "entrada": str(fuente),
         "salida": destino.name,
         "sha256": _sha256(destino),
     }
+    if mani.texture_inputs:
+        reporte["texturas"] = [
+            {"entrada": str(original), "salida": "texturas/" + copia.name,
+             "sha256": _sha256(copia)}
+            for original, copia in copiar_entradas(mani.texture_inputs, ws)]
+    return reporte
 
 
 def _fase_publish(mani: JobManifest, ws: JobWorkspace) -> dict:
@@ -215,7 +233,7 @@ FASES_POR_DEFECTO: Mapping[Phase, Adapter] = {
     Phase.INGEST: _fase_ingest,
     Phase.INSPECT: _fase_inspect,
     Phase.PREPARE: _fase_noop,
-    Phase.PROCESS_TEXTURES: _fase_noop,
+    Phase.PROCESS_TEXTURES: fase_process_texturas,
     Phase.EXPORT_NIF: _fase_noop,
     Phase.READ_BACK: _fase_noop,
     Phase.VALIDATE: _fase_noop,

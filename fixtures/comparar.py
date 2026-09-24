@@ -38,7 +38,12 @@ import sys
 _AQUI = os.path.dirname(os.path.abspath(__file__))
 if _AQUI not in sys.path:
     sys.path.insert(0, _AQUI)
-sys.path.insert(0, os.path.join(_AQUI, "..", "census"))
+# Absoluta, no relativa: con una ruta relativa el import de parser_dds depende
+# del CWD, y este archivo se importa desde pipeline/texturas.py con cualquier
+# directorio de trabajo.
+_CENSUS = os.path.join(os.path.dirname(_AQUI), "census")
+if _CENSUS not in sys.path:
+    sys.path.insert(0, _CENSUS)
 
 import parser_colision  # noqa: E402
 import parser_dds  # noqa: E402

@@ -10,7 +10,11 @@ Esta primera slice contiene únicamente:
   - JobManifest tipado e inmutable con validación de rutas (manifest.py);
   - staging aislado por job (staging.py);
   - runner con máquina de estados explícita (runner.py);
-  - jerarquía de excepciones del pipeline (errors.py).
+  - jerarquía de excepciones del pipeline (errors.py);
+  - la fase PROCESS_TEXTURES cableada (texturas.py): lee PNG/TGA/DDS sin
+    comprimir, convierte los canales a la convención de Skyrim y escribe DDS
+    sin comprimir con mipmaps usando census/escritor_dds.py, verificando cada
+    archivo con fixtures/comparar.py y scripts/mascara_especular.py.
 
 Sin Blender, BAE, TexConv ni PyNifly: los adaptadores reales llegan cuando los
 contratos de los issues #2/#3 estén verificados. Relacionado con el issue #5

@@ -1,6 +1,6 @@
 ---
 name: modelo-ia-a-skyrim
-description: Convierte modelos 3D generados por IA (Tripo, Meshy, Hunyuan3D, Rodin, Trellis) en assets funcionales de Skyrim SE o LE con Blender y PyNifly — malla, rig, texturas DDS y NIF verificado. Usala siempre que aparezca un .glb/.fbx/.obj generado por IA que haya que meter en Skyrim, cuando haya que reemplazar una criatura, armadura o arma vanilla, cuando haya que escribir el prompt para pedirle el modelo a la IA 3D, o cuando se hable de presupuesto de polígonos, exportar NIF, convertir texturas a DDS, riggear a un esqueleto vanilla, o por qué un asset sale invisible, de espaldas o deformado en el juego. También cuando alguien pregunte si un modelo generado por IA "sirve" para un juego.
+description: Convierte modelos 3D generados por IA (Tripo, Meshy, Hunyuan3D, Rodin, Trellis) en assets funcionales de Skyrim SE o LE con Blender y PyNifly — malla, rig, texturas DDS y NIF verificado. Usala siempre que aparezca un .glb/.fbx/.obj generado por IA que haya que meter en Skyrim, cuando haya que reemplazar una criatura, armadura o arma vanilla, cuando haya que escribir el prompt para pedirle el modelo a la IA 3D, o cuando se hable de presupuesto de polígonos, exportar NIF, convertir texturas a DDS, riggear a un esqueleto vanilla, o por qué un asset sale invisible, de espaldas, deformado u opaco al lado de los vanilla en el juego. También cuando alguien pregunte si un modelo generado por IA "sirve" para un juego.
 ---
 
 # Modelos 3D de IA → assets de Skyrim
@@ -86,6 +86,9 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
    Y si el NIF lo escribió un conversor propio, además
    `scripts/verificar_uv.py <origen.obj> <nuevo.nif>`: el NIF guarda la V al
    revés que el OBJ y copiarla tal cual espeja toda la textura (trampa 29).
+   Si es un arma, `scripts/material_arma.py <nuevo.nif>`: una forma creada
+   con PyNifly sale con shader `Default` y glossiness 20, y la mayoría de las
+   armas vanilla reflejan un cubemap (trampa 36).
 
 ## Las tres cosas que hay que pedirle a la IA 3D
 
@@ -182,7 +185,7 @@ pieza que mañana pierda una atadura.
 - **`references/limites-skyrim.md`** — presupuestos de polígonos reales, formatos
   de textura, estructura del NIF, escala y ejes, límites de huesos y
   particiones. Leelo antes de decidir presupuestos o tocar el export.
-- **`references/trampas.md`** — veintitrés fallos que no tiran error, con el
+- **`references/trampas.md`** — treinta y seis fallos que no tiran error, con el
   síntoma y el arreglo, más un índice por síntoma al principio. **Leelo entero
   antes de empezar**, no cuando algo falle: la mitad de estas trampas se
   descubren recién probando en el juego, y para entonces ya perdiste la
@@ -252,7 +255,7 @@ pieza que mañana pierda una atadura.
   rotación es destructiva y no debe dispararse por una heurística.
 - **`scripts/proporciones_arma.py`** — mide largo, grosor, ancho y empuñadura
   de un arma **en coordenadas de mundo** y los compara contra el rango de su
-  **clase** (medido sobre 199 armas vanilla en 9 clases). REGLA: caer dentro
+  **clase** (medido sobre 197 armas vanilla en 9 clases). REGLA: caer dentro
   del `[min, max]` de la clase. OBSERVACIÓN: en qué percentil cae cada medida.
 
   El rango vanilla es **ancho**, así que esto es una red de seguridad y no una
@@ -264,10 +267,33 @@ pieza que mañana pierda una atadura.
   `--censo <carpeta meshes/weapons>` regenera la tabla. Tiene que regenerarse
   con **este mismo** clasificador: la primera versión usó otro y la REGLA
   rechazaba el 6,36 % del corpus del que había salido.
+- **`scripts/material_arma.py`** — lee el material de cada pieza del NIF (tipo
+  de shader, flags, glossiness, intensidad especular, escala del reflejo y
+  las rutas del texture set) y lo compara con el de las armas vanilla.
+  Cuatro REGLAS, cada una con su número: el bloque cierra exacto en su tamaño
+  (74.489 de 74.489 en el corpus), el tipo EnvMap lleva su flag (6.843 de
+  6.843), el tipo Glow y su flag van juntos en los dos sentidos, y en un arma
+  EnvMap hay cubemap en la ranura 4 (149 de 149). El resto es OBSERVACIÓN: el
+  shader de la pieza principal contra el de su clase, si falta la `_m`, y en
+  qué tramo vanilla caen los números.
+
+  El `Default` **no** reprueba: la pieza principal de 46 de 198 armas vanilla
+  lo usa. Lo que el hacha de Tencent necesitaba era el número de al lado:
+  16 de 17 hachas a dos manos usan EnvMap. Y su glossiness 20 era el valor que
+  deja PyNifly (trampa 36).
+
+  El layout del bloque está validado sobre el corpus entero, no sobre un par
+  de archivos: `--censo <carpeta meshes>` regenera los números y la tabla, y
+  `--falsificar <carpeta meshes>` rompe el material de las 198 armas de cinco
+  formas (1.434 roturas) y exige que cada una repruebe, después de comprobar
+  que ninguna arma vanilla sana repruebe.
 - **`scripts/mascara_especular.py`** — el alfa del `_n` es la máscara
   especular, y saturada deja el asset de plástico (el hacha llegó al juego con
   el 99,7 % de su máscara en blanco). Lee el alfa **sin decodificar**: en
-  DXT5/BC3, `alpha0 == alpha1` en un bloque significa alfa constante.
+  DXT5/BC3, `alpha0 == alpha1` en un bloque significa alfa constante; y en un
+  DDS sin comprimir de 32 bpp lo lee texel por téxel (10.048 de 32.241
+  texturas del corpus son de ese formato). Lo que **no** puede medir es BC7,
+  y lo reporta como límite de la herramienta en vez de darlo por bueno.
 
   REGLA **solo para armas** (`--arma`): como mucho 10 % de bloques en blanco;
   las 140 texturas `_n` de arma del corpus están por debajo del 6,9 %. Para el

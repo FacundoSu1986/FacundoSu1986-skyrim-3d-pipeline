@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 """El gate de stubs (issue #23).
 
-Seis fases del runner estan sin conectar y devolvian {"ejecutada": True}. Lo
+Cinco fases del runner están sin conectar y devolvían {"ejecutada": True}. Lo
 unico que impedia publicar basura era que PACKAGE tambien fuera stub y dejara
 `package/` vacio: el gate lo sostenia el ORDEN en que se fueron cableando las
 fases, no una decision. Cablear PACKAGE es el proximo slice.
+
+Eran seis. PROCESS_TEXTURES se cableó (pipeline/texturas.py) y salió de la
+lista; el gate la sigue cubriendo igual, porque enumera las fases en vez de
+fijar un caso.
 
 Estos tests no fijan el caso que encontramos sino la propiedad: ninguna fase
 sin conectar puede terminar en una publicacion.
@@ -122,13 +126,19 @@ class GateDeStubsTests(unittest.TestCase):
 
     def test_el_caso_del_issue(self):
         """PACKAGE cableado, el resto en stub: era el escenario que publicaba
-        un .txt con estado PUBLISHED y ok=True."""
+        un .txt con estado PUBLISHED y ok=True.
+
+        process_texturas SALIO de esta lista cuando se cableó la fase: antes
+        era stub y publicaba igual. El escenario del issue ya no es
+        reproducible por esa vía --si el adaptador de texturas falla, la fase
+        falla y no llega a PUBLISH-- pero el gate sigue frenando el resto, y
+        es eso lo que este test fija.
+        """
         r = self._correr({Phase.PACKAGE: _package_real})
         self.assertIs(State.FAILED, r.estado)
         self.assertFalse(r.ok)
         self.assertEqual([], self._publicado())
-        for fase in ("prepare", "process_textures", "export_nif",
-                     "read_back", "validate"):
+        for fase in ("prepare", "export_nif", "read_back", "validate"):
             self.assertIn(fase, r.fases_sin_conectar)
 
     # --- el gate no se puede esquivar ---------------------------------------

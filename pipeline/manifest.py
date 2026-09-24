@@ -12,6 +12,8 @@ Reglas de validación (todas verificables con tests):
     dentro de raiz_proyecto; una ruta que escapa del root se rechaza;
   - source_mesh y texture_inputs deben existir y ser archivos;
   - extensiones por whitelist;
+  - max_lado_textura: entero, potencia de dos, dentro del rango que mide el
+    corpus (ver MAX_LADO_TEXTURA);
   - los campos nulos/vacíos no son válidos.
 
 No hay paths hardcodeados: todas las rutas vienen del llamador.
@@ -30,9 +32,24 @@ CATEGORIAS_SOPORTADAS = frozenset({"static", "clutter"})
 
 # [PROVIDER] Las extensiones que el runner acepta hoy de entrada. Generadores
 # de IA entregan sobre todo GLB/GLTF; FBX/OBJ están por compatibilidad con los
-# scripts existentes (medir_parte.py los acepta). Ampliar = evidencia, no deseo.
+# scripts existentes (medir_parte.py los aceptan). Ampliar = evidencia, no deseo.
 EXTENSIONES_MESH = frozenset({".glb", ".gltf", ".fbx", ".obj"})
 EXTENSIONES_TEXTURA = frozenset({".png", ".tga", ".dds"})
+
+# Lado máximo de textura, en téxeles. [OBSERVED] Del censo de 32.241 DDS: la
+# mediana del lado mayor es 256 en terrain, 512 en actors y clutter, 1024 en
+# architecture y armor; el máximo de TODO el corpus es 8192 y hay un solo
+# archivo. 2048 queda muy por encima del vanilla --el 5,2 % del corpus llega
+# ahí-- y ésa es la decisión, no una consecuencia: se declara en el manifest
+# para que el costo de VRAM sea una elección visible (ver
+# references/limites-skyrim.md, "Resoluciones").
+MAX_LADO_TEXTURA = 2048
+MIN_LADO_TEXTURA = 64
+MAX_LADO_CORPUS = 8192
+
+
+def _es_potencia_de_dos(n: int) -> bool:
+    return n > 0 and (n & (n - 1)) == 0
 
 # job_id se usa como nombre de directorio: se restringe a un alfabeto seguro
 # en vez de "sanitizar" (sanitizar silencioso = proyectos que pisan a otros).
@@ -75,6 +92,7 @@ class JobManifest:
     texture_inputs: tuple[Path, ...] = ()
     enabled_transformations: tuple[str, ...] = ()
     reference_asset: Path | None = None
+    max_lado_textura: int = MAX_LADO_TEXTURA
 
     def __post_init__(self) -> None:
         """Normalización de tipos (el dataclass es frozen, así que va por
@@ -134,6 +152,30 @@ class JobManifest:
             problemas.append(
                 f"asset_category no soportada: {self.asset_category!r} "
                 f"(soportadas: {sorted(CATEGORIAS_SOPORTADAS)})"
+            )
+        # El lado máximo se valida contra el corpus, no contra el gusto: una
+        # textura de 3000 téxeles no es "grande", es un lado que no es potencia
+        # de dos, y 0 de 32.241 texturas vanilla lo son.
+        if isinstance(self.max_lado_textura, bool) or not isinstance(
+            self.max_lado_textura, int
+        ):
+            problemas.append(
+                "max_lado_textura tiene que ser un entero: "
+                f"{self.max_lado_textura!r}"
+            )
+        elif not _es_potencia_de_dos(self.max_lado_textura):
+            problemas.append(
+                "max_lado_textura no es potencia de dos: "
+                f"{self.max_lado_textura} (0 de 32.241 texturas vanilla "
+                "tienen un lado que no lo sea)"
+            )
+        elif not (MIN_LADO_TEXTURA <= self.max_lado_textura
+                  <= MAX_LADO_CORPUS):
+            problemas.append(
+                "max_lado_textura fuera de rango: "
+                f"{self.max_lado_textura} (admitido {MIN_LADO_TEXTURA}-"
+                f"{MAX_LADO_CORPUS}; el máximo del corpus es 8192 y hay un "
+                "solo archivo)"
             )
 
         raiz = self._ruta_util(self.raiz_proyecto)
