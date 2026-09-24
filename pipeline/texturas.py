@@ -16,18 +16,26 @@ sufijos de Skyrim:
     cartel_m.dds    máscara de entorno (reflejo del cubemap)
     cartel_g/_s/_p/_b.dds   glow, subsurface, parallax, backlight
 
-Las conversiones de canal son las que la documentación del repo recomienda, y
-cada una está acotada a lo que se puede defender con un número:
+Las conversiones de canal son las que la documentación del repo recomienda.
+Lo que tiene un número atrás se dice, y lo que es heurística también:
 
-  * el ALFA del `_n` sale de la rugosidad como `255 - roughness`. El hacha del
-    proyecto de origen llegó al juego con el 99,7 % de su máscara en blanco y
-    se veía de plástico; en el corpus, las 140 texturas `_n` de malla de arma
-    están todas por debajo del 6,9 % de bloques en blanco;
-  * la máscara `_m` sale del canal de metalicidad del ORM, con el rango
-    expandido. Los generadores entregan metalicidad muy comprimida --en el
-    proyecto de origen, 0 a 0,46 con media 0,06-- y sin expandir la máscara
-    sale sin contraste. La expansión es una HEURÍSTICA: se informan el mínimo,
-    el máximo y la media observados para que se pueda auditar;
+  * el ALFA del `_n` sale de la rugosidad como `255 - roughness`. La CURVA es
+    una heurística sin calibrar. Lo que tiene número es el control de después:
+    el `_n` escrito se mide con `mascara_especular.py`, y el texture set pide
+    revisión si pasa del 10 % de bloques en blanco (la regla de armas; las
+    140 `_n` de arma del corpus están por debajo del 6,9 %) o si la media del
+    alfa cae fuera del p5-p95 de los objetos portables vanilla (14 a 219). El
+    hueco del atlas es rugosidad 0 y sale en 255: ese control es el que lo ve;
+  * la máscara `_m` sale del canal de metalicidad, con el rango expandido. Los
+    generadores entregan metalicidad muy comprimida --en el proyecto de origen,
+    0 a 0,46 con media 0,06-- y sin expandir la máscara sale sin contraste. La
+    expansión es una HEURÍSTICA, igual que el piso por debajo del cual el
+    objeto se toma como no metálico y no se escribe `_m`; se informan el
+    mínimo, el máximo y la media observados para que se pueda auditar;
+  * el canal del que sale cada cosa lo decide el NOMBRE del archivo, no una
+    mirada a los píxeles: `_orm`/`_metallicRoughness` es el empaquetado de
+    glTF (G rugosidad, B metalicidad); `_roughness` y `_metallic` sueltos son
+    grises y se comprueba que lo sean;
   * el color base se copia TAL CUAL. La luz horneada (sombras de contacto,
     oclusión, brillo pegado al color) no se saca automáticamente: la
     documentación dice que se atenúa con curvas y que no se recupera del todo,
@@ -48,7 +56,11 @@ QUE NO HACE, Y POR QUE NO ES UN DESCUIDO
     EXPORT_NIF necesita para llenar el `BSShaderTextureSet`.
   * NO valida la correspondencia UV <-> textura. El censo de UV la declara no
     medida, y era el defecto real del proyecto de origen: cada pieza apuntaba
-    a la región equivocada del atlas.
+    a la región equivocada del atlas. Los mapas del generador sirven solo si
+    la malla final conserva SUS UV; si PREPARE decima o re-despliega sin
+    conservarlas, hay que hornear desde el modelo original. Esta fase no lo
+    puede comprobar, así que lo deja escrito como `precondicion_uv` en el
+    reporte y en `texture_set.json`, para que EXPORT_NIF no lo pase por alto.
 
 VERIFICACION
 ------------
@@ -68,7 +80,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
+import shutil
 import struct
 import sys
 import zlib
@@ -82,8 +96,7 @@ from .staging import JobWorkspace
 # --- las herramientas existentes, invocadas --no reimplementadas------------
 # Mismo mecanismo que fixtures/comparar.py: los scripts del repo viven sueltos
 # en carpetas que no son paquetes, así que se agregan a sys.path con rutas
-# ABSOLUTAS. (comparar.py inserta una relativa; si el CWD no es la raíz del
-# repo, su import de parser_dds se cae. Acá va absoluta a propósito.)
+# ABSOLUTAS, para que el import no dependa del directorio de trabajo.
 _RAIZ = Path(__file__).resolve().parent.parent
 for _dir in (_RAIZ / "census", _RAIZ / "fixtures",
              _RAIZ / "skills" / "modelo-ia-a-skyrim" / "scripts"):
@@ -95,39 +108,76 @@ import escritor_dds    # noqa: E402
 import mascara_especular  # noqa: E402
 import parser_dds      # noqa: E402
 
-# --- la convención de sufijos, tal cual está documentada --------------------
-# Sufijos de SKYRIM (lo que se ESCRIBE) y sus equivalentes que entregan los
-# generadores / el estándar glTF. Se aceptan varios alias en la entrada pero
-# se escribe SIEMPRE con el sufijo canónico de Skyrim (cartel, cartel_n,
-# cartel_m...). El orden de la lista importa: los sufijos más LARGOS se buscan
-# primero, así `hacha_metallicRoughness` se clasifica como fuente ORM y no
-# como rugosidad por el sufijo `_roughness` que lleva adentro.
-SUFIJO_A_SLOT = {
-    # Skyrim canónico
-    "_n": "normal",
-    "_m": "entorno",
-    "_g": "glow",
-    "_s": "subsurface",
-    "_p": "parallax",
-    "_b": "backlight",
-    # Alias de color/base que usan los generadores y glTF. Un nombre con uno
-    # de estos sufijos es el color base: no queremos que `hacha_basecolor`
-    # quede como base `hacha_basecolor` sin que produzca un cartel.dds.
-    "_basecolor": "color",
-    "_base_color": "color",
-    "_albedo": "color",
-    "_diffuse": "color",
-    "_d": "color",
-    "_color": "color",
-    # Alias de normal
-    "_normal": "normal",
-    "_normalgl": "normal",
-    "_nor": "normal",
-    "_nrm": "normal",
+# --- la convención de sufijos -------------------------------------------------
+# Lo que se ESCRIBE lleva siempre el sufijo de Skyrim (cartel, cartel_n,
+# cartel_m...). En la ENTRADA se aceptan además los nombres de los generadores
+# y de glTF: con un nombre que no reconocía, el archivo caía como color base y
+# armaba su propio texture set sin avisar (revisión del PR #51).
+#
+# Cada sufijo de entrada dice QUÉ es el archivo:
+#   slot      se escribe como textura de Skyrim; el rol es el slot;
+#   fuente    no se escribe: se dobla dentro del `_n` (rugosidad -> alfa) o
+#             del `_m` (metalicidad -> máscara). "empaquetada" es el ORM de
+#             glTF (R oclusión o nada, G rugosidad, B metalicidad);
+#             "rugosidad" y "metalico" son grises sueltos, y se COMPRUEBA que
+#             sean grises;
+#   ignorada  no tiene equivalente en el shader de Skyrim (oclusión, altura,
+#             opacidad, especular). No se escribe, y se informa.
+# El tercer campo es la convención del verde de un normal, si el nombre la da.
+# Se busca el sufijo MÁS LARGO primero: `_metallicRoughness` gana sobre el
+# `_roughness` que lleva adentro, y `_basecolor` sobre `_color`.
+SUFIJOS_ENTRADA = {
+    # Skyrim
+    "_n": ("slot", "normal", None), "_m": ("slot", "entorno", None),
+    "_g": ("slot", "glow", None), "_s": ("slot", "subsurface", None),
+    "_p": ("slot", "parallax", None), "_b": ("slot", "backlight", None),
+    # color base
+    "_basecolor": ("slot", "color", None),
+    "_base_color": ("slot", "color", None),
+    "_albedo": ("slot", "color", None), "_diffuse": ("slot", "color", None),
+    "_diff": ("slot", "color", None), "_d": ("slot", "color", None),
+    "_color": ("slot", "color", None),
+    # normal
+    "_normal": ("slot", "normal", None), "_nor": ("slot", "normal", None),
+    "_nrm": ("slot", "normal", None),
+    "_normalgl": ("slot", "normal", "gl"),
+    "_normaldx": ("slot", "normal", "dx"),
+    # el `_g` de Skyrim es un mapa de emisión
+    "_emissive": ("slot", "glow", None), "_emission": ("slot", "glow", None),
+    # fuentes
+    "_orm": ("fuente", "empaquetada", None),
+    "_arm": ("fuente", "empaquetada", None),
+    "_occlusionroughnessmetallic": ("fuente", "empaquetada", None),
+    "_metallicroughness": ("fuente", "empaquetada", None),
+    "_metallic_roughness": ("fuente", "empaquetada", None),
+    "_metalroughness": ("fuente", "empaquetada", None),
+    "_metal_roughness": ("fuente", "empaquetada", None),
+    "_roughness": ("fuente", "rugosidad", None),
+    "_rough": ("fuente", "rugosidad", None),
+    "_metallic": ("fuente", "metalico", None),
+    "_metalness": ("fuente", "metalico", None),
+    "_metal": ("fuente", "metalico", None),
+    # sin equivalente en el shader de Skyrim
+    "_ao": ("ignorada", "oclusion", None),
+    "_mixed_ao": ("ignorada", "oclusion", None),
+    "_occlusion": ("ignorada", "oclusion", None),
+    "_ambientocclusion": ("ignorada", "oclusion", None),
+    "_height": ("ignorada", "altura", None),
+    "_displacement": ("ignorada", "altura", None),
+    "_disp": ("ignorada", "altura", None),
+    "_bump": ("ignorada", "altura", None),
+    "_opacity": ("ignorada", "opacidad", None),
+    "_alpha": ("ignorada", "opacidad", None),
+    "_specular": ("ignorada", "especular", None),
+    "_spec": ("ignorada", "especular", None),
+    "_glossiness": ("ignorada", "especular", None),
+    "_gloss": ("ignorada", "especular", None),
 }
-SLOT_A_SUFIJO = {v: k for k, v in SUFIJO_A_SLOT.items()}
-# Solo los sufijos de SKYRIM se usan al escribir; los alias no aparecen en el
-# paquete.
+_SUFIJOS_POR_LARGO = sorted(SUFIJOS_ENTRADA, key=len, reverse=True)
+ALIAS_DE_COLOR = sorted(s for s, v in SUFIJOS_ENTRADA.items()
+                        if v[1] == "color")
+
+# Lo que se escribe: solo sufijos de Skyrim.
 SUFIJO_ESCRITURA = {"color": "", "normal": "_n", "entorno": "_m",
                     "glow": "_g", "subsurface": "_s",
                     "parallax": "_p", "backlight": "_b"}
@@ -137,29 +187,27 @@ SUFIJO_ESCRITURA = {"color": "", "normal": "_n", "entorno": "_m",
 ORDEN_SLOTS = ("color", "normal", "entorno", "glow", "subsurface",
                "parallax", "backlight")
 
-# Sufijos que un generador agrega DESPUÉS del rol (_fixed, _baked, _processed,
-# _1k, _2k, _4k) y que hay que quitar para que el nombre base coincida entre
-# el color, el normal y el ORM. Por ejemplo:
-#   hacha_normal_fixed.png     -> base hacha,  slot normal
-#   hacha_basecolor.png        -> base hacha,  slot color
-# Si no se quita `_fixed`, los dos archivos quedan en grupos distintos y el
-# normal nunca se combina con el color: falla silenciosa (ver hallazgo del
-# PR #51).
+# Sufijos que un generador agrega DESPUÉS del rol y que hay que quitar para que
+# la base coincida entre el color, el normal y el ORM (`hacha_normal_fixed` y
+# `hacha_basecolor` comparten la base `hacha`). Se quitan todos los que haya,
+# no uno solo: `x_nor_gl_4k` lleva dos.
 _SUFIJOS_EXTRA = (
     "_fixed", "_baked", "_processed", "_final", "_v2", "_v3",
     "_1k", "_2k", "_4k", "_8k",
-    "_dx", "_gl", "_opengl",
 )
 
-# Fuentes PBR que no se emiten como textura propia: se doblan dentro del `_n`
-# (rugosidad -> alfa) y del `_m` (metalicidad -> máscara). Ordenados por
-# longitud decreciente para que `_metallicRoughness` matchee antes que
-# `_roughness`.
-FUENTES_RUGOSIDAD = (
-    "_metallicroughness", "_metalroughness", "_metallic_roughness",
-    "_metal_roughness", "_occlusionroughnessmetallic", "_orm",
-    "_roughness", "_rough",
-)
+# La convención del verde de un normal. NO es ruido: Skyrim usa OpenGL (verde
+# hacia +Y; comprobado con ElvenBattleAxe_n.dds sobre su malla), así que un
+# normal DirectX hay que invertirlo en el verde. Descartar el marcador dejaba
+# los remaches hundidos y las incisiones salidas, sin error.
+_CONVENCION = {"_opengl": "gl", "_directx": "dx", "_gl": "gl", "_dx": "dx"}
+
+# Si la última parte de un nombre que no se reconoció trae una de estas
+# palabras, el archivo tiene un rol que esta fase no conoce. Tomarlo por color
+# es la falla silenciosa que la revisión del PR #51 encontró; se rechaza.
+_PALABRAS_DE_ROL = ("normal", "nrm", "rough", "metal", "occlusion", "emiss",
+                    "height", "displac", "opacity", "albedo", "diffuse",
+                    "basecolor", "specular", "gloss", "bump")
 
 EXTENSIONES_LEIBLES = frozenset({".png", ".tga", ".dds"})
 
@@ -308,9 +356,14 @@ def leer_tga(ruta: Path) -> Textura:
     descriptor = datos[17]
     if ancho == 0 or alto == 0:
         raise TexturaError(f"{ruta}: dimensiones {ancho}x{alto}")
-    if profundidad not in (24, 32):
-        raise TexturaError(f"{ruta}: {profundidad} bits por pixel; se esperan "
-                           f"24 o 32")
+    # El tipo 3 (grises) es de 8 bits, un byte por texel: es como sale un mapa
+    # de rugosidad. El tipo 2 es BGR o BGRA. Otra combinación se rechaza: un
+    # tipo 3 de 24 bits leído como BGR daría colores inventados.
+    esperadas = (8,) if tipo == 3 else (24, 32)
+    if profundidad not in esperadas:
+        raise TexturaError(
+            f"{ruta}: TGA tipo {tipo} de {profundidad} bits por pixel; se "
+            f"esperan {' o '.join(str(e) for e in esperadas)}")
     canales = profundidad // 8
     pos = 18 + id_len
     cuerpo = datos[pos:pos + ancho * alto * canales]
@@ -327,7 +380,10 @@ def leer_tga(ruta: Path) -> Textura:
         for x in range(ancho):
             o = (fila * ancho + x) * canales
             d = (y * ancho + x) * 4
-            if canales == 3:
+            if canales == 1:
+                v = cuerpo[o]
+                salida[d:d + 4] = bytes((v, v, v, 255))
+            elif canales == 3:
                 salida[d:d + 4] = bytes((cuerpo[o + 2], cuerpo[o + 1],
                                          cuerpo[o], 255))
             else:
@@ -431,11 +487,16 @@ def leer_dds(ruta: Path) -> Textura:
         raise TexturaError(f"{ruta}: el archivo no llega a contener el nivel 0")
     salida = bytearray(len(crudo))
     r_o, g_o, b_o, a_o = offs["r_off"], offs["g_off"], offs["b_off"], offs["a_off"]
-    for p in range(0, len(crudo), 4):
-        salida[p]     = crudo[p + r_o]
-        salida[p + 1] = crudo[p + g_o]
-        salida[p + 2] = crudo[p + b_o]
-        salida[p + 3] = crudo[p + a_o]
+    salida[0::4] = crudo[r_o::4]
+    salida[1::4] = crudo[g_o::4]
+    salida[2::4] = crudo[b_o::4]
+    # Sin máscara alfa (X8R8G8B8) el cuarto byte es relleno y vale lo que dejó
+    # la herramienta que exportó. Leído como alfa daba 0 con algunas: una
+    # máscara especular apagada que el control de saturación no ve.
+    if d["a_mask"]:
+        salida[3::4] = crudo[a_o::4]
+    else:
+        salida[3::4] = b"\xff" * (ancho * alto)
     return Textura(ancho, alto, bytes(salida))
 
 
@@ -463,51 +524,99 @@ def leer_textura(ruta: Path | str) -> Textura:
 # Clasificación por nombre
 # ---------------------------------------------------------------------------
 
-def clasificar(nombre: str) -> tuple[str, str, str]:
-    """(slot, sufijo, base) a partir del nombre de archivo.
+class Rol(NamedTuple):
+    """Lo que dice el nombre de un archivo de entrada."""
+
+    clase: str          # "slot", "fuente" o "ignorada"
+    rol: str            # el slot, el tipo de fuente o lo que se ignora
+    sufijo: str         # el sufijo reconocido, en minúsculas ("" = sin sufijo)
+    base: str           # el nombre del texture set
+    convencion: str | None = None   # "gl"/"dx" si el nombre de un normal la da
+
+
+def _quitar_extras(tallo: str) -> tuple[str, str | None]:
+    """(tallo sin los sufijos del generador, convención del verde o None).
+
+    Se quitan TODOS los sufijos extra que haya al final, y a lo sumo un
+    marcador de convención, en cualquier orden: `x_nor_gl_4k` da `x_nor`, gl.
+    """
+    convencion = None
+    cambio = True
+    while cambio:
+        cambio = False
+        bajo = tallo.lower()
+        for x in _SUFIJOS_EXTRA:
+            if bajo.endswith(x) and len(tallo) > len(x):
+                tallo, cambio = tallo[:-len(x)], True
+                break
+        if cambio or convencion is not None:
+            continue
+        for x, conv in _CONVENCION.items():
+            if bajo.endswith(x) and len(tallo) > len(x):
+                tallo, convencion, cambio = tallo[:-len(x)], conv, True
+                break
+    return tallo, convencion
+
+
+def _clasificar_tallo(tallo: str) -> Rol:
+    tallo, convencion = _quitar_extras(tallo)
+    bajo = tallo.lower()
+    rol = None
+    for sufijo in _SUFIJOS_POR_LARGO:
+        if bajo.endswith(sufijo) and len(tallo) > len(sufijo):
+            clase, que, conv_sufijo = SUFIJOS_ENTRADA[sufijo]
+            rol = Rol(clase, que, sufijo, tallo[:-len(sufijo)],
+                      convencion or conv_sufijo)
+            break
+    if rol is None:
+        ultima = bajo.rsplit("_", 1)[-1] if "_" in bajo else ""
+        palabra = next((p for p in _PALABRAS_DE_ROL if p in ultima), None)
+        if palabra is not None:
+            raise TexturaError(
+                f"{tallo}: el nombre termina en {ultima!r}, que parece un rol "
+                f"PBR ({palabra!r}) que esta fase no reconoce. Tomarlo por "
+                f"color base armaria un texture set de mas sin avisar. "
+                f"Renombralo con un sufijo conocido: "
+                f"{', '.join(sorted(SUFIJOS_ENTRADA))}")
+        rol = Rol("slot", "color", "", tallo, convencion)
+    if rol.convencion is not None and rol.rol != "normal":
+        raise TexturaError(
+            f"{tallo}: marca una convencion de normal ({rol.convencion}) en un "
+            f"archivo que no es un normal ({rol.rol})")
+    return rol
+
+
+def clasificar(nombre: str) -> Rol:
+    """Qué es un archivo de entrada, según su nombre.
 
     El sufijo se busca al FINAL del tallo, en minúsculas: `Cartel_N.PNG` es un
-    normal map, `hacha_BaseColor.png` es color base, `hacha_Normal.png` es
-    normal. Un nombre sin sufijo reconocido es el color base --es la forma
-    más común del corpus: 19.108 de 32.241 texturas no tienen sufijo--.
+    normal map, `hacha_BaseColor.png` es color base. Un nombre sin sufijo es
+    el color base --la forma más común del corpus: 19.108 de 32.241 texturas
+    no tienen sufijo--, salvo que su última parte traiga una palabra de rol
+    que no se reconoce: eso es un error, no un color.
 
-    Los sufijos "extra" del generador (_fixed, _baked, _1k, _2k...) se quitan
-    antes de decidir la base, así `hacha_normal_fixed` y `hacha_basecolor`
-    comparten la base `hacha` y van al mismo texture set.
+    Los sufijos del generador (`_fixed`, `_2k`...) se quitan antes, y un
+    marcador `_gl`/`_dx` se conserva como la convención del normal.
+
+    Tripo entrega el metal y la rugosidad en UN archivo con los dos nombres
+    unidos por un guion (`<base>_metallic-<base>_roughness_fixed.png`). Es el
+    empaquetado de glTF: R en 255, G rugosidad, B metalicidad (medido sobre el
+    archivo real del hacha de Tencent). Se reconoce como fuente empaquetada.
     """
     tallo = Path(nombre).stem
-    tallo_b = tallo.lower()
-    # Quitar sufijos extra del final (uno solo; más de uno es raro y se deja).
-    for x in _SUFIJOS_EXTRA:
-        if tallo_b.endswith(x):
-            tallo = tallo[:-len(x)]
-            tallo_b = tallo.lower()
-            break
-    # Buscar sufijo de slot, más largo primero para que `_basecolor` gane
-    # sobre `_color` y no matcheen prefijos parciales.
-    for sufijo in sorted(SUFIJO_A_SLOT, key=len, reverse=True):
-        if tallo_b.endswith(sufijo):
-            return SUFIJO_A_SLOT[sufijo], sufijo, tallo[:-len(sufijo)]
-    return "color", "", tallo
-
-
-def _es_fuente(tallo: str) -> str | None:
-    """'_orm'/'_roughness'/... -> esa fuente, o None si no es una fuente.
-
-    Quita los sufijos extra igual que `clasificar` y busca el sufijo de
-    fuente más largo que matchee, así `_metallicRoughness` gana sobre
-    `_roughness`.
-    """
-    bajo = tallo.lower()
-    for x in _SUFIJOS_EXTRA:
-        if bajo.endswith(x):
-            tallo = tallo[:-len(x)]
-            bajo = tallo.lower()
-            break
-    for fuente in sorted(FUENTES_RUGOSIDAD, key=len, reverse=True):
-        if bajo.endswith(fuente):
-            return fuente
-    return None
+    if tallo.count("-") == 1:
+        tallo_sin, _conv = _quitar_extras(tallo)
+        izq, der = tallo_sin.split("-")
+        try:
+            a, b = _clasificar_tallo(izq), _clasificar_tallo(der)
+        except TexturaError:
+            a = b = None
+        if (a is not None and a.clase == b.clase == "fuente"
+                and {a.rol, b.rol} == {"rugosidad", "metalico"}
+                and a.base.lower() == b.base.lower()):
+            return Rol("fuente", "empaquetada", "%s-%s" % (a.sufijo, b.sufijo),
+                       a.base)
+    return _clasificar_tallo(tallo)
 
 
 # ---------------------------------------------------------------------------
@@ -540,17 +649,40 @@ def ajustar_tamano(ancho: int, alto: int, max_lado: int
     return w, h, "redondeado hacia arriba a potencia de dos"
 
 
+# Los mapas que son COLOR, y por eso vienen en sRGB. El resto son datos
+# (máscara de entorno, altura) y se promedian tal cual.
+SLOTS_SRGB = frozenset({"color", "glow", "subsurface", "backlight"})
+
+# sRGB -> luz lineal, por byte. El tramo lineal va hasta 0,04045 (c <= 10).
+_A_LINEAL = tuple(c / 255.0 / 12.92 if c <= 10
+                  else ((c / 255.0 + 0.055) / 1.055) ** 2.4
+                  for c in range(256))
+
+
+def _a_srgb(v: float) -> int:
+    """Luz lineal -> byte sRGB. Inversa de `_A_LINEAL` (ida y vuelta exacta
+    en los 256 valores; lo fija un test)."""
+    if v <= 0.0031308:
+        s = v * 12.92
+    else:
+        s = 1.055 * v ** (1.0 / 2.4) - 0.055
+    return max(0, min(255, int(s * 255.0 + 0.5)))
+
+
 def redimensionar(tex: Textura, ancho2: int, alto2: int,
                   slot: str = "color") -> Textura:
     """Remuestreo por cajas (box filter), promediando 2x2 o el bloque que toque.
 
-    Es el mismo criterio que `census/escritor_dds.reducir`, que es el que
-    genera los mipmaps. Los mapas de DATOS (máscaras, metalicidad, rugosidad,
-    glow) se promedian lineal y queda bien. El color en sRGB es discutible por
-    la gamma, igual que en escritor_dds. Los NORMALES son el caso especial:
-    después de promediar hay que RENORMALIZAR cada vector, porque el promedio
-    de cuatro normales unitarias apuntando en direcciones distintas es más
-    corto que 1 y queda el relieve más suave de lo debido.
+    Cada mapa se promedia como lo que es (trampa 35 de la skill):
+
+      * color (`SLOTS_SRGB`): en LUZ LINEAL y de vuelta a sRGB. Promediar los
+        valores sRGB oscurece los bordes con contraste;
+      * normal: los vectores, y después se RENORMALIZAN. El promedio de cuatro
+        normales unitarias distintas es más corto que 1 y aplana el relieve;
+      * el resto, y el alfa de todos: tal cual, porque son datos lineales.
+
+    La misma función arma los mipmaps (`escribir_dds`), así que la regla vale
+    para toda la cadena y no solo para el nivel 0.
     """
     if (tex.ancho, tex.alto) == (ancho2, alto2):
         return tex
@@ -558,6 +690,8 @@ def redimensionar(tex: Textura, ancho2: int, alto2: int,
         raise TexturaError(f"destino inválido: {ancho2}x{alto2}")
     salida = bytearray(ancho2 * alto2 * 4)
     es_normal = slot == "normal"
+    es_srgb = slot in SLOTS_SRGB
+    pix = tex.pixeles
     for y2 in range(alto2):
         y0 = y2 * tex.alto // alto2
         y1 = max(y0 + 1, (y2 + 1) * tex.alto // alto2)
@@ -565,34 +699,37 @@ def redimensionar(tex: Textura, ancho2: int, alto2: int,
             x0 = x2 * tex.ancho // ancho2
             x1 = max(x0 + 1, (x2 + 1) * tex.ancho // ancho2)
             acc = [0, 0, 0, 0]
+            lin = [0.0, 0.0, 0.0]
             n = 0
             for y in range(y0, min(y1, tex.alto)):
                 for x in range(x0, min(x1, tex.ancho)):
                     o = (y * tex.ancho + x) * 4
                     for c in range(4):
-                        acc[c] += tex.pixeles[o + c]
+                        acc[c] += pix[o + c]
+                    if es_srgb:
+                        for c in range(3):
+                            lin[c] += _A_LINEAL[pix[o + c]]
                     n += 1
             d = (y2 * ancho2 + x2) * 4
+            salida[d + 3] = (acc[3] + n // 2) // n
             if es_normal:
-                # Normal guardada como (R,G,B) = (nx*0.5+0.5, ny*0.5+0.5,
-                # nz*0.5+0.5), A especular. Se promedia en espacio de
-                # vector unitario y se renormaliza para no aplanar el
-                # relieve. El alfa es lineal y se promedia aparte.
-                import math
+                # (R,G,B) = n*0,5+0,5 por componente.
                 nx = (acc[0] / n) / 255.0 * 2.0 - 1.0
                 ny = (acc[1] / n) / 255.0 * 2.0 - 1.0
                 nz = (acc[2] / n) / 255.0 * 2.0 - 1.0
-                ln = math.sqrt(nx*nx + ny*ny + nz*nz)
+                ln = math.sqrt(nx * nx + ny * ny + nz * nz)
                 if ln > 1e-6:
-                    nx, ny, nz = nx/ln, ny/ln, nz/ln
+                    nx, ny, nz = nx / ln, ny / ln, nz / ln
                 else:
                     nx, ny, nz = 0.0, 0.0, 1.0
-                salida[d]     = max(0, min(255, int((nx * 0.5 + 0.5) * 255 + 0.5)))
-                salida[d + 1] = max(0, min(255, int((ny * 0.5 + 0.5) * 255 + 0.5)))
-                salida[d + 2] = max(0, min(255, int((nz * 0.5 + 0.5) * 255 + 0.5)))
-                salida[d + 3] = (acc[3] + n // 2) // n
+                for c, v in enumerate((nx, ny, nz)):
+                    salida[d + c] = max(0, min(255,
+                                               int((v * 0.5 + 0.5) * 255 + 0.5)))
+            elif es_srgb:
+                for c in range(3):
+                    salida[d + c] = _a_srgb(lin[c] / n)
             else:
-                for c in range(4):
+                for c in range(3):
                     salida[d + c] = (acc[c] + n // 2) // n
     return Textura(ancho2, alto2, bytes(salida))
 
@@ -611,30 +748,25 @@ def _estadisticas(pixeles: bytes, paso: int = 4) -> dict:
             "media": round(sum(vals) / len(vals), 2), "n": len(vals)}
 
 
-def describir_fuente(tex: Textura) -> dict:
-    """Qué canal es la rugosidad y cuál la metalicidad en una fuente PBR.
+def es_gris(tex: Textura, lado: int = 64) -> dict:
+    """¿R == G == B? Mirando una grilla de `lado` x `lado` téxeles repartida
+    por TODA la imagen.
 
-    Regla documentada y reportada, no una heurística oculta:
-      - si el mapa es escala de grises (R == G == B en la muestra), es un mapa
-        de rugosidad dedicado y se usa R;
-      - si no, se asume ORM (R = oclusión, G = rugosidad, B = metalicidad),
-        que es lo que entregan la mayoría de los generadores.
+    Solo se usa para COMPROBAR que un `_roughness` o un `_metallic` suelto es
+    lo que dice su nombre; qué canal se lee lo decide el nombre. La versión
+    anterior decidía el canal mirando los primeros 4.096 téxeles, que en una
+    textura de 4096 de ancho son la primera fila --justo el borde vacío del
+    atlas-- y un ORM de glTF con el rojo sin usar pasaba por gris.
     """
-    muestra = tex.pixeles[: 4096 * 4]
-    grises = all(muestra[i] == muestra[i + 1] == muestra[i + 2]
-                 for i in range(0, len(muestra), 4))
-    canal_r, canal_m = ("r", "r") if grises else ("g", "b")
-    return {
-        "grises": grises,
-        "canal_rugosidad": canal_r,
-        "canal_metalico": canal_m,
-        # La muestra se declara: decidir "es escala de grises" mirando 4096
-        # téxeles de un mapa de 4 millones es un muestreo, y un muestreo que no
-        # se dice es una conclusión que no se puede auditar.
-        "muestra_texeles": len(muestra) // 4,
-        "rugosidad": _estadisticas(_canal(tex, canal_r)),
-        "metalicidad": _estadisticas(_canal(tex, canal_m)),
-    }
+    xs = sorted({(2 * i + 1) * tex.ancho // (2 * lado) for i in range(lado)})
+    ys = sorted({(2 * i + 1) * tex.alto // (2 * lado) for i in range(lado)})
+    p = tex.pixeles
+    distintos = sum(1 for y in ys for x in xs
+                    if not (p[(y * tex.ancho + x) * 4]
+                            == p[(y * tex.ancho + x) * 4 + 1]
+                            == p[(y * tex.ancho + x) * 4 + 2]))
+    return {"gris": distintos == 0, "muestra_texeles": len(xs) * len(ys),
+            "no_grises": distintos}
 
 
 def _canal(tex: Textura, cual: str) -> bytes:
@@ -647,31 +779,37 @@ def _canal(tex: Textura, cual: str) -> bytes:
     return tex.pixeles[idx::4]
 
 
-def alfa_desde_rugosidad(tex_n: Textura, tex_rug: Textura
-                         ) -> tuple[Textura, float, dict]:
+_INVERTIR = bytes(range(255, -1, -1))
+
+
+def alfa_desde_rugosidad(tex_n: Textura, tex_rug: Textura, canal: str
+                         ) -> tuple[Textura, float]:
     """El alfa del `_n` es la máscara especular: `255 - roughness`.
 
-    Requiere que ambas texturas tengan las mismas dimensiones --si no, el
-    remuestreo silencioso asociaría píxeles de mapas distintos-- y avisa si el
-    resultado queda saturado, que es el defecto que esta conversión existe para
-    no producir.
+    Las dos texturas tienen que medir lo mismo. No es que no se pueda
+    remuestrear --las dos cubren el mismo espacio UV, y `_procesar_base` las
+    lleva al tamaño final ANTES de llamar acá--, es que esta función no
+    remuestrea: con tamaños distintos asociaría téxeles que no se tocan.
 
-    Devuelve (textura, % de téxeles en 255, descripción de la fuente).
+    Devuelve (textura, % de téxeles del alfa en 255).
     """
     if (tex_n.ancho, tex_n.alto) != (tex_rug.ancho, tex_rug.alto):
         raise TexturaError(
             f"el normal mide {tex_n.ancho}x{tex_n.alto} y la rugosidad "
-            f"{tex_rug.ancho}x{tex_rug.alto}: no se remuestrea para asociar "
-            f"píxeles de mapas distintos")
-    desc = describir_fuente(tex_rug)
-    rug = _canal(tex_rug, desc["canal_rugosidad"])
+            f"{tex_rug.ancho}x{tex_rug.alto}: hay que llevarlas al mismo "
+            f"tamaño antes de combinarlas")
     pix = bytearray(tex_n.pixeles)
-    for i in range(0, len(pix), 4):
-        pix[i + 3] = 255 - rug[i // 4]
-    salida = Textura(tex_n.ancho, tex_n.alto, bytes(pix))
-    alfa = _canal(salida, "a")
+    pix[3::4] = _canal(tex_rug, canal).translate(_INVERTIR)
+    alfa = pix[3::4]
     saturacion = 100.0 * alfa.count(255) / max(1, len(alfa))
-    return salida, saturacion, desc
+    return Textura(tex_n.ancho, tex_n.alto, bytes(pix)), saturacion
+
+
+def invertir_verde(tex: Textura) -> Textura:
+    """Normal DirectX -> OpenGL, que es lo que usa Skyrim: G' = 255 - G."""
+    pix = bytearray(tex.pixeles)
+    pix[1::4] = bytes(pix[1::4]).translate(_INVERTIR)
+    return Textura(tex.ancho, tex.alto, bytes(pix))
 
 
 def expandir_rango(tex: Textura, canal: str = "g") -> tuple[Textura, dict]:
@@ -699,22 +837,39 @@ def expandir_rango(tex: Textura, canal: str = "g") -> tuple[Textura, dict]:
     return Textura(tex.ancho, tex.alto, bytes(pix)), obs
 
 
-def entorno_desde_metalico(tex_fuente: Textura) -> tuple[Textura, dict]:
-    """La máscara `_m` desde la metalicidad del ORM, con rango expandido.
+# Por debajo de este máximo la metalicidad es ruido de compresión sobre un
+# objeto que no es de metal, y no se escribe `_m`. HEURÍSTICA: 16 es el 6 % del
+# rango; una región metálica real de un generador llega mucho más arriba (en el
+# proyecto de origen, a 117). Sin este piso, `expandir_rango` estiraba un
+# máximo de 2 a 255 y la máscara salía salpicada de reflejo total.
+PISO_METAL = 16
+
+
+def entorno_desde_metalico(tex_fuente: Textura, canal: str = "b"
+                           ) -> tuple[Textura | None, dict]:
+    """La máscara `_m` desde la metalicidad, con rango expandido.
 
     `_m` NO es la metalicidad de PBR: controla cuánto refleja el cubemap del
     shader Environment_Map. El canal de metalicidad es la mejor fuente
     disponible, y por eso se usa, pero la máscara sale en escala de grises.
+
+    Devuelve (None, info) si el máximo no llega a `PISO_METAL`: el objeto no
+    es metálico y una `_m` inventada sería peor que ninguna.
     """
-    desc = describir_fuente(tex_fuente)
-    tex, obs = expandir_rango(tex_fuente, desc["canal_metalico"])
-    canal = _canal(tex, desc["canal_metalico"])
-    pix = bytearray(len(canal) * 4)
-    for i, v in enumerate(canal):
-        d = i * 4
-        pix[d:d + 4] = bytes((v, v, v, 255))
+    vals = _canal(tex_fuente, canal)
+    if max(vals) < PISO_METAL:
+        return None, {
+            "canal": canal, "max": max(vals),
+            "nota": "metalicidad maxima %d < %d (heuristica): el objeto no es "
+                    "metalico y no se escribe _m" % (max(vals), PISO_METAL)}
+    tex, obs = expandir_rango(tex_fuente, canal)
+    v = _canal(tex, canal)
+    pix = bytearray(len(v) * 4)
+    for c in range(3):
+        pix[c::4] = v
+    pix[3::4] = b"\xff" * len(v)
     return Textura(tex.ancho, tex.alto, bytes(pix)), {
-        "fuente": desc, "expansion": obs,
+        "canal": canal, "expansion": obs,
         "nota": "mascara en escala de grises: _m es reflejo de cubemap, no "
                 "metalicidad de PBR",
     }
@@ -724,7 +879,7 @@ def entorno_desde_metalico(tex_fuente: Textura) -> tuple[Textura, dict]:
 # Escritura y verificación
 # ---------------------------------------------------------------------------
 
-def escribir_dds(tex: Textura, ruta: Path) -> Path:
+def escribir_dds(tex: Textura, ruta: Path, slot: str = "color") -> Path:
     """DDS sin comprimir de 32 bpp con la cadena completa de mipmaps.
 
     Delega en `census/escritor_dds.py`, que ya está verificado: su autotest
@@ -733,10 +888,18 @@ def escribir_dds(tex: Textura, ruta: Path) -> Path:
     96,4 % de los casos, así que tener el nivel de más no es un defecto --y
     medir "cadena completa" contra 1x1 marcaba 31.940 texturas correctas como
     rotas.
+
+    Cada mipmap se arma con `redimensionar(..., slot)`: el color en luz lineal
+    y el normal renormalizado en TODOS los niveles, no solo en el primero.
     """
+    def reducir_nivel(pix: bytes, ancho: int, alto: int) -> bytes:
+        return redimensionar(Textura(ancho, alto, pix), max(1, ancho // 2),
+                             max(1, alto // 2), slot).pixeles
+
     ruta.parent.mkdir(parents=True, exist_ok=True)
     return escritor_dds.escribir(str(ruta), tex.ancho, tex.alto,
-                                 tex.pixeles, con_mipmaps=True)
+                                 tex.pixeles, con_mipmaps=True,
+                                 reducir_nivel=reducir_nivel)
 
 
 def validar_salida(ruta: Path, declarada: str) -> list[str]:
@@ -787,61 +950,158 @@ def _sha256(ruta: Path) -> str:
     return h.hexdigest()
 
 
+def copiar_entradas(rutas, ws: JobWorkspace) -> list[tuple[Path, Path]]:
+    """[(original, copia en input/texturas/)] de cada textura de entrada.
+
+    El contrato de INGEST es copiar con hash y no volver a leer el original:
+    si otra herramienta reescribe una textura durante la corrida, el reporte
+    tiene que hablar de los bytes que se convirtieron. Lo llama INGEST; esta
+    fase lo vuelve a llamar por si se la invoca sola, y entonces copia lo que
+    falte (el workspace de un job es siempre nuevo: `JobWorkspace.crear`
+    rechaza uno existente).
+
+    Dos entradas con el mismo nombre en carpetas distintas se pisarían en la
+    copia: es un error, no una elección.
+    """
+    base = ws.ruta_segura(Path("texturas"), subdir="input")
+    base.mkdir(exist_ok=True)
+    vistos: dict[str, Path] = {}
+    pares = []
+    for ruta in sorted(Path(p) for p in rutas):
+        clave = ruta.name.lower()
+        if clave in vistos:
+            raise TexturaError(
+                f"{ruta.name}: dos entradas con el mismo nombre ({vistos[clave]} "
+                f"y {ruta}); en el staging se pisarian")
+        vistos[clave] = ruta
+        copia = ws.ruta_segura(Path("texturas") / ruta.name, subdir="input")
+        if not copia.exists():
+            shutil.copyfile(ruta, copia)
+        pares.append((ruta, copia))
+    return pares
+
+
 def _agrupar(rutas) -> dict:
-    """{base: {'slots': {slot: Path}, 'fuentes': {fuente: Path}}}.
+    """{base: {'slots', 'fuentes', 'ignoradas', 'convencion_normal'}}.
 
     Dos entradas que escriban en el mismo lugar son un error: si no, cuál gana
-    lo decide el orden del directorio y el resultado no es reproducible.
+    lo decide el orden del directorio y el resultado no es reproducible. Lo
+    mismo dos fuentes de la misma cosa (un ORM y un `_roughness` sueltos).
     """
     grupos: dict[str, dict] = {}
     for ruta in rutas:
         ruta = Path(ruta)
-        tallo = ruta.stem
-        fuente = _es_fuente(tallo)
-        if fuente is not None:
-            base = tallo[: -len(fuente)]
-            clave, bolsillo = "fuentes", fuente
-        else:
-            slot, _sufijo, base = clasificar(ruta.name)
-            clave, bolsillo = "slots", slot
-        if not _PATRON_BASE.fullmatch(base):
+        r = clasificar(ruta.name)
+        if not _PATRON_BASE.fullmatch(r.base):
             raise TexturaError(
-                f"{ruta.name}: nombre base {base!r} no usable para construir "
+                f"{ruta.name}: nombre base {r.base!r} no usable para construir "
                 f"rutas (se admite [A-Za-z0-9 ._+-], 1-64 chars, sin "
                 f"separadores de directorio)")
-        grupo = grupos.setdefault(base, {"slots": {}, "fuentes": {}})
-        if bolsillo in grupo[clave]:
+        grupo = grupos.setdefault(r.base, {"slots": {}, "fuentes": {},
+                                           "ignoradas": [],
+                                           "convencion_normal": None})
+        if r.clase == "ignorada":
+            grupo["ignoradas"].append({"archivo": ruta.name, "rol": r.rol})
+            continue
+        clave = "slots" if r.clase == "slot" else "fuentes"
+        if r.rol in grupo[clave]:
             raise TexturaError(
-                f"{ruta.name}: dos entradas escriben en {base}/{bolsillo} "
-                f"({grupo[clave][bolsillo].name} y {ruta.name}); no se elige "
+                f"{ruta.name}: dos entradas escriben en {r.base}/{r.rol} "
+                f"({grupo[clave][r.rol].name} y {ruta.name}); no se elige "
                 f"una en silencio")
-        grupo[clave][bolsillo] = ruta
+        grupo[clave][r.rol] = ruta
+        if r.clase == "slot" and r.rol == "normal":
+            grupo["convencion_normal"] = r.convencion
+    for base, grupo in grupos.items():
+        f = grupo["fuentes"]
+        if "empaquetada" in f and ("rugosidad" in f or "metalico" in f):
+            raise TexturaError(
+                f"{base}: hay un mapa empaquetado ({f['empaquetada'].name}) y "
+                f"ademas uno suelto "
+                f"({', '.join(sorted(x.name for k, x in f.items() if k != 'empaquetada'))}); "
+                f"cual manda seria una decision silenciosa. Dejar uno")
     return grupos
+
+
+def _fuentes(grupo: dict) -> tuple[tuple | None, tuple | None, dict]:
+    """(rugosidad, metalicidad, descripcion). Cada una es (Textura, canal,
+    nombre de archivo) o None.
+
+    El canal lo dice el nombre: el empaquetado de glTF lleva la rugosidad en
+    G y la metalicidad en B. Un mapa suelto es gris y se lee su R, y se
+    COMPRUEBA que sea gris: un ORM llamado `_roughness` daria el rojo --la
+    oclusion-- como rugosidad.
+    """
+    f = grupo["fuentes"]
+    rug = met = None
+    desc = {}
+    if "empaquetada" in f:
+        t = leer_textura(f["empaquetada"])
+        nombre = f["empaquetada"].name
+        rug, met = (t, "g", nombre), (t, "b", nombre)
+        desc["empaquetada"] = {
+            "archivo": nombre, "dimensiones": [t.ancho, t.alto],
+            "canales": "G rugosidad, B metalicidad (empaquetado de glTF)",
+            "rugosidad": _estadisticas(_canal(t, "g")),
+            "metalicidad": _estadisticas(_canal(t, "b"))}
+    for rol, que in (("rugosidad", "rugosidad"), ("metalico", "metalicidad")):
+        if rol not in f:
+            continue
+        t = leer_textura(f[rol])
+        nombre = f[rol].name
+        gris = es_gris(t)
+        if not gris["gris"]:
+            raise TexturaError(
+                f"{nombre}: el nombre dice {que} suelta, que es un mapa gris, "
+                f"y {gris['no_grises']} de {gris['muestra_texeles']} texeles "
+                f"de la muestra no lo son. Si es un mapa empaquetado (ORM), "
+                f"nombralo con _orm o _metallicRoughness")
+        if rol == "rugosidad":
+            rug = (t, "r", nombre)
+        else:
+            met = (t, "r", nombre)
+        desc[rol] = {"archivo": nombre, "dimensiones": [t.ancho, t.alto],
+                     "canales": "gris, se lee R", "gris": gris,
+                     que: _estadisticas(_canal(t, "r"))}
+    return rug, met, desc
+
+
+def _motivos_mascara(m: dict) -> list[str]:
+    """Por qué el `_n` escrito pide revisión, con el número al lado.
+
+    No reprueba: la regla de saturación está medida solo sobre armas, y esta
+    fase es de static/clutter. Pero una máscara fuera de lo que usa el
+    vanilla no puede pasar callada: es el defecto del hacha (99,7 % en
+    blanco) y es lo que produce el hueco negro del atlas, que es rugosidad 0
+    y sale en 255.
+    """
+    motivos = []
+    blanco = m.get("blanco_pct")
+    media = m.get("media")
+    if blanco is not None and blanco > mascara_especular.TOPE_ARMA:
+        motivos.append(
+            "%.1f %% de los bloques del alfa en 255: mas del %g %% que la "
+            "regla de armas admite (las 140 _n de arma del corpus estan por "
+            "debajo del 6,9 %%)" % (blanco, mascara_especular.TOPE_ARMA))
+    p5, _p50, p95 = mascara_especular.MEDIA_PORTABLES
+    if media is not None and not (p5 <= media <= p95):
+        motivos.append(
+            "media del alfa %.1f, fuera del p5-p95 de los objetos portables "
+            "vanilla (%d a %d)" % (media, p5, p95))
+    return motivos
+
+
+def _al_tamano(tex: Textura, ancho: int, alto: int) -> Textura:
+    """Un mapa de DATOS llevado a otro tamaño. Las texturas de un mismo
+    texture set cubren el mismo espacio UV, así que remuestrear una para
+    combinarla con otra asocia el mismo punto de la superficie."""
+    return redimensionar(tex, ancho, alto, slot="datos")
 
 
 def _procesar_base(base: str, grupo: dict, mani: JobManifest,
                    ws: JobWorkspace) -> dict:
     """Convierte un grupo de mapas en los DDS de su texture set."""
     categoria = mani.asset_category
-    fuentes = grupo["fuentes"]
-    tex_fuente = None
-    if fuentes:
-        # Una sola fuente de rugosidad por grupo: con dos, cuál manda sería
-        # otra vez una decisión silenciosa.
-        if len(fuentes) > 1:
-            raise TexturaError(
-                f"{base}: varias fuentes de rugosidad "
-                f"({sorted(f.name for f in fuentes.values())}); dejar una")
-        ruta_fuente = next(iter(fuentes.values()))
-        nombre_fuente = ruta_fuente.name
-        tex_fuente = leer_textura(ruta_fuente)
-        desc_fuente = describir_fuente(tex_fuente)
-    else:
-        desc_fuente = None
-
-    salidas = []
-    observaciones = []
-    requiere_revision = False
 
     # Sin color base no hay texture set: el shader de Skyrim siempre apunta a
     # una textura difusa. Si el grupo no la tiene, el nombre de archivo está
@@ -850,63 +1110,73 @@ def _procesar_base(base: str, grupo: dict, mani: JobManifest,
     if "color" not in grupo["slots"]:
         raise TexturaError(
             f"{base}: el grupo no tiene color base (un archivo sin sufijo, o "
-            f"con uno de {sorted(SUFIJO_A_SLOT)}). Sin difuso no hay "
+            f"con uno de {ALIAS_DE_COLOR}). Sin difuso no hay "
             f"BSShaderTextureSet posible; si el archivo es el color, sacale "
             f"el sufijo")
 
-    for slot in ORDEN_SLOTS:
-        sufijo = SUFIJO_ESCRITURA.get(slot, "")
-        nombre_salida = base + sufijo
-        ruta_entrada = grupo["slots"].get(slot)
-        origen = None
+    rug, met, desc_fuentes = _fuentes(grupo)
+    salidas = []
+    observaciones = [{"textura": x["archivo"], "clase": "ignorada",
+                      "detalle": "rol %s: sin equivalente en el shader de "
+                                 "Skyrim; no se escribe" % x["rol"]}
+                     for x in grupo["ignoradas"]]
+    motivos = []
 
-        if slot == "entorno" and ruta_entrada is None and tex_fuente is not None:
-            tex, info = entorno_desde_metalico(tex_fuente)
-            origen = "generada desde la metalicidad de %s" % nombre_fuente
-            observaciones.append({
-                "textura": nombre_salida,
-                "clase": "conversion",
-                "detalle": info,
-            })
+    for slot in ORDEN_SLOTS:
+        nombre_salida = base + SUFIJO_ESCRITURA[slot]
+        ruta_entrada = grupo["slots"].get(slot)
+
+        if slot == "entorno" and ruta_entrada is None:
+            if met is None:
+                continue
+            tex, info = entorno_desde_metalico(met[0], met[1])
+            observaciones.append({"textura": nombre_salida,
+                                  "clase": "conversion", "detalle": info})
+            if tex is None:
+                continue
+            origen = "generada desde la metalicidad de %s" % met[2]
         elif ruta_entrada is None:
             continue
         else:
             tex = leer_textura(ruta_entrada)
             origen = ruta_entrada.name
-            if slot == "normal" and tex_fuente is not None:
-                tex_n, saturacion, desc = alfa_desde_rugosidad(tex, tex_fuente)
-                tex = tex_n
-                origen = "%s + alfa desde %s" % (ruta_entrada.name,
-                                                 nombre_fuente)
+            if slot == "normal" and grupo["convencion_normal"] == "dx":
+                tex = invertir_verde(tex)
+                origen += " (verde invertido: DirectX -> OpenGL)"
                 observaciones.append({
-                    "textura": nombre_salida,
-                    "clase": "mascara_especular",
-                    "saturacion_pct": round(saturacion, 2),
-                    "canal_rugosidad": desc["canal_rugosidad"],
-                    "fuente_grises": desc["grises"],
-                })
-            elif slot == "normal":
-                saturada = set(tex.pixeles[3::4]) == {255}
-                observaciones.append({
-                    "textura": nombre_salida,
-                    "clase": "mascara_especular",
-                    "saturacion_pct": 100.0 if saturada else None,
-                    "nota": "sin fuente de rugosidad: el alfa se conserva "
-                            "tal cual vino",
-                })
-                if saturada:
-                    requiere_revision = True
+                    "textura": nombre_salida, "clase": "conversion",
+                    "detalle": "normal DirectX: Skyrim usa OpenGL (verde "
+                               "hacia +Y), se invirtio el verde"})
 
         dims_origen = [tex.ancho, tex.alto]
         ancho2, alto2, que = ajustar_tamano(tex.ancho, tex.alto,
                                             mani.max_lado_textura)
         tex = redimensionar(tex, ancho2, alto2, slot=slot)
 
+        if slot == "normal":
+            if rug is not None:
+                t_rug = _al_tamano(rug[0], ancho2, alto2)
+                tex, saturacion = alfa_desde_rugosidad(tex, t_rug, rug[1])
+                origen += " + alfa desde %s" % rug[2]
+                obs = {"textura": nombre_salida,
+                       "clase": "mascara_especular",
+                       "saturacion_pct": round(saturacion, 2),
+                       "fuente": rug[2], "canal_rugosidad": rug[1]}
+                if (rug[0].ancho, rug[0].alto) != (ancho2, alto2):
+                    obs["remuestreo"] = "rugosidad de %dx%d llevada a %dx%d" % (
+                        rug[0].ancho, rug[0].alto, ancho2, alto2)
+                observaciones.append(obs)
+            else:
+                observaciones.append({
+                    "textura": nombre_salida, "clase": "mascara_especular",
+                    "nota": "sin fuente de rugosidad: el alfa se conserva "
+                            "tal cual vino"})
+
         declarada = ruta_declarada(categoria, mani.job_id, nombre_salida)
         destino = ws.ruta_segura(
             Path("textures") / categoria / mani.job_id / (nombre_salida + ".dds"),
             subdir="package")
-        escribir_dds(tex, destino)
+        escribir_dds(tex, destino, slot)
 
         malas = validar_salida(destino, declarada)
         if malas:
@@ -937,20 +1207,26 @@ def _procesar_base(base: str, grupo: dict, mani: JobManifest,
                 raise ArtifactValidationError(
                     f"{destino.name}: no se pudo verificar la máscara "
                     f"especular ({medicion['fallas'][0]})")
+            motivos.extend("%s: %s" % (nombre_salida, x)
+                           for x in _motivos_mascara(medicion["medicion"]))
         salidas.append(entrada)
 
-    if not salidas:
-        raise TexturaError(
-            f"{base}: ninguna de las entradas produce una textura de salida. "
-            f"Una entrada que se ignora en silencio es el modo de fallo que "
-            f"esta fase existe para no tener")
     return {
         "base": base,
-        "fuente_pbr": desc_fuente,
+        "fuente_pbr": desc_fuentes or None,
         "texturas": salidas,
         "observaciones": observaciones,
-        "requiere_revision": requiere_revision,
+        "requiere_revision": bool(motivos),
+        "motivos_revision": motivos,
     }
+
+
+# Lo que esta fase no puede comprobar y la siguiente no puede olvidar.
+PRECONDICION_UV = (
+    "los mapas se convirtieron tal como los entrego el generador: sirven solo "
+    "si la malla final conserva SUS UV. Si PREPARE decima o re-despliega sin "
+    "conservarlas, hay que hornear desde el modelo original (trampas 31, 32 y "
+    "35 de la skill modelo-ia-a-skyrim)")
 
 
 def fase_process_texturas(mani: JobManifest, ws: JobWorkspace) -> dict:
@@ -960,29 +1236,40 @@ def fase_process_texturas(mani: JobManifest, ws: JobWorkspace) -> dict:
     `texture_inputs`, la fase corrió y no tuvo nada que hacer --que es distinto
     de no estar conectada, y el reporte tiene que distinguirlo (ver
     `_fase_noop` en runner.py).
+
+    Lee las COPIAS de input/texturas/, no los originales: el hash del reporte
+    y los bytes convertidos son los mismos.
     """
-    entradas = sorted(Path(p) for p in mani.texture_inputs)
     reporte = {
         "ejecutada": True,
         "herramienta": "pipeline.texturas + census/escritor_dds.py + "
                        "fixtures/comparar.py + scripts/mascara_especular.py",
         "formato_salida": "DDS sin comprimir 32bpp con cadena de mipmaps",
         "max_lado_textura": mani.max_lado_textura,
-        "entradas": [{"archivo": str(p), "sha256": _sha256(p)}
-                     for p in entradas],
+        "entradas": [],
         "texture_sets": [],
     }
-    if not entradas:
+    if not mani.texture_inputs:
         reporte["nota"] = ("el manifest no declara texture_inputs: la fase "
                            "corrió y no tuvo nada que hacer. Un asset sin "
                            "texturas lo tiene que rechazar VALIDATE leyendo "
                            "las rutas del NIF, no esta fase adivinando")
         return reporte
 
-    grupos = _agrupar(entradas)
+    pares = copiar_entradas(mani.texture_inputs, ws)
+    reporte["entradas"] = [
+        {"archivo": str(original), "copia": "input/texturas/" + copia.name,
+         "sha256": _sha256(copia)} for original, copia in pares]
+    grupos = _agrupar(copia for _original, copia in pares)
     for base in sorted(grupos):
-        reporte["texture_sets"].append(
-            _procesar_base(base, grupos[base], mani, ws))
+        g = grupos[base]
+        if not g["slots"] and not g["fuentes"]:
+            # Solo mapas sin equivalente (una oclusión suelta): no son un
+            # texture set, y tampoco se pierden en silencio.
+            reporte.setdefault("ignoradas", []).extend(g["ignoradas"])
+            continue
+        reporte["texture_sets"].append(_procesar_base(base, g, mani, ws))
+    reporte["precondicion_uv"] = PRECONDICION_UV
 
     # El texture set que una futura EXPORT_NIF necesita para llenar el
     # BSShaderTextureSet. Se deja en reports/ --no en package/-- porque es
@@ -992,6 +1279,7 @@ def fase_process_texturas(mani: JobManifest, ws: JobWorkspace) -> dict:
         "job_id": mani.job_id,
         "categoria": mani.asset_category,
         "formato": reporte["formato_salida"],
+        "precondicion_uv": PRECONDICION_UV,
         "texture_sets": [
             {"base": t["base"],
              "texturas": {x["slot"]: x["declarada"] for x in t["texturas"]}}
@@ -1005,9 +1293,9 @@ def fase_process_texturas(mani: JobManifest, ws: JobWorkspace) -> dict:
     if sets_con_revision:
         reporte["requiere_revision"] = sets_con_revision
         reporte["nota"] = (
-            "estos texture sets quedaron con el alfa del _n saturado en 255 "
-            "porque no hubo fuente de rugosidad: 'todo brilla al máximo', que "
-            "es el defecto del hacha (99,7 % en blanco). No reprueba porque "
-            "la regla de saturación está medida solo para armas; se informa. "
-            "Arreglo: dar una fuente de rugosidad o escribir el alfa a mano.")
+            "estos texture sets tienen la mascara especular (alfa del _n) "
+            "fuera de lo que usa el vanilla; los motivos, con su numero, van "
+            "en `motivos_revision` de cada uno. Alfa en 255 es 'todo brilla "
+            "al maximo', el defecto del hacha (99,7 % en blanco). No reprueba "
+            "porque la regla de saturacion esta medida solo para armas.")
     return reporte

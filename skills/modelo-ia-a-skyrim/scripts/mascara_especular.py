@@ -65,6 +65,8 @@ import sys
 
 TOPE_ARMA = 10.0          # % de bloques en blanco admitido en un _n de arma
 MIN_BLOQUES = 64          # menos que esto no dice nada
+# Media del alfa por textura, en objetos portables vanilla: (p5, mediana, p95).
+MEDIA_PORTABLES = (14, 56, 219)
 
 
 # Sin comprimir de 32 bpp: tiene alfa y se lee SIN decodificar nada. Antes caía
@@ -130,11 +132,22 @@ def _medir_sin_comprimir(d, ancho, alto, paso):
     no hay que aproximar nada porque los valores estan ahi. El canal alfa se
     saca de una con un corte con paso (operacion de C, no un loop de Python),
     y cada bloque se decide comparando sus cuatro filas.
+
+    En QUE byte del texel va el alfa lo dice la mascara alfa de la cabecera,
+    no una suposicion: 0xFF000000 es el byte 3 (BGRA, lo que escribe
+    census/escritor_dds.py), 0x000000FF el byte 0. Una mascara que no es un
+    byte entero no se adivina.
     """
     base = 128
     if base + ancho * alto * 4 > len(d):
         return {"error": "el archivo no llega a contener su primer mip"}
-    alfa = d[base + 3: base + 3 + ancho * alto * 4: 4]
+    amask, = struct.unpack_from("<I", d, 104)
+    byte_alfa = {0x000000FF: 0, 0x0000FF00: 1, 0x00FF0000: 2,
+                 0xFF000000: 3}.get(amask)
+    if byte_alfa is None:
+        return {"error": "mascara alfa 0x%08X: no es un byte entero del "
+                         "texel, y no se adivina donde esta el alfa" % amask}
+    alfa = d[base + byte_alfa: base + byte_alfa + ancho * alto * 4: 4]
     if len(alfa) < ancho * alto:
         return {"error": "el archivo no llega a contener su primer mip"}
     bw, bh = (ancho + 3) // 4, (alto + 3) // 4
@@ -239,8 +252,8 @@ def juzgar(m, es_arma):
             "saturado del todo: son materiales MATE --ropa, comida, carbon, "
             "cejas-- donde el brillo lo apaga el shader. Si este asset no es "
             "de esa clase, la mascara esta mal." % m["blanco_pct"])
-    notas.append("OBS media del alfa %.1f. En objetos portables: p5 14, "
-                 "mediana 56, p95 219." % m["media"])
+    notas.append("OBS media del alfa %.1f. En objetos portables: p5 %d, "
+                 "mediana %d, p95 %d." % ((m["media"],) + MEDIA_PORTABLES))
     return fallas, notas
 
 
@@ -287,12 +300,15 @@ def _dds(ancho, alto, alfas):
     return bytes(cab) + bytes(cuerpo)
 
 
-def _sin_comprimir(ancho, alto, alfas, bits=32):
+def _sin_comprimir(ancho, alto, alfas, bits=32, alfa_primero=False):
     """Un DDS sin comprimir, un solo nivel, alfa por texel. Solo autotest.
 
     Con bits=24 no hay canal alfa: es el caso que tiene que reprobar por
     "sin_alfa" y no por "no medible" -- un DDS de 24 bpp no tiene bytes para
     la mascara, aunque la cabecera la mencione.
+
+    Con `alfa_primero` el alfa va en el byte 0 (mascara 0x000000FF) y el byte
+    3 lleva 255: un lector que tome el byte 3 a ciegas mide otra cosa.
     """
     cab = bytearray(128)
     cab[0:4] = b"DDS "
@@ -304,7 +320,10 @@ def _sin_comprimir(ancho, alto, alfas, bits=32):
     struct.pack_into("<I", cab, 76, 32)                     # ddspf.size
     struct.pack_into("<I", cab, 80, 0x1 | 0x40)             # ALPHAPIXELS|RGB
     struct.pack_into("<I", cab, 88, bits)
-    if bits == 32:
+    if bits == 32 and alfa_primero:
+        struct.pack_into("<IIII", cab, 92,
+                         0xFF000000, 0x00FF0000, 0x0000FF00, 0x000000FF)
+    elif bits == 32:
         struct.pack_into("<IIII", cab, 92,
                          0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
     else:
@@ -314,7 +333,12 @@ def _sin_comprimir(ancho, alto, alfas, bits=32):
     cuerpo = bytearray()
     for i in range(ancho * alto):
         a = alfas[i % len(alfas)]
-        cuerpo += bytes((0, 0, 0, a)) if canales == 4 else bytes((0, 0, 0))
+        if canales == 3:
+            cuerpo += bytes((0, 0, 0))
+        elif alfa_primero:
+            cuerpo += bytes((a, 0, 0, 255))
+        else:
+            cuerpo += bytes((0, 0, 0, a))
     return bytes(cab) + bytes(cuerpo)
 
 
@@ -447,6 +471,16 @@ def autotest():
     exigir(abs(m.get("blanco_pct", -1) - 50.0) < 1e-6,
            "sin comprimir: la saturacion parcial salio %.2f %%, se esperaba "
            "50.00" % m.get("blanco_pct", -1))
+
+    # el alfa en el byte 0 (mascara 0x000000FF): se mide el alfa y no el
+    # byte 3, que en este archivo vale 255 en todos lados
+    m, _ = con_sc([40, 80, 120, 200], alfa_primero=True)
+    exigir(abs(m.get("blanco_pct", -1)) < 1e-6,
+           "alfa en el byte 0: se midio el byte 3 (%s %% en blanco)"
+           % m.get("blanco_pct"))
+    exigir(abs(m.get("media", -1) - 110.0) < 1.0,
+           "alfa en el byte 0: la media salio %s, se esperaba 110"
+           % m.get("media"))
 
     # un 24 bpp no tiene alfa: defecto del asset, no limite de la herramienta
     fd, ruta = tempfile.mkstemp(suffix="_n.dds")

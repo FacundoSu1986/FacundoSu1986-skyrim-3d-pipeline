@@ -53,7 +53,7 @@ from typing import Callable, Mapping
 from .errors import ArtifactValidationError, PipelineError, PublishError
 from .manifest import JobManifest
 from .staging import JobWorkspace
-from .texturas import fase_process_texturas
+from .texturas import copiar_entradas, fase_process_texturas
 
 
 class Phase(Enum):
@@ -106,11 +106,14 @@ def _fase_inspect(mani: JobManifest, ws: JobWorkspace) -> dict:
     reportan honestamente (inspeccionado=False), no se fingen."""
     from .inspection import inspeccionar_malla
 
-    entradas = sorted(ws.subdir("input").iterdir())
-    if not entradas:
-        raise ArtifactValidationError("fase INSPECT sin entrada en input/")
-    # Slice 2: un solo archivo fuente por job (el MVP es un asset por job).
-    return inspeccionar_malla(entradas[0])
+    # La malla se busca por SU nombre. Antes se tomaba el primer archivo de
+    # input/, y desde que INGEST copia también las texturas (input/texturas/)
+    # "el primero" podía ser esa carpeta.
+    malla = ws.subdir("input") / Path(mani.source_mesh).name
+    if not malla.is_file():
+        raise ArtifactValidationError(
+            "fase INSPECT sin entrada en input/: falta %s" % malla.name)
+    return inspeccionar_malla(malla)
 
 
 # Marca que distingue "esta fase no existe todavia" de "esta fase corrio y no
@@ -164,17 +167,28 @@ def _sha256(ruta: Path) -> str:
 
 
 def _fase_ingest(mani: JobManifest, ws: JobWorkspace) -> dict:
-    """Copia la entrada al staging. Nunca modifica ni mueve el original."""
+    """Copia la entrada al staging. Nunca modifica ni mueve el original.
+
+    Las texturas también: van a input/texturas/ y PROCESS_TEXTURES lee esas
+    copias. Así el hash del reporte y los bytes que se convierten son los
+    mismos aunque alguien reescriba el original durante la corrida.
+    """
     fuente = Path(mani.source_mesh)
     destino = ws.ruta_segura(Path(fuente.name), subdir="input")
     shutil.copyfile(fuente, destino)
-    return {
+    reporte = {
         "ejecutada": True,
         "herramienta": "shutil.copyfile",
         "entrada": str(fuente),
         "salida": destino.name,
         "sha256": _sha256(destino),
     }
+    if mani.texture_inputs:
+        reporte["texturas"] = [
+            {"entrada": str(original), "salida": "texturas/" + copia.name,
+             "sha256": _sha256(copia)}
+            for original, copia in copiar_entradas(mani.texture_inputs, ws)]
+    return reporte
 
 
 def _fase_publish(mani: JobManifest, ws: JobWorkspace) -> dict:

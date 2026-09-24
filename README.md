@@ -137,13 +137,17 @@ estado honesto de un pipeline a medias, no un bug.
 
 `PROCESS_TEXTURES` convierte PNG/TGA/DDS sin comprimir a DDS sin comprimir de
 32 bpp con mipmaps, derivando el alfa del `_n` desde la rugosidad (`255 −
-roughness`) y la máscara `_m` desde la metalicidad del ORM con el rango
-expandido. Lo que **no** hace, y por qué, está escrito en el docstring de
-`pipeline/texturas.py`: no comprime a DXT/BC7 (eso es otra pieza, con su propia
-falsificación), no saca la luz horneada del albedo (se atenúa con curvas, no se
-recupera) y no toca el NIF. Cada DDS que escribe se verifica con
-`fixtures/comparar.py` y la máscara del `_n` se mide con
-`scripts/mascara_especular.py`.
+roughness`, una heurística) y la máscara `_m` desde la metalicidad con el rango
+expandido. Reconoce los nombres de glTF, Substance, Poly Haven y Tripo, y
+rechaza los que traen un rol que no conoce en vez de tomarlos por color. Lo que
+**no** hace, y por qué, está escrito en el docstring de `pipeline/texturas.py`:
+no comprime a DXT/BC7 (eso es otra pieza, con su propia falsificación), no saca
+la luz horneada del albedo (se atenúa con curvas, no se recupera), no toca el
+NIF y no puede comprobar que la malla conserve las UV del generador (lo deja
+escrito como precondición). Cada DDS que escribe se verifica con
+`fixtures/comparar.py`, y la máscara del `_n` se mide con
+`scripts/mascara_especular.py` y pide revisión si queda fuera de lo que usa el
+vanilla.
 
 ## Licencia
 

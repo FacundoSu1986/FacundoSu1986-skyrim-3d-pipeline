@@ -147,20 +147,34 @@ con el asset ya instalado.
 
 **Se convierte, con número:**
 
-- **alfa del `_n` desde la rugosidad** (`255 − roughness`). Lo que el corpus
-  **sí** mide es la regla de saturación: las 140 texturas `_n` de malla de
-  arma del corpus están todas por debajo del 6,9 % de bloques en blanco, y
-  el hacha del proyecto de origen llegó al juego con el 99,7 %. Es decir,
-  el dato del corpus justifica que el alfa NO tiene que quedar en 255 ("todo
-  brilla al máximo", que no es un default neutro). La curva exacta
-  `255 − roughness` es una aproximación razonable para materiales metálicos
-  y se usa; la media del alfa se informa en el reporte para poder auditarla
-  sobre cada asset.
-- **máscara `_m` desde la metalicidad del ORM**, con el rango expandido. Es una
+- **alfa del `_n` desde la rugosidad** (`255 − roughness`). La CURVA es una
+  heurística sin calibrar: sobre la rugosidad real de Tripo del hacha da una
+  mediana tres veces más clara que la de las armas vanilla. Lo que tiene
+  número es el control de después. El `_n` escrito se mide, y el texture set
+  **pide revisión** (`motivos_revision`, con el número al lado) si pasa del
+  10 % de bloques en blanco --la regla de armas; las 140 `_n` de arma del
+  corpus están por debajo del 6,9 %-- o si la media del alfa cae fuera del
+  p5-p95 de los objetos portables vanilla (14 a 219). El hueco negro del atlas
+  es rugosidad 0 y sale en 255: ese control es el que lo ve.
+- **máscara `_m` desde la metalicidad**, con el rango expandido. Es una
   HEURÍSTICA y se declara como tal en el código y en el reporte: no hay
   medición del corpus que fije cuánto expandir. Lo que sí hay es la medición de
   que los generadores entregan metalicidad comprimida (0 a 0,46, media 0,06 en
   el proyecto de origen) y de que sin expandir la máscara sale sin contraste.
+  También es heurístico el piso: con metalicidad máxima por debajo de 16 el
+  objeto se toma como no metálico y no se escribe `_m` (antes, un máximo de 2
+  por ruido se estiraba a 255).
+- **el canal lo decide el nombre**, no una mirada a los píxeles:
+  `_orm`/`_metallicRoughness`/`_arm` es el empaquetado de glTF (G rugosidad,
+  B metalicidad); `_roughness` y `_metallic` sueltos son grises, y se
+  comprueba que lo sean sobre una grilla repartida por toda la imagen. Una
+  rugosidad suelta **no** genera `_m`. Un nombre con una palabra de rol que
+  no se reconoce (`_normalmap`) es un error, no un color; y un normal
+  `_dx`/`_DirectX` se escribe con el verde invertido, porque Skyrim usa
+  OpenGL.
+- **cada mapa se reduce como lo que es**, en el nivel 0 y en cada mipmap:
+  color en luz lineal, normal renormalizado, datos tal cual (trampa 35 de la
+  skill).
 - **potencia de dos en ambos lados**, redondeando hacia arriba y solo bajando
   cuando el manifest lo pide (`max_lado_textura`, default 2048). Medido: 0 de
   32.241 texturas vanilla tienen un lado que no lo sea.
@@ -178,6 +192,16 @@ con el asset ya instalado.
 - **No se toca el NIF.** La fase deja la ruta declarada de cada mapa en el
   reporte, que es lo que una futura EXPORT_NIF necesita para llenar el
   `BSShaderTextureSet`.
+- **No se comprueba que la malla conserve las UV del generador.** Los mapas
+  sirven solo en ese caso; si PREPARE decima o re-despliega sin conservarlas,
+  hay que hornear. Queda pendiente de decidir, y mientras tanto la fase lo
+  deja escrito como `precondicion_uv` en el reporte y en `texture_set.json`.
+
+**Las texturas pasan por INGEST.** Se copian a `input/texturas/` con su hash y
+PROCESS_TEXTURES lee las copias: el hash del reporte y los bytes convertidos
+son los mismos aunque alguien reescriba el original durante la corrida. Por
+eso INSPECT ahora busca la malla por su nombre y no toma "el primer archivo"
+de `input/`.
 
 **La verificación es la mitad que ya existía.** Cada DDS escrito pasa por
 `fixtures/comparar.reglas_dds` (`dds_parsea`, `dds_tamano`,
@@ -189,12 +213,12 @@ del `_n` se mide con `scripts/mascara_especular.py`.
 **Dos cosas que hubo que arreglar para que eso fuera cierto:**
 
 1. `mascara_especular.py` clasificaba el sin comprimir de 32 bpp como "lleva
-   alfa pero este lector no lo decodifica" y lo reportaba como limite de la
+   alfa pero este lector no lo decodifica" y lo reportaba como límite de la
    herramienta. Era falso: no hay nada que decodificar. Ahora lo mide texel por
-   texel, con la misma semantica de bloque constante que en DXT5, y el autotest
-   cuenta sus comprobaciones dinamicamente (no mas un "25"
-   hardcodeado que se desalineaba al agregar casos). El limite real sigue
-   siendo BC7, que tiene ocho modos con particionado variable.
+   texel, con la misma semántica de bloque constante que en DXT5, busca el
+   alfa en el byte que dice la máscara de la cabecera, y el autotest cuenta
+   sus comprobaciones en vez de imprimir un total escrito a mano. El límite
+   real sigue siendo BC7, que tiene ocho modos con particionado variable.
 2. `fixtures/comparar.py` insertaba `census/` en `sys.path` con una ruta
    RELATIVA. Al importarlo desde `pipeline/texturas.py` con cualquier
    directorio de trabajo, ese import se caía. Ahora es absoluta.
