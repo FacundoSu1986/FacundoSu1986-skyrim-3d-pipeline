@@ -23,8 +23,17 @@ importa:
      cara, el pico o los dedos del pie. La heuristica de masa de
      medir_parte.py es una pista, no una prueba.
 
+Opcional, para la capa HD (references/hd-texturas.md): `--guardar-alto
+<alto.blend>` guarda TAMBIEN la malla soldada SIN decimar. Es la fuente del
+bake (`hornear.py`): el detalle que el decimado tira no se recupera
+despues. Recibe la misma media vuelta que la baja --la misma transformacion a
+las dos, o el horneado sale corrido (trampa 34)--. El bake va justo despues de
+desplegar las UV, cuando las dos todavia coinciden; lo que deforme la baja
+ANTES (afinar) hay que aplicarselo igual a la alta. Montar va despues del bake
+y no toca las UV.
+
 Uso:
-  blender -b --python preparar_parte.py -- <entrada> <salida.blend> <tris> [--girar-180]
+  blender -b --python preparar_parte.py -- <entrada> <salida.blend> <tris> [--girar-180] [--guardar-alto <alto.blend>] [--force]
 
 Ejemplo:
   blender -b --python preparar_parte.py -- cabeza.glb partes/cabeza.blend 8000
@@ -131,6 +140,12 @@ def main():
         return
     entrada, salida, presupuesto = args[0], args[1], int(args[2])
     girar = "--girar-180" in args
+    alto_destino = None
+    if "--guardar-alto" in args:
+        i = args.index("--guardar-alto")
+        if i + 1 >= len(args) or args[i + 1].startswith("--"):
+            raise SystemExit("--guardar-alto necesita una ruta .blend")
+        alto_destino = os.path.abspath(args[i + 1])
 
     # Comprobar ANTES de trabajar. Estaba al final: la segunda corrida
     # importaba, soldaba y decimaba --lo caro-- y recien entonces avisaba que
@@ -141,6 +156,16 @@ def main():
             "%s ya existe. Preparar una parte es caro y sobrescribir sin avisar "
             "puede perder trabajo: usa --force si de verdad queres pisarlo."
             % destino)
+    if alto_destino:
+        # normcase: en Windows `Parte.blend` y `parte.blend` son el mismo
+        # archivo, y la alta --que se guarda segunda-- pisaba a la baja.
+        if (os.path.normcase(os.path.realpath(alto_destino))
+                == os.path.normcase(os.path.realpath(destino))):
+            raise SystemExit("--guardar-alto no puede ser el mismo archivo "
+                             "que la salida: pisaria la malla baja.")
+        if os.path.exists(alto_destino) and "--force" not in args:
+            raise SystemExit("%s ya existe: usa --force para pisarlo."
+                             % alto_destino)
 
     limpiar()
     nombre = os.path.splitext(os.path.basename(salida))[0]
@@ -149,10 +174,17 @@ def main():
     antes = tris(obj)
     soldar(obj)
     soldado = tris(obj)
+    # Copia de los DATOS, no del objeto: el decimado aplica un modificador al
+    # objeto activo y no toca un datablock que no es suyo. Lleva los
+    # materiales, que el bake de albedo necesita.
+    alto_malla = obj.data.copy() if alto_destino else None
     ratio = decimar(obj, presupuesto)
     despues = tris(obj)
     if girar:
         media_vuelta(obj)
+        if alto_malla is not None:
+            alto_malla.transform(Matrix.Rotation(3.141592653589793, 4, 'Z'))
+            alto_malla.update()
 
     co = [v.co for v in obj.data.vertices]
     x = [min(c.x for c in co), max(c.x for c in co)]
@@ -179,6 +211,16 @@ def main():
     print("  proporcion  %s" % prop_txt)
     print("  UV: %s" % [u.name for u in obj.data.uv_layers])
     print("[blend] %s" % destino)
+
+    if alto_malla is not None:
+        # Despues de guardar la baja: se reemplaza la escena por la alta y se
+        # guarda aparte. El nombre lleva "_alto" para que el bake la distinga.
+        bpy.data.objects.remove(obj, do_unlink=True)
+        alto_obj = bpy.data.objects.new(nombre + "_alto", alto_malla)
+        bpy.context.scene.collection.objects.link(alto_obj)
+        os.makedirs(os.path.dirname(alto_destino) or ".", exist_ok=True)
+        bpy.ops.wm.save_as_mainfile(filepath=alto_destino)
+        print("[alto] %d tris sin decimar -> %s" % (soldado, alto_destino))
 
     # Si el decimado no llego al presupuesto, la soldadura no alcanzo: hay
     # cascaras sueltas que el colapso no puede reducir. Avisar, no fallar.

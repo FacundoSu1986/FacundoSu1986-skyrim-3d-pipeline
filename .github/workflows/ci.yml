@@ -20,6 +20,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # numpy, y nada mas: el bake de la capa HD (hornear.py) corre en Blender,
+      # que trae numpy, y usa las funciones de horneado_puro.py que lo
+      # necesitan (margen, relleno, reduccion). Sin numpy en CI su autotest las
+      # salteaba y decia "OK". tests/test_horneado_puro.py falla si falta.
+      - name: numpy (para horneado_puro.py)
+        run: python -m pip install --disable-pip-version-check numpy
+
       # Sintaxis de TODOS los scripts, incluidos los de Blender (medir_parte,
       # preparar_parte): compileall no ejecuta los imports, así que valida su
       # sintaxis aunque `bpy` no exista en el runner.
