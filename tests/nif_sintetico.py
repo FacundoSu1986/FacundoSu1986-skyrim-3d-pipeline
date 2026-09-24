@@ -536,7 +536,7 @@ def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,
                         skin_tipo="BSDismemberSkinInstance",
                         nombre_raiz=None, tr_raiz=(0.0, 0.0, 0.0),
                         esc_raiz=1.0, escalas=None, rot_pieza=IDENTIDAD,
-                        rot_huesos=None):
+                        rot_huesos=None, bs=BS):
     """Un NIF skinneado minimo, con TODO parametrizado para poder torcerlo.
 
     Va aparte de construir() y no como un flag suyo para no tocar el
@@ -589,7 +589,7 @@ def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,
     h += struct.pack("<B", 1)
     h += struct.pack("<I", USER)
     h += struct.pack("<I", len(bloques))
-    h += struct.pack("<I", BS)
+    h += struct.pack("<I", bs)
     h += _corta("") + _corta("") + _corta("")
     h += struct.pack("<H", len(tipos))
     for t in tipos:

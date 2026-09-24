@@ -685,7 +685,8 @@ metadata y cae en `SKYRIM`. `[MEASURED]` Mismo estático: default → `bs_versio
 27.421 bytes, leído con `census/parser_nif.py` (issue #35 del repo).
 
 **Arreglo:** pasar **siempre** `target_game='SKYRIMSE', intuit_defaults=False`,
-y verificar `bs_version == 100` en el archivo escrito. Es pariente de la
+y verificar la versión en el archivo escrito: `scripts/verificar_export.py`
+reprueba por la regla `version` si no es la del vanilla (BS 100). Es pariente de la
 trampa 13 de `asset-nuevo-skyrim`: ahí el default era LE; acá lo es aunque
 pidas SE.
 
