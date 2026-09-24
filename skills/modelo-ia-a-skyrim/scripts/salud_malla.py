@@ -3,6 +3,7 @@
 
     python scripts/salud_malla.py <archivo>              informe
     python scripts/salud_malla.py <antes> <despues>      REGLA
+    python scripts/salud_malla.py --uv <antes> <despues> REGLA del paso 4b
     python scripts/salud_malla.py --autotest
     python scripts/salud_malla.py --falsificar <carpeta meshes>
 
@@ -57,6 +58,21 @@ Decimando 14 shapes vanilla al 25 % de sus triangulos, de las dos formas:
 Las cuatro OBSERVACIONES se informan y no reprueban: no estan medidas sobre el
 corpus con la densidad que hace falta para bloquear. Medirlas es trabajo
 pendiente, no una regla implicita.
+
+EL PASO 4b: `--uv`
+
+Rehacer las UV (paso 4b de references/hd-texturas.md) tiene una regla mas
+fuerte, y no necesita corpus porque es [INVARIANT]: desplegar escribe
+coordenadas de textura, no posiciones. Entre antes y despues de las UV la
+malla soldada tiene que ser la MISMA: vertices, triangulos, aristas, borde,
+no-manifold, winding y piezas. Cortar costuras parte vertices en el archivo
+exportado, y eso se informa y no reprueba.
+
+La regla de la decimacion no alcanza aca: un Solidify aplicado despues de
+desplegar (trampa 32) duplica los triangulos sin abrir ni un borde, y pasaba.
+
+Los grupos de vertices no se comparan: en el orden de hd-texturas.md el rig
+viene despues (paso 6), y un .obj o un .nif estatico no los trae.
 
 POR QUE SE SUELDA ANTES DE CONTAR
 
@@ -230,6 +246,35 @@ def comparar(antes, despues):
     return fallas, notas
 
 
+# Lo que rehacer las UV no puede cambiar. [INVARIANT] Desplegar, marcar
+# costuras o mover islas escribe coordenadas de textura, no posiciones: en
+# Blender las UV viven en los loops, no en los vertices. Cortar costuras SI
+# parte vertices en el archivo exportado (`verts`), y por eso se compara lo
+# soldado. Si algo de esto cambia, en el paso 4b entro otra cosa: un
+# modificador aplicado despues de las UV (trampa 32), una decimacion.
+GEOMETRIA_UV = ("soldados", "tris", "aristas", "borde", "no_manifold",
+                "winding", "piezas")
+
+
+def comparar_uv(antes, despues):
+    """(fallas, notas). REGLA del paso 4b: la geometria soldada no cambia."""
+    fallas, notas = [], []
+    if antes is None or despues is None:
+        fallas.append("no hubo nada que medir en uno de los dos archivos")
+        return fallas, notas
+    for campo in GEOMETRIA_UV:
+        if despues[campo] != antes[campo]:
+            fallas.append(
+                "REGLA uv %s: %d contra %d antes de las UV. Rehacer las UV no "
+                "toca posiciones ni triangulos: entro otra cosa --un "
+                "modificador aplicado despues de desplegar (trampa 32), una "
+                "decimacion-- y las UV nuevas ya no son de esta malla."
+                % (campo, despues[campo], antes[campo]))
+    notas.append("OBS vertices sin soldar: %d -> %d (cortar costuras los "
+                 "parte; es esperable)" % (antes["verts"], despues["verts"]))
+    return fallas, notas
+
+
 # --------------------------------------------------------------------------
 # lectura
 # --------------------------------------------------------------------------
@@ -317,8 +362,10 @@ def _partir_por_costura(pos, tris):
 
 def autotest():
     fallas = []
+    hechas = [0]
 
     def exigir(cond, texto):
+        hechas[0] += 1
         if not cond:
             fallas.append(texto)
 
@@ -395,8 +442,22 @@ def autotest():
     f, _ = comparar(cerrada, None)
     exigir(f, "contra un archivo sin nada medible: la REGLA no reprobo")
 
+    # --- la REGLA del paso 4b: rehacer las UV no cambia la geometria --------
+    partida = total([salud(*_partir_por_costura(pos, tris), min_triangulos=1)])
+    f, _ = comparar_uv(cerrada, partida)
+    exigir(not f, "uv: el mismo cubo partido por costuras reprobo")
+    f, _ = comparar_uv(cerrada, total([salud(pos2, tris2, 1)]))
+    exigir(f, "uv: caras agregadas despues de las UV y la REGLA no reprobo")
+    f, _ = comparar_uv(cerrada, total([salud(pos, tris_flip, 1)]))
+    exigir(f, "uv: un triangulo dado vuelta y la REGLA no reprobo")
+    f, _ = comparar_uv(cerrada, None)
+    exigir(f, "uv: contra nada medible y la REGLA no reprobo")
+
+    if not hechas[0]:
+        print("autotest: NO se comprobo NADA")
+        return 1
     print("autotest: %d comprobaciones, %d fallas"
-          % (18, len(fallas)))
+          % (hechas[0], len(fallas)))
     for x in fallas:
         print("  FALLA %s" % x)
     return 1 if fallas else 0
@@ -551,34 +612,40 @@ def falsificar(raiz):
     return 1 if fallas else 0
 
 
+def _comparar_archivos(antes, despues, regla):
+    if os.path.abspath(antes) == os.path.abspath(despues):
+        print("los dos caminos son el mismo archivo: no hay que comparar")
+        return 2
+    ma, _aa = informe(antes)
+    mb, _ab = informe(despues)
+    fallas, notas = regla(total(ma), total(mb))
+    print()
+    for n in notas:
+        print("   %s" % n)
+    for f in fallas:
+        print("   FALLA %s" % f)
+    if not ma or not mb:
+        print("   FALLA: no hubo nada que medir -- cero comprobaciones no "
+              "es exito")
+        return 1
+    return 1 if fallas else 0
+
+
 def main(argv):
     if len(argv) == 1 and argv[0] == "--autotest":
         return autotest()
+    if len(argv) == 3 and argv[0] == "--uv":
+        return _comparar_archivos(argv[1], argv[2], comparar_uv)
     if len(argv) == 2 and argv[0] == "--falsificar":
         return falsificar(argv[1])
     if len(argv) == 1:
         medidas, avisos = informe(argv[0])
         return 0 if medidas else 1
     if len(argv) == 2:
-        if os.path.abspath(argv[0]) == os.path.abspath(argv[1]):
-            print("los dos caminos son el mismo archivo: no hay que comparar")
-            return 2
-        ma, aa = informe(argv[0])
-        mb, ab = informe(argv[1])
-        fallas, notas = comparar(total(ma), total(mb))
-        print()
-        for n in notas:
-            print("   %s" % n)
-        for f in fallas:
-            print("   FALLA %s" % f)
-        if not ma or not mb:
-            print("   FALLA: no hubo nada que medir -- cero comprobaciones no "
-                  "es exito")
-            return 1
-        return 1 if fallas else 0
+        return _comparar_archivos(argv[0], argv[1], comparar)
     print(__doc__.strip().splitlines()[0])
-    print("uso: salud_malla.py <archivo> | <antes> <despues> | --autotest | "
-          "--falsificar <carpeta>")
+    print("uso: salud_malla.py <archivo> | <antes> <despues> | "
+          "--uv <antes> <despues> | --autotest | --falsificar <carpeta>")
     return 2
 
 

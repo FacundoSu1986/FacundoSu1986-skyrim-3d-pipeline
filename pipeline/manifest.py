@@ -15,12 +15,15 @@ Reglas de validación (todas verificables con tests):
   - max_lado_textura: entero, potencia de dos, dentro del rango que mide el
     corpus (ver MAX_LADO_TEXTURA);
   - sombreado: "vanilla" o "cs_pbr" (SOMBREADOS_SOPORTADOS);
+  - compresion: "ninguna" o "dxt" (COMPRESIONES_SOPORTADAS); "dxt" necesita
+    numpy, y sin numpy es error de configuracion, no de la fase;
   - los campos nulos/vacíos no son válidos.
 
 No hay paths hardcodeados: todas las rutas vienen del llamador.
 """
 from __future__ import annotations
 
+import importlib.util
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,6 +45,11 @@ EXTENSIONES_TEXTURA = frozenset({".png", ".tga", ".dds"})
 # el True PBR de Community Shaders [PROVIDER]: `_rmaos` en la ranura 5 y sin
 # `_m`. Ver skills/modelo-ia-a-skyrim/references/pbr-community-shaders.md.
 SOMBREADOS_SOPORTADOS = frozenset({"vanilla", "cs_pbr"})
+
+# Como se escriben los DDS. "ninguna": sin comprimir de 32 bpp, como el 31,2 %
+# del corpus. "dxt": DXT5 el `_n` (los 12.075 `_n` vanilla lo son) y todo mapa
+# con alfa; DXT1 el resto. Lo comprime census/compresor_dxt.py, con numpy.
+COMPRESIONES_SOPORTADAS = frozenset({"ninguna", "dxt"})
 
 # Lado máximo de textura, en téxeles. [OBSERVED] Del censo de 32.241 DDS: la
 # mediana del lado mayor es 256 en terrain, 512 en actors y clutter, 1024 en
@@ -101,6 +109,7 @@ class JobManifest:
     reference_asset: Path | None = None
     max_lado_textura: int = MAX_LADO_TEXTURA
     sombreado: str = "vanilla"
+    compresion: str = "ninguna"
 
     def __post_init__(self) -> None:
         """Normalización de tipos (el dataclass es frozen, así que va por
@@ -165,6 +174,18 @@ class JobManifest:
             problemas.append(
                 f"sombreado no soportado: {self.sombreado!r} "
                 f"(soportados: {sorted(SOMBREADOS_SOPORTADOS)})"
+            )
+        if self.compresion not in COMPRESIONES_SOPORTADAS:
+            problemas.append(
+                f"compresion no soportada: {self.compresion!r} "
+                f"(soportadas: {sorted(COMPRESIONES_SOPORTADAS)})"
+            )
+        elif (self.compresion == "dxt"
+              and importlib.util.find_spec("numpy") is None):
+            problemas.append(
+                "compresion 'dxt' necesita numpy (census/compresor_dxt.py), y "
+                "no esta instalado: `pip install numpy`, o compresion "
+                "'ninguna'"
             )
         # El lado máximo se valida contra el corpus, no contra el gusto: una
         # textura de 3000 téxeles no es "grande", es un lado que no es potencia

@@ -159,7 +159,11 @@ arriba.
   con el bit 23 prendido. Si el mod tiene que funcionar para todos, hace falta
   una versión vanilla aparte, o el camino de PBRNifPatcher: se envían las
   texturas y un JSON de configuración, y cada usuario parchea sus NIF.
-- **Compresión.** La fase escribe DDS sin comprimir, y todavía no hay
-  compresor en el repo.
+- **Compresión del `_rmaos`.** Con `compresion="dxt"` sale en DXT1, porque
+  su alfa es 255 en todos lados. DXT1 comprime los tres canales juntos, y la
+  rugosidad, el metal y la oclusión no tienen por qué parecerse: medido sobre
+  los mapas horneados de `hd-texturas.md`, un error RMS de 3,5, 3,2 y 2,3
+  niveles (de 255). Cuánto se nota, en el juego, no se midió. BC7, que
+  comprime mejor esos canales, el repo no lo escribe.
 - **Subsurface, capa, fuzz y glints.** Están documentados arriba desde el
   código, pero la fase no los arma.

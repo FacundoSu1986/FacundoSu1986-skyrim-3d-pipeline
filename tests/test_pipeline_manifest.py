@@ -5,9 +5,11 @@ Cubre los contratos de la slice: configuración válida, path traversal
 rechazado, extensión inválida, salida fuera del root rechazado y fuente
 inexistente. AAA: Arrange / Act / Assert.
 """
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from pipeline.errors import ConfigurationError
 from pipeline.manifest import JobManifest
@@ -115,6 +117,26 @@ class JobManifestRechazoTests(unittest.TestCase):
             for s in ("vanilla", "cs_pbr"):
                 with self.subTest(sombreado=s):
                     _manifest(raiz, mesh, sombreado=s).validar()
+
+    def test_compresion_desconocida_rechazada(self):
+        """BC7 no: 0 de 32.241 texturas vanilla lo son, y mascara_especular
+        no lee su alfa."""
+        self._assert_rechaza(compresion="bc7")
+
+    def test_dxt_sin_numpy_es_error_de_configuracion(self):
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp, mock.patch("importlib.util.find_spec", return_value=None):
+            with self.assertRaises(ConfigurationError) as ctx:
+                _manifest(raiz, mesh, compresion="dxt").validar()
+        self.assertIn("numpy", str(ctx.exception))
+
+    def test_las_dos_compresiones_se_aceptan(self):
+        tmp, raiz, mesh = _raiz_y_mesh()
+        with tmp:
+            _manifest(raiz, mesh).validar()
+            self.assertEqual(_manifest(raiz, mesh).compresion, "ninguna")
+            if importlib.util.find_spec("numpy") is not None:
+                _manifest(raiz, mesh, compresion="dxt").validar()
 
     # --- max_lado_textura ---------------------------------------------------
 

@@ -50,14 +50,15 @@ Lo que tiene un número atrás se dice, y lo que es heurística también:
 
 QUE NO HACE, Y POR QUE NO ES UN DESCUIDO
 ----------------------------------------
-  * NO comprime a DXT1/DXT5/BC7. Escribe DDS sin comprimir de 32 bpp con la
-    cadena completa de mipmaps, que es lo que ya hace y ya verifica
-    `census/escritor_dds.py`. Del censo: 10.048 de 32.241 texturas vanilla
-    (31,2 %) son sin comprimir y el juego las carga igual. Un compresor de
-    bloques es otra pieza con su propia falsificación --el docstring de
-    escritor_dds.py lo dice-- y va aparte. Lo que sí se informa es que los
-    12.075 `_n` del corpus son DXT5, o sea que el `_n` es el primer mapa que
-    va a pedir el compresor.
+  * NO comprime por defecto. Con `compresion="ninguna"` (el default)
+    escribe DDS sin comprimir de 32 bpp: del censo, 10.048 de 32.241 texturas
+    vanilla (31,2 %) lo son y el juego las carga igual. Con `"dxt"` escribe
+    el `_n` y todo mapa con alfa en DXT5 --los 12.075 `_n` del corpus son
+    DXT5-- y el resto en DXT1, con `census/compresor_dxt.py` (numpy). Cada
+    DXT escrito se RELEE y se informa el error por canal contra lo que se
+    quiso escribir (`error_compresion`), y la máscara especular se mide
+    sobre el DXT5, que es lo que llega al juego. BC7 no: el corpus no tiene
+    ninguno y `mascara_especular.py` no lo lee.
   * NO escribe el NIF ni toca las rutas de la malla. Deja `texture_set.json`
     en `reports/` con la ruta declarada de cada mapa, que es lo que una fase
     EXPORT_NIF necesita para llenar el `BSShaderTextureSet`.
@@ -497,9 +498,11 @@ def _orden_canales(d: dict) -> dict:
 def leer_dds(ruta: Path) -> Textura:
     """DDS SIN comprimir de 32 bpp, nivel 0, orden BGRA.
 
-    Un DDS comprimido se rechaza con el número del censo al lado: no es un
-    detalle de implementación, es que esta fase todavía no comprime y por lo
-    tanto no debería pretender que sí. Un DDS sin comprimir con otro orden
+    Un DDS comprimido de ENTRADA se rechaza, con el número del censo al
+    lado: leerlo sería descomprimir un DXT para volver a comprimirlo, y cada
+    pasada pierde. La entrada tiene que ser el original sin pérdida (PNG,
+    TGA o DDS sin comprimir); la compresión es de la salida
+    (`compresion="dxt"`). Un DDS sin comprimir con otro orden
     de canales (RGBA, ARGB) también se rechaza, con las máscaras que trae
     el header en el mensaje: asumir BGRA a ciegas devolvía colores
     invertidos sin ningún error.
@@ -509,7 +512,9 @@ def leer_dds(ruta: Path) -> Textura:
         raise TexturaError(
             f"{ruta}: formato {d['formato']} comprimido; esta fase lee DDS "
             f"sin comprimir (32 bpp). Del censo, 10.048 de 32.241 texturas "
-            f"vanilla son sin comprimir, así que no es un caso exótico")
+            f"vanilla son sin comprimir, así que no es un caso exótico. "
+            f"Recomprimir un DXT pierde otra vez: pasá el original (PNG, TGA) "
+            f"y pedí la compresión con compresion='dxt'")
     if d["formato"] != "sin_comprimir_32bpp":
         raise TexturaError(
             f"{ruta}: formato {d['formato']}; se esperaba sin_comprimir_32bpp")
@@ -914,8 +919,27 @@ def entorno_desde_metalico(tex_fuente: Textura, canal: str = "b"
 # Escritura y verificación
 # ---------------------------------------------------------------------------
 
-def escribir_dds(tex: Textura, ruta: Path, slot: str = "color") -> Path:
-    """DDS sin comprimir de 32 bpp con la cadena completa de mipmaps.
+def formato_dds(slot: str, tex: Textura, compresion: str) -> str:
+    """El formato de cada mapa: "RGBA" (sin comprimir), "DXT1" o "DXT5".
+
+    Con "dxt": el `_n` siempre DXT5, porque su alfa es la máscara especular
+    aunque venga en 255 (12.075 de 12.075 `_n` vanilla son DXT5; DXT1 no
+    tiene alfa y la máscara desaparece). Cualquier otro mapa con algún téxel
+    de alfa < 255 va en DXT5; el resto en DXT1, que pesa la mitad. En el
+    corpus, `_d` es DXT1 en el 57 % y `_m` en el 36 %
+    (census/hallazgos_texturas.md, hallazgo 7).
+    """
+    if compresion == "ninguna":
+        return "RGBA"
+    if slot == "normal":
+        return "DXT5"
+    opaco = tex.pixeles[3::4].count(255) == tex.ancho * tex.alto
+    return "DXT1" if opaco else "DXT5"
+
+
+def escribir_dds(tex: Textura, ruta: Path, slot: str = "color",
+                 formato: str = "RGBA") -> Path:
+    """DDS con la cadena completa de mipmaps, sin comprimir o DXT1/DXT5.
 
     Delega en `census/escritor_dds.py`, que ya está verificado: su autotest
     compara el tamaño que predice `parser_dds` contra el real y RELEE los
@@ -934,7 +958,26 @@ def escribir_dds(tex: Textura, ruta: Path, slot: str = "color") -> Path:
     ruta.parent.mkdir(parents=True, exist_ok=True)
     return escritor_dds.escribir(str(ruta), tex.ancho, tex.alto,
                                  tex.pixeles, con_mipmaps=True,
-                                 reducir_nivel=reducir_nivel)
+                                 reducir_nivel=reducir_nivel,
+                                 formato=formato)
+
+
+def error_compresion(tex: Textura, ruta: Path) -> dict:
+    """Relee el nivel 0 de un DXT escrito y mide el error contra `tex`.
+
+    RMS y máximo por canal, en niveles de 0 a 255. No reprueba: no hay un
+    número del corpus que diga cuánto error es mucho. Informa, para que un
+    mapa que el compresor destrozó se vea en el reporte y no en el juego.
+    """
+    import numpy as np
+    _d, vuelta = escritor_dds.leer_pixeles(str(ruta))
+    a = np.frombuffer(tex.pixeles, np.uint8).reshape(-1, 4).astype(np.int32)
+    b = np.frombuffer(vuelta, np.uint8).reshape(-1, 4).astype(np.int32)
+    dif = np.abs(a - b)
+    return {"rms": [round(float(v), 2)
+                    for v in np.sqrt((dif.astype(np.float64) ** 2).mean(0))],
+            "maximo": [int(v) for v in dif.max(0)],
+            "canales": "RGBA"}
 
 
 def validar_salida(ruta: Path, declarada: str) -> list[str]:
@@ -1252,14 +1295,15 @@ def _procesar_base(base: str, grupo: dict, mani: JobManifest,
         destino = ws.ruta_segura(
             Path("textures") / categoria / mani.job_id
             / (nombre_salida + ".dds"), subdir="package")
-        escribir_dds(tex, destino, slot)
+        formato = formato_dds(slot, tex, mani.compresion)
+        escribir_dds(tex, destino, slot, formato)
         malas = validar_salida(destino, declarada)
         if malas:
             raise ArtifactValidationError(
                 f"{destino.name}: no pasa las reglas de DDS del contrato "
                 f"({', '.join(malas)}). Un DDS escrito por esta fase que no "
                 f"pasa el contrato es un error del pipeline, no del insumo")
-        return destino, {
+        entrada = {
             "slot": slot,
             "declarada": declarada,
             "archivo": str(destino),
@@ -1267,9 +1311,13 @@ def _procesar_base(base: str, grupo: dict, mani: JobManifest,
             "dimensiones": [tex.ancho, tex.alto],
             "dimensiones_origen": dims_origen,
             "ajuste": ajuste,
-            "formato": "sin_comprimir_32bpp",
+            "formato": ("sin_comprimir_32bpp" if formato == "RGBA"
+                        else formato),
             "sha256": _sha256(destino),
         }
+        if formato != "RGBA":
+            entrada["error_compresion"] = error_compresion(tex, destino)
+        return destino, entrada
 
     for slot in ORDEN_SLOTS:
         nombre_salida = base + SUFIJO_ESCRITURA[slot]
@@ -1388,8 +1436,13 @@ def fase_process_texturas(mani: JobManifest, ws: JobWorkspace) -> dict:
     reporte = {
         "ejecutada": True,
         "herramienta": "pipeline.texturas + census/escritor_dds.py + "
-                       "fixtures/comparar.py + scripts/mascara_especular.py",
-        "formato_salida": "DDS sin comprimir 32bpp con cadena de mipmaps",
+                       "census/compresor_dxt.py + fixtures/comparar.py + "
+                       "scripts/mascara_especular.py",
+        "formato_salida": ("DDS sin comprimir 32bpp con cadena de mipmaps"
+                           if mani.compresion == "ninguna" else
+                           "DDS DXT5 (_n y mapas con alfa) y DXT1 (el resto) "
+                           "con cadena de mipmaps"),
+        "compresion": mani.compresion,
         "max_lado_textura": mani.max_lado_textura,
         "entradas": [],
         "texture_sets": [],

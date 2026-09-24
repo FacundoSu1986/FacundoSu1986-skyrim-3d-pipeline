@@ -18,9 +18,11 @@ Las tres son falsas, y las tres se refutan contando.
 | `verificar.py` | Auditoría estructural: comprueba que cada bloque leído termine exactamente en `offset + size` declarado por la cabecera. |
 | `agregados.py` | Las consultas del censo, `a` a `j`. Cada una reproducible. |
 | `generar_reporte.py` | Produce el reporte a partir del censo. |
-| `hallazgos.md` | 15 hallazgos medidos sobre las mallas, en formato fijo. |
+| `hallazgos.md` | 43 hallazgos medidos sobre las mallas, en formato fijo. |
 | `parser_dds.py` | Lee encabezados DDS. Su autotest predice el tamaño exacto de los 32.241 archivos del corpus. |
 | `hallazgos_texturas.md` | 10 hallazgos medidos sobre las texturas. |
+| `escritor_dds.py` | Escribe DDS con mipmaps: sin comprimir de 32 bpp, DXT1 o DXT5. Lo verifica `parser_dds.py`. |
+| `compresor_dxt.py` | Comprime y decodifica DXT1/DXT5. Necesita numpy. Su `--censo` lo compara con Pillow sobre el corpus. |
 | `parser_uv.py` | Extrae UV y triangulos del NIF y mide solape, densidad de texel e islas. Sin Blender. |
 | `hallazgos_uv.md` | 6 hallazgos sobre UV, incluido uno que **refuta** la hipotesis que motivo el censo. |
 
@@ -66,6 +68,10 @@ python agregados.py d e f      # solo algunas
 python parser_dds.py --autotest textures
 #    -> 32.241 con el tamano exacto que predice el encabezado
 python parser_dds.py --censo textures --salida censo_dds.jsonl
+#    y el compresor: decodificar igual que Pillow, recomprimir mejor que el
+#    compresor de Pillow (necesita numpy y Pillow)
+python compresor_dxt.py --censo textures --maximo 300
+#    -> 300 de 300 iguales a Pillow; igual o mejor error en 297 de 300
 
 # 7. Y las UV. --continuar reanuda si se corta: tarda una hora larga.
 python parser_uv.py --autotest meshes

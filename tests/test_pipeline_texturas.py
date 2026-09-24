@@ -9,9 +9,10 @@ Disciplina de este repo, aplicada a texturas:
     y `test_el_validador_detecta_un_dds_roto_de_verdad` rompen un DDS a
     propósito y exigen que la fase lo rechace. Un validador que no puede fallar
     es decoración;
-  * lo que esta fase NO hace (comprimir, sacar la luz horneada, tocar el NIF)
-    está escrito en el docstring de `pipeline/texturas.py`, y hay tests que lo
-    fijan para que no empiece a hacerse en silencio.
+  * lo que esta fase NO hace (comprimir sin que se lo pidan, leer un DXT de
+    entrada, sacar la luz horneada, tocar el NIF) está escrito en el
+    docstring de `pipeline/texturas.py`, y hay tests que lo fijan para que no
+    empiece a hacerse en silencio.
 
 Los PNG y TGA de entrada se construyen byte a byte: no hay PIL en CI y no hace
 falta.
@@ -25,6 +26,11 @@ import unittest
 import zlib
 from pathlib import Path
 from unittest import mock
+
+try:
+    import numpy as np
+except ImportError:          # compresion="dxt" lo necesita; el resto no
+    np = None
 
 from pipeline import texturas as tx
 from pipeline.errors import ArtifactValidationError, TexturaError
@@ -463,8 +469,8 @@ class LecturaDdsTests(EntornoTexturas):
         self.assertEqual(t.pixeles, pix)
 
     def test_un_dds_comprimido_se_rechaza_con_el_numero(self):
-        """No es un detalle de implementación: esta fase no comprime, y
-        pretender que sí leería un DXT5 como si fueran píxeles."""
+        """Leer un DXT de entrada sería recomprimir lo ya comprimido: la
+        entrada tiene que ser el original sin pérdida."""
         cab = bytearray(128)
         cab[0:4] = b"DDS "
         struct.pack_into("<I", cab, 4, 124)
@@ -1164,6 +1170,95 @@ class FaseCsPbrTests(EntornoTexturas):
         self.assertEqual(sets["nif"]["glossiness"], 0.04)
         self.assertEqual(sets["texture_sets"][0]["texturas"]["rmaos"],
                          "textures\\static\\job-tex\\cartel_rmaos.dds")
+
+
+@unittest.skipIf(np is None, "compresion='dxt' necesita numpy")
+class FaseDxtTests(EntornoTexturas):
+    """compresion="dxt": el `_n` en DXT5, lo opaco en DXT1, lo que tiene alfa
+    en DXT5. Los formatos van LITERALES: salen del censo (12.075 de 12.075
+    `_n` vanilla son DXT5), no de la tabla del módulo."""
+
+    COLOR = FaseTests.COLOR
+    NORMAL = FaseTests.NORMAL
+    ORM = FaseTests.ORM
+
+    def _texdir(self, espacio, job_id="job-tex"):
+        return (espacio.raiz / job_id / "package" / "textures"
+                / "static" / job_id)
+
+    def _formatos(self, espacio):
+        return {p.name: parser_dds.leer(str(p))["formato"]
+                for p in self._texdir(espacio).iterdir()}
+
+    def test_normal_dxt5_y_lo_opaco_dxt1(self):
+        self.escribir("cartel.png", png(64, 64, self.COLOR))
+        self.escribir("cartel_n.png", png(64, 64, self.NORMAL))
+        self.escribir("cartel_orm.png", png(64, 64, self.ORM))
+        rep, espacio = self.correr_fase(compresion="dxt")
+        self.assertEqual(self._formatos(espacio),
+                         {"cartel.dds": "DXT1", "cartel_n.dds": "DXT5",
+                          "cartel_m.dds": "DXT1"})
+        for e in rep["texture_sets"][0]["texturas"]:
+            self.assertIn(e["formato"], ("DXT1", "DXT5"))
+            self.assertEqual(len(e["error_compresion"]["rms"]), 4)
+        self.assertEqual(rep["compresion"], "dxt")
+
+    def test_el_normal_va_en_dxt5_aunque_su_alfa_sea_255(self):
+        """Sin rugosidad el alfa del `_n` queda en 255 --el defecto del
+        hacha--, pero sigue siendo la máscara: en DXT1 desaparece."""
+        self.escribir("cartel.png", png(64, 64, self.COLOR))
+        self.escribir("cartel_n.png", png(64, 64, self.NORMAL))
+        _rep, espacio = self.correr_fase(compresion="dxt")
+        self.assertEqual(self._formatos(espacio)["cartel_n.dds"], "DXT5")
+
+    def test_un_color_con_alfa_va_en_dxt5(self):
+        con_alfa = rgba(64, 64, lambda x, y: (90, 60, 30,
+                                              0 if x < 8 else 255))
+        self.escribir("reja.png", png(64, 64, con_alfa))
+        _rep, espacio = self.correr_fase(compresion="dxt")
+        self.assertEqual(self._formatos(espacio), {"reja.dds": "DXT5"})
+
+    def test_la_mascara_se_mide_sobre_el_dxt5_y_da_lo_mismo(self):
+        """Rugosidad plana 200 -> alfa 55 constante: en DXT5 cada bloque sale
+        con alpha0 == alpha1 == 55, que es lo que mide mascara_especular."""
+        self.escribir("cartel.png", png(64, 64, self.COLOR))
+        self.escribir("cartel_n.png", png(64, 64, self.NORMAL))
+        self.escribir("cartel_orm.png", png(64, 64, self.ORM))
+        crudo, _e1 = self.correr_fase(job_id="crudo")
+        dxt, _e2 = self.correr_fase(job_id="dxt", compresion="dxt")
+
+        def mascara(rep):
+            return next(e["mascara"] for e in rep["texture_sets"][0]["texturas"]
+                        if e["slot"] == "normal")
+        self.assertEqual(mascara(dxt)["media"], 55.0)
+        self.assertEqual(mascara(dxt)["blanco_pct"], 0.0)
+        self.assertEqual(mascara(crudo)["media"], mascara(dxt)["media"])
+
+    def test_el_error_de_compresion_es_el_de_releer_el_archivo(self):
+        """Un color plano que 565 representa exacto vuelve con error 0; si
+        el reporte no releyera el archivo, no podría decir 0 ni otra cosa."""
+        self.escribir("liso.png", png(64, 64, rgba(64, 64,
+                                                   lambda x, y: (132, 130,
+                                                                 66, 255))))
+        rep, _espacio = self.correr_fase(compresion="dxt")
+        err = rep["texture_sets"][0]["texturas"][0]["error_compresion"]
+        self.assertEqual(err["maximo"], [0, 0, 0, 0])
+
+    def test_sin_pedirlo_no_comprime(self):
+        self.escribir("cartel.png", png(64, 64, self.COLOR))
+        self.escribir("cartel_n.png", png(64, 64, self.NORMAL))
+        rep, espacio = self.correr_fase()
+        self.assertEqual(set(self._formatos(espacio).values()),
+                         {"sin_comprimir_32bpp"})
+        self.assertNotIn("error_compresion",
+                         rep["texture_sets"][0]["texturas"][0])
+
+    def test_cs_pbr_y_dxt_el_rmaos_opaco_va_en_dxt1(self):
+        self.escribir("cartel.png", png(64, 64, self.COLOR))
+        self.escribir("cartel_n.png", png(64, 64, self.NORMAL))
+        self.escribir("cartel_orm.png", png(64, 64, self.ORM))
+        _rep, espacio = self.correr_fase(compresion="dxt", sombreado="cs_pbr")
+        self.assertEqual(self._formatos(espacio)["cartel_rmaos.dds"], "DXT1")
 
 
 # ---------------------------------------------------------------------------

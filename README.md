@@ -79,6 +79,8 @@ Y aparte, en [`census/`](census), las herramientas que producen los números:
 | [`census/parser_nif.py`](census/parser_nif.py) | Parser NIF completo: geometría, particiones, huesos, pesos, shaders, colisión Havok |
 | [`census/verificar.py`](census/verificar.py) | Auditoría estructural bloque por bloque |
 | [`census/agregados.py`](census/agregados.py) | Las consultas del censo |
+| [`census/escritor_dds.py`](census/escritor_dds.py) | Escribe DDS con mipmaps: sin comprimir, DXT1 o DXT5, con la cabecera de los vanilla |
+| [`census/compresor_dxt.py`](census/compresor_dxt.py) | Comprime y decodifica DXT1/DXT5 (numpy); verificado contra Pillow y contra el corpus |
 | [`census/hallazgos.md`](census/hallazgos.md) | 43 hallazgos medidos sobre las mallas, con consulta y N cada uno |
 | [`census/hallazgos_plugins.md`](census/hallazgos_plugins.md) | 18 hallazgos sobre los plugins |
 | [`census/hallazgos_texturas.md`](census/hallazgos_texturas.md) | 10 hallazgos sobre las texturas |
@@ -174,14 +176,15 @@ declaran como tales. El gate impide publicar con cualquiera de ellas sin
 conectar, así que una corrida hoy **no puede** terminar en PUBLISHED: es el
 estado honesto de un pipeline a medias, no un bug.
 
-`PROCESS_TEXTURES` convierte PNG/TGA/DDS sin comprimir a DDS sin comprimir de
-32 bpp con mipmaps, derivando el alfa del `_n` desde la rugosidad (`255 −
-roughness`, una heurística) y la máscara `_m` desde la metalicidad con el rango
-expandido. Reconoce los nombres de glTF, Substance, Poly Haven y Tripo, y
+`PROCESS_TEXTURES` convierte PNG/TGA/DDS sin comprimir a DDS con mipmaps
+--sin comprimir de 32 bpp por defecto, o con `compresion="dxt"` el `_n` y lo
+que tenga alfa en DXT5 y el resto en DXT1--, derivando el alfa del `_n` desde
+la rugosidad (`255 − roughness`, una heurística) y la máscara `_m` desde la
+metalicidad con el rango expandido. Reconoce los nombres de glTF, Substance, Poly Haven y Tripo, y
 rechaza los que traen un rol que no conoce en vez de tomarlos por color. Lo que
 **no** hace, y por qué, está escrito en el docstring de `pipeline/texturas.py`:
-no comprime a DXT/BC7 (eso es otra pieza, con su propia falsificación), no saca
-la luz horneada del albedo (se atenúa con curvas, no se recupera), no toca el
+no comprime si no se lo piden, no escribe BC7 (el corpus no tiene ninguno y
+`mascara_especular.py` no lo lee), no saca la luz horneada del albedo (se atenúa con curvas, no se recupera), no toca el
 NIF y no puede comprobar que la malla conserve las UV del generador (lo deja
 escrito como precondición). Cada DDS que escribe se verifica con
 `fixtures/comparar.py`, y la máscara del `_n` se mide con

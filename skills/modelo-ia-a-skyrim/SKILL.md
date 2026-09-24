@@ -325,9 +325,11 @@ pieza que mañana pierda una atadura.
 - **`scripts/salud_malla.py`** — mide si la malla se **rompió** al decimarla, y
   lo hace sobre el **archivo** (`.nif` o `.obj`), sin Blender. Con dos
   argumentos aplica la REGLA: el número de aristas de borde no puede aumentar.
-  Con uno, informa. Trae `--autotest` (18 comprobaciones sobre figuras de
-  respuesta conocida) y `--falsificar <carpeta>`, que rompe mallas vanilla de
-  cuatro formas distintas y exige que el control las pesque.
+  Con `--uv <antes> <despues>`, la del paso 4b: rehacer las UV no puede
+  cambiar la malla soldada. Con uno, informa. Trae `--autotest` (figuras de
+  respuesta conocida; cuenta sus comprobaciones y dice cuántas hizo) y
+  `--falsificar <carpeta>`, que rompe mallas vanilla de cuatro formas
+  distintas y exige que el control las pesque.
 
   La regla es **relacional** y no "la malla tiene que estar cerrada", porque eso
   es falso: solo el 15,1 % de los shapes vanilla lo están. Todo lo demás

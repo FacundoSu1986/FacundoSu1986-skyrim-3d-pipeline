@@ -185,7 +185,8 @@ con el asset ya instalado.
   cadena completa de mipmaps, que es lo que ya hace y ya verifica
   `census/escritor_dds.py` (10.048 de 32.241 vanilla son así). Un compresor de
   bloques es otra pieza con su propia falsificación --lo dice el docstring de
-  ese archivo-- y el `_n` es el primer mapa que lo va a pedir.
+  ese archivo-- y el `_n` es el primer mapa que lo va a pedir. *(Después:
+  DXT1/DXT5 llegó como opción del manifest; ver "Compresión DXT propia".)*
 - **No se saca la luz horneada del albedo.** `limites-skyrim.md` documenta que
   se atenúa con curvas y que no se recupera del todo. Hacerlo en silencio sería
   inventar una conversión que nadie midió; se informa como observación.
@@ -261,3 +262,43 @@ lo espera CS: un NIF hecho con la receta y leído con `material_arma.py`.
 llena la ranura 5 vacía con blanco, que es rugosidad 1 y metal 1. Y los topes
 de revisión de la máscara vanilla no se aplican: en PBR el especular sale del
 `_rmaos`, y el alfa del `_n` solo lo lee el SSR de la ruta no diferida.
+
+## Compresión DXT propia, con Pillow de oráculo
+
+Lo último que pedía el issue #57: escribir el `_n` en DXT5, como los 12.075
+`_n` del corpus. Hasta acá la fase escribía solo sin comprimir: válido, pero un
+`_n` de 2048 pesa 22 MB en vez de 5,6.
+
+**Por qué un compresor propio.** `texconv` es un ejecutable de Windows que no
+corre en el CI y que habría que bajar aparte. Pillow comprime DXT1/DXT5, pero
+no escribe mipmaps, y comprime peor: recomprimiendo 300 texturas vanilla, su
+error fue mayor que el del compresor propio en 297. El propio
+(`census/compresor_dxt.py`) usa numpy, comprime un 2048 en 1,5 s, y tiene un
+decodificador para poder verificarse.
+
+**Contra qué se verifica.** Pillow es el oráculo, no una dependencia. Su
+decodificador y el propio dan lo mismo, byte a byte, en 300 de 300 texturas
+del corpus (`compresor_dxt.py --censo`). El CI instala Pillow y un test falla
+si falta, para que el autotest no saltee esas comparaciones y diga "OK". De
+18 mutaciones del compresor y de su conexión con la fase, 16 las detecta
+algún test. Las otras dos tocaban líneas que no cambiaban nada --`argmin` ya
+devolvía el índice 0-- y se sacaron.
+
+**Qué formato va a cada mapa.** El `_n` siempre DXT5, aunque su alfa sea todo
+255: sigue siendo la máscara, y en DXT1 desaparece. Lo que tenga algún alfa
+menor a 255, DXT5. El resto, DXT1. BC7 no: el corpus no tiene ninguno y
+`mascara_especular.py` no lee su alfa.
+
+**Opción, no default.** `compresion="ninguna"` sigue siendo el default: sin
+numpy la fase anda igual, y quien no pidió compresión recibe lo mismo que
+antes. `"dxt"` sin numpy es un error del manifest, antes de correr.
+
+**Lo que salió de rebote.** La cabecera de los DDS sin comprimir llevaba caps
+0x1408: `DDSCAPS_MIPMAP` estaba en 0x400 y es 0x400000. Los 22.001 DXT
+vanilla con mipmaps tienen 0x401008, y también los 1.999 sin comprimir de una
+muestra. El test nuevo de la cabecera lo encontró al comparar con el corpus.
+
+**Qué no se midió.** Nada de esto se vio en el juego. El `_rmaos` de True PBR
+sale en DXT1, que comprime juntos tres canales que no se parecen (rugosidad,
+metal, oclusión): el error por canal queda en el reporte, y cuánto se nota,
+no se sabe.
