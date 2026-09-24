@@ -24,6 +24,17 @@ class ToolExecutionError(PipelineError):
     """Una herramienta externa falló: exit code, timeout, salida ausente."""
 
 
+class TexturaError(PipelineError):
+    """Una textura de entrada no se pudo leer o no está en un formato que
+    esta slice sepa convertir.
+
+    No es ArtifactValidationError a propósito: esa es para un artefacto que
+    PRODUJIMOS y no pasó el read-back. Acá el problema es del insumo --un PNG
+    entrelazado, un TGA con RLE, un DDS ya comprimido-- y el llamador tiene
+    que poder distinguir "arreglá la entrada" de "el pipeline hizo algo mal".
+    """
+
+
 class ArtifactValidationError(PipelineError):
     """Un artefacto existió pero no superó la validación de read-back."""
 

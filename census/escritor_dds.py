@@ -107,11 +107,19 @@ def cabecera(ancho, alto, n_mips):
     return bytes(b)
 
 
-def escribir(ruta, ancho, alto, pixeles, con_mipmaps=True):
+def escribir(ruta, ancho, alto, pixeles, con_mipmaps=True,
+             reducir_nivel=None):
     """`pixeles` son ancho*alto*4 bytes en orden RGBA.
 
     Se guardan como BGRA porque es lo que declara la mascara del encabezado.
+
+    `reducir_nivel(pix, ancho, alto)` arma cada mipmap desde el anterior; por
+    defecto `reducir`, que promedia en el espacio en que vienen los valores.
+    Quien sabe que el mapa es color o normal pasa su propia reduccion (ver
+    pipeline/texturas.py): un normal promediado sin renormalizar se aplana
+    en cada nivel.
     """
+    reducir_nivel = reducir_nivel or reducir
     esperado = ancho * alto * 4
     if len(pixeles) != esperado:
         raise ValueError("pixeles: %d bytes, se esperaban %d (%dx%d RGBA)"
@@ -122,7 +130,11 @@ def escribir(ruta, ancho, alto, pixeles, con_mipmaps=True):
     actual, aw, ah = bytes(pixeles), ancho, alto
     for i, (w, h) in enumerate(cadena):
         if i:
-            actual = reducir(actual, aw, ah)
+            actual = reducir_nivel(actual, aw, ah)
+            if len(actual) != w * h * 4:
+                raise ValueError("el nivel %d mide %d bytes, se esperaban %d "
+                                 "(%dx%d RGBA)" % (i, len(actual), w * h * 4,
+                                                   w, h))
             aw, ah = w, h
         for p in range(0, len(actual), 4):
             r, g, b, a = actual[p:p + 4]
