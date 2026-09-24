@@ -1,4 +1,4 @@
-# Trampas: treinta y cinco fallos que no tiran error
+# Trampas: treinta y seis fallos que no tiran error
 
 Casi todas se pagaron en el proyecto de origen (`Centurion_Marfil_SE_v01`,
 reemplazo del Dwarven Steam Centurion); de la 28 en adelante salieron de otros
@@ -56,6 +56,7 @@ ya está en la lista.
 | **Exportación** | |
 | El NIF "de SE" sale con `NiTriShape` y `bs_version 83` | [33](#33) |
 | El export dice `Export successful` y los verificadores de geometría no ven ninguna malla | [33](#33) |
+| El arma se ve opaca al lado de las vanilla, con la malla y las texturas bien | [36](#36) |
 
 ---
 
@@ -769,6 +770,62 @@ Si `texconv` hubiera convertido la gamma, la media se movería decenas.
 Lo que **no** se midió: cuánto mejora a la vista. El mecanismo es sólido y el
 hacha salió bien, pero ese cambio vino junto con otros y la mejora del
 horneado no se aisló.
+
+### 36. PyNifly deja el material en `Default` y glossiness 20 {#36}
+
+Salió del hacha de Tencent, que se armó con `createShapeFromData` en vez de
+heredar el material de un donante.
+
+**Síntoma:** en el juego el arma se ve opaca al lado de las vanilla, aunque la
+malla, el color y la máscara especular estén bien. Nada refleja como metal.
+
+**Por qué:** una forma creada con `createShapeFromData` sale con el shader
+`Default` y **glossiness 20** si no se los fija. `[MEASURED]` Escribiendo un
+NIF con dos formas sin ajustar y leyéndolo con `scripts/material_arma.py`:
+las dos salen con 20. El hacha llegó así al juego.
+
+Las armas vanilla son otra cosa. `[MEASURED]` sobre la pieza principal de
+**198** armas del corpus:
+
+| | vanilla | hacha |
+|---|---|---|
+| shader `EnvMap` (reflejo de cubemap) | 149 de 198; hachas a dos manos, **16 de 17** | `Default` |
+| cubemap en la ranura 4 | 149 de 149 con EnvMap, todos en `textures\cubemaps` | — |
+| máscara `_m` en la ranura 5 | 143 de 149 con EnvMap | — |
+| glossiness | mediana **80**, p10 30 | **20** |
+
+Es lo que dice `limites-skyrim.md`: armar el NIF de cero es inventar el
+material, y lo que se inventa mal no da error.
+
+**Arreglo:** heredar el material de un arma vanilla de la misma clase, o
+fijarlo al crear la forma. Con la API de PyNifly que usó el proyecto de origen
+(`pyn.pynifly`, `pyn.nifconstants`):
+
+```python
+from pyn.nifconstants import BSLSPShaderType, ShaderFlags1
+
+p = sh.shader.properties
+p.Shader_Type = BSLSPShaderType.Environment_Map
+p.shaderflags1_set(ShaderFlags1.ENVIRONMENT_MAPPING)   # el tipo sin el flag reprueba
+p.Glossiness = 80.0
+p.Env_Map_Scale = 1.0
+sh.set_texture('EnvMap', r'textures\cubemaps\shinydull_e.dds')
+sh.set_texture('EnvMask', r'textures\weapons\MiArma\miarma_m.dds')
+sh.save_shader_attributes()
+```
+
+`[MEASURED]` Ese bloque, escrito y releído con `material_arma.py`: shader
+EnvMap con su flag, el cubemap en la ranura 4, la `_m` en la 5, glossiness 80
+y el bloque cierra exacto. La `_m` es una textura más que hay que generar (ver
+el punto 2 de "Dos cosas que sorprenden" en `limites-skyrim.md`).
+
+Después, `python scripts/material_arma.py <arma.nif>`: reprueba un EnvMap sin
+su flag o sin cubemap, e informa el shader contra el de su clase y en qué
+tramo vanilla caen la glossiness y la intensidad especular.
+
+Lo que **no** se probó: el hacha con EnvMap en el juego. Lo medido es qué
+material usan las armas vanilla y que la receta escribe ese material. Cuánto
+cambia a la vista no se comprobó.
 
 ## Proceso
 
