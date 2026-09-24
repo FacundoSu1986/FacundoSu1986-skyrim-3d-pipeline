@@ -265,11 +265,11 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 ### 38. (#44) Las proporciones de un arma son de su CLASE, no de "las armas"
 
-**AFIRMACIÓN**: una daga y un martillo a dos manos no comparten una sola proporción. Medido en coordenadas de mundo sobre **199** armas vanilla, el largo mediano va de **40,5** (daga) a **120,7** (bastón), y el grosor relativo de **0,034** (mandoble) a **0,260** (maza). Una tabla única para "armas" no dice nada de ninguna.
+**AFIRMACIÓN**: una daga y un martillo a dos manos no comparten una sola proporción. Medido en coordenadas de mundo sobre **197** armas vanilla, el largo mediano va de **40,5** (daga) a **120,7** (bastón), y el grosor relativo de **0,034** (mandoble) a **0,260** (maza). Una tabla única para "armas" no dice nada de ninguna.
 
 **CONSULTA QUE LA PRODUJO**: por cada NIF de `meshes/weapons/`, la malla de más triángulos llevada a mundo (`p = t + escala·(M·p_local)`), su caja, y la extensión transversal del 20 % de cada extremo; el extremo más fino es la empuñadura.
 
-**N**: 199 armas en 9 clases con al menos 10 ejemplares.
+**N**: 197 armas en 9 clases con al menos 10 ejemplares (la suma de `n` de la tabla de `proporciones_arma.py`; decía 199).
 
 **EXCEPCIONES ENCONTRADAS**: el arco queda fuera de la tabla: con el clasificador que se envía sólo matchean 2 archivos, porque el resto son `*bowskinned*` y un shape skinneado no lleva la geometría inline.
 
@@ -290,3 +290,28 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **N**: 26 hachas a dos manos.
 
 > **Corrige una afirmación mía.** Dije que ese mango era "más grueso que el de cualquier arma de dos manos del juego". Salía de mezclar hachas, mandobles y martillos en una sola muestra de 28 —donde el máximo era 9,83— y de leer varios archivos en coordenadas locales. Separando por clase y en coordenadas de mundo, el máximo de las hachas a dos manos es **11,27** y el del arma era **10,12**: grueso, por encima de la mediana, y **dentro** del rango.
+
+### 41. (#56) El BSLightingShaderProperty de SSE cierra exacto en todo el corpus
+
+**AFIRMACIÓN**: después de la ref al texture set, el bloque lleva color emisivo (3f), multiplicador emisivo, modo de clamp (u32), alfa, refracción, glossiness, color especular (3f), intensidad especular, luz suave y luz de borde, más un final que depende del tipo de shader: EnvMap 4 bytes, SkinTint y HairTint 12, MultiLayer 20, SparkleSnow 16, EyeEnvmap 28, el resto 0. Con ese layout, **74.489 de 74.489** bloques cierran exacto en su tamaño declarado.
+**CONSULTA QUE LA PRODUJO**: `material_arma.py --censo <meshes>`: por cada BSLightingShaderProperty, comparar dónde termina la lectura contra el tamaño de la tabla de bloques.
+**N**: 22.393 NIF de BS 100, 74.489 bloques de diez tipos (0, 1, 2, 3, 4, 5, 6, 11, 14, 16).
+**EXCEPCIONES ENCONTRADAS**: ninguna. El cierre no fija el orden de los campos; lo fijan los rangos: el alfa y las tres componentes del color especular caen en [0, 1] en los 74.489, y la glossiness —que va entre los dos— no. Los tipos que no aparecen en el corpus (7, 8-10, 12, 13, 15, 17+) quedan sin validar.
+
+### 42. (#56) Tipo de shader, flag y ranura van juntos
+
+**AFIRMACIÓN**: el tipo EnvMap lleva el flag Environment_Mapping (flags1, bit 7) en **6.843 de 6.843** bloques. El tipo Glow y el flag Glow_Map (flags2, bit 6) van juntos en los dos sentidos: 1.396 de 1.396 con el tipo tienen el flag, y 73.093 de 73.093 sin el tipo no lo tienen. En las armas, EnvMap trae cubemap en la ranura 4 en **149 de 149**.
+**CONSULTA QUE LA PRODUJO**: la misma pasada de `--censo`.
+**N**: 74.489 bloques; 198 armas (pieza principal).
+**EXCEPCIONES ENCONTRADAS**: la inversa de la primera no vale: 13 bloques tienen el flag Environment_Mapping con otro tipo. Y el cubemap en la ranura 4 falta en 14 de los 6.843 EnvMap del corpus entero —de Alduin y de unas túnicas del Creation Club—, por eso esa regla es de armas y no del motor.
+
+> **Falsificado sobre datos reales**: `material_arma.py --falsificar <meshes>` no reprueba ninguna de las 198 armas sanas, y rompe su material de cinco formas —apagar el flag de EnvMap (313), prender Glow_Map sin el tipo (478), pasar un Default a Glow (165) o a EnvMap sin agregarle los 4 bytes (165), vaciar la ranura 4 de un EnvMap (313)—: **1.434 roturas, 0 sin detectar**.
+
+### 43. (#56) El material de las armas vanilla
+
+**AFIRMACIÓN**: la pieza principal de **149 de 198** armas usa el shader EnvMap (reflejo de cubemap); en las hachas a dos manos, **16 de 17**. Los cubemaps están todos en `textures\cubemaps` (143) o `textures\dlc01\cubemaps` (6), y 143 de las 149 traen además la máscara `_m` en la ranura 5. La glossiness tiene mediana **80** (p10 30, p25 50, máximo 164).
+**CONSULTA QUE LA PRODUJO**: los NIF bajo una carpeta `weapons`, sin `1stperson*`, con clase según `proporciones_arma.clase_por_nombre`; de cada uno, la pieza con más triángulos.
+**N**: 198 armas (147 de `weapons`, 50 de los DLC y 1 del Creation Club).
+**EXCEPCIONES ENCONTRADAS**: el shader `Default` no es raro —46 de 198—, así que no puede ser regla. Las piezas secundarias no siguen la tabla: la sangre del filo de `daedricbattleaxe.nif` tiene glossiness 500.
+
+> **Lo que le faltaba al hacha de Tencent**: shader `Default` y glossiness **20**, entre el mínimo y el p10 de las armas. El 20 no lo eligió nadie: es lo que deja PyNifly en una forma creada con `createShapeFromData` si no se fija (trampa 36 de la skill).
