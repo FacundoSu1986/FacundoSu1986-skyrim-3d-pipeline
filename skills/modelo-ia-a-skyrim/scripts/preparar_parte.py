@@ -21,10 +21,12 @@ importa:
 
 Opcional, para la capa HD (references/hd-texturas.md): `--guardar-alto
 <alto.blend>` guarda TAMBIEN la malla soldada SIN decimar. Es la fuente del
-bake de normal/AO/albedo: el detalle que el decimado tira no se recupera
+bake (`hornear.py`): el detalle que el decimado tira no se recupera
 despues. Recibe la misma media vuelta que la baja --la misma transformacion a
-las dos, o el horneado sale corrido (trampa 34)--. Todo lo que se le haga a la
-baja despues (montar, escalar, afinar) hay que aplicarselo igual a la alta.
+las dos, o el horneado sale corrido (trampa 34)--. El bake va justo despues de
+desplegar las UV, cuando las dos todavia coinciden; lo que deforme la baja
+ANTES (afinar) hay que aplicarselo igual a la alta. Montar va despues del bake
+y no toca las UV.
 
      Para decidir, mira la parte de perfil y fijate hacia donde apuntan la
      cara, el pico o los dedos del pie. La heuristica de masa de

@@ -69,14 +69,16 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
    `scripts/salud_malla.py <antes> <despues>`. Soldar bien y no verificarlo
    después no alcanza — ver trampa 28. Si vas a hornear texturas HD, agregá
    `--guardar-alto <alto.blend>`: guarda la malla sin decimar, que es la
-   fuente del bake.
+   fuente del bake. El bake (`scripts/hornear.py`) va justo después de
+   desplegar las UV y **antes** de montar, y lo que agregue caras (Solidify)
+   va antes de las UV: orden completo en `references/hd-texturas.md`.
 5. **Montar** — cortar cada parte en su tramo, escalar a su hueco, espejar. Dar
    espesor **solo si la medición dice que es una cáscara abierta**: `Solidify`
    duplica los triángulos y no siempre hace falta.
 6. **Riggear** — grupos de vértices por hueso, particiones de body-part.
-7. **Texturas** — PBR → convención de Skyrim, a DDS con mipmaps. Para el
-   bake desde la malla alta (`scripts/hornear.py`), el `_n` con máscara
-   especular y los gates: `references/hd-texturas.md`.
+7. **Texturas** — PBR → convención de Skyrim, a DDS con mipmaps. Si
+   horneaste en el paso 4, el `_n` con máscara especular, el `_m` y los gates
+   están en `references/hd-texturas.md`.
 8. **Exportar y verificar** — reimportar el archivo generado y compararlo
    contra el vanilla: `scripts/verificar_export.py <nuevo.nif> <vanilla.nif>`.
    Y si el NIF lo escribió un conversor propio, además
