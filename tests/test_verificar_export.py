@@ -109,7 +109,9 @@ class CadaReglaPuedeFallarTests(unittest.TestCase):
     def test_un_export_LE_reprueba_por_la_version_y_nada_mas(self):
         """Sin la regla, el mismo archivo reprobaba por `bloques`, que no dice
         la causa. Con ella, una sola falla, que nombra la trampa."""
-        reglas, fallas = self._reglas(bs=83)
+        # Con un bloque de mas: si siguiera comparando, `bloques` tambien
+        # reprobaria y taparia la causa.
+        reglas, fallas = self._reglas(bs=83, bloque_extra=True)
         self.assertEqual({"version"}, reglas)
         self.assertEqual(1, len(fallas))
         self.assertIn("BS 83", str(fallas[0]))

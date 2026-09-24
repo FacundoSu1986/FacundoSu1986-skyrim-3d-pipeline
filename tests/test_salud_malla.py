@@ -512,14 +512,21 @@ class LineaDeComandosTests(unittest.TestCase):
         self.assertEqual(self._correr("a", "b", "c")[0], 2)
         fd, txt = tempfile.mkstemp(suffix=".txt")
         os.close(fd)
+        fd, otro = tempfile.mkstemp(suffix=".txt")
+        os.close(fd)
         try:
             codigo, salida = self._correr(txt)
             self.assertEqual(codigo, 2, salida)
             self.assertIn(".nif o .obj", salida)
-            codigo, salida = self._correr(txt, txt)
-            self.assertEqual(codigo, 2, salida)
+            # Dos archivos DISTINTOS: con el mismo dos veces salia 2 por "mismo
+            # archivo" y el chequeo de extension no se probaba.
+            for args in ((txt, otro), ("--uv", txt, otro)):
+                codigo, salida = self._correr(*args)
+                self.assertEqual(codigo, 2, salida)
+                self.assertIn(".nif o .obj", salida)
         finally:
             os.unlink(txt)
+            os.unlink(otro)
 
     def test_un_archivo_sin_nada_medible_no_sale_cero(self):
         """Medir nada no es pasar."""
