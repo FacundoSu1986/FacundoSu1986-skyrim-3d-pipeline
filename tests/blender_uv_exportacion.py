@@ -94,6 +94,33 @@ class ConservarUVTests(unittest.TestCase):
             bpy.data.objects.remove(obj, do_unlink=True)
             bpy.data.meshes.remove(mesh)
 
+    def test_malla_compartida_rechazada_sin_perder_uv(self):
+        mesh = crear_malla(("UV_Original", "UV_Bake", "UV_Aux"))
+        a = bpy.data.objects.new("uv_a", mesh)
+        b = bpy.data.objects.new("uv_b", mesh)
+        try:
+            with self.assertRaises(ValueError):
+                conservar_uv(mesh, "UV_Bake")
+            self.assertEqual(len(mesh.uv_layers), 3)
+        finally:
+            bpy.data.objects.remove(a)
+            bpy.data.objects.remove(b)
+            bpy.data.meshes.remove(mesh)
+
+    def test_avisa_nodo_con_capa_borrada(self):
+        mesh = crear_malla(("UV_Original", "UV_Bake", "UV_Aux"))
+        mat = bpy.data.materials.new("uv_mat")
+        mat.use_nodes = True
+        nodo = mat.node_tree.nodes.new("ShaderNodeUVMap")
+        nodo.uv_map = "UV_Original"
+        mesh.materials.append(mat)
+        try:
+            avisos = conservar_uv(mesh, "UV_Bake")
+            self.assertEqual(avisos, ["uv_mat / %s -> UV_Original" % nodo.name])
+        finally:
+            bpy.data.meshes.remove(mesh)
+            bpy.data.materials.remove(mat)
+
 
 if __name__ == "__main__":
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(ConservarUVTests)

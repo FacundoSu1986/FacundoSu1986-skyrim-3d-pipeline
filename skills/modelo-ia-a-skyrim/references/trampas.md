@@ -984,6 +984,18 @@ $env:BLENDER_EXE = 'C:\Program Files\Blender Foundation\Blender 4.4\blender.exe'
 python -m unittest discover -s tests -p test_uv_exportacion_blender.py -v
 ```
 
+En bash (Linux, macOS o Git Bash):
+
+```bash
+export BLENDER_EXE=/ruta/a/blender
+python -m unittest discover -s tests -p test_uv_exportacion_blender.py -v
+```
+
+La lógica del helper (guardas, avisos de nodos) la prueba en CI
+`tests/test_uv_exportacion.py` con una malla falsa; esta prueba agrega lo que
+solo Blender puede probar, y corre `--repro` como control negativo: tiene que
+reprobar.
+
 La prueba crea mallas sintéticas: seis órdenes, conservación exacta de UV,
 segunda ejecución, nombre ausente sin pérdida de datos, copia independiente
 y rechazo de Edit Mode. No usa assets de Bethesda ni necesita PyNifly.
