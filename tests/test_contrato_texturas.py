@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""El contrato del lado de las texturas (#3).
+"""El contrato del lado de las texturas (issue #3 del repo).
 
 Un NIF que apunta a texturas que no existen pasa TODAS sus reglas de NIF. Por
 eso el contrato tiene dos mitades y esta es la segunda.

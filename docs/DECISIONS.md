@@ -349,7 +349,9 @@ vanilla; que la pieza se vea bien al animarse lo dice el juego. Tampoco hay
 todavía un plan con partes reales de un generador: el camino está probado con
 el propio vanilla y con una pieza sacada a `.obj`.
 
-## El frontmatter de las skills: lo que el validador de subida acepta (#65)
+## El frontmatter de las skills: lo que el validador de subida acepta
+
+*Issue [#65](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/65), cerrada por el PR [#78](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/78).*
 
 Una reseña externa pidió agregar `version`, `inputs`, `outputs`,
 `prerequisites` y `rendering-path` como claves del frontmatter, "porque los
@@ -374,7 +376,9 @@ editando texto. Falsificado: `version` de primer nivel, una subclave nueva en
 `metadata` y una `compatibility` de 727 caracteres lo ponen rojo; la primera y
 la última, además, las rechaza el validador oficial.
 
-## `nif_nodos.py` sigue duplicado, no en `skills/_shared/` (#75)
+## `nif_nodos.py` sigue duplicado, no en `skills/_shared/`
+
+*Issue [#75](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/75), cerrada por el PR [#78](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/78).*
 
 `nif_nodos.py` está en las dos skills, byte a byte, porque cada una se
 empaqueta y se instala sola: `tests/test_skill_empaquetada.py` exige que el
