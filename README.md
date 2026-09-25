@@ -150,7 +150,8 @@ se rompe y si lo corre el CI: [`docs/validacion.md`](docs/validacion.md).
 
 Los presupuestos de polígonos, las distribuciones de flags de partición, los
 formatos de textura y los límites de vértices **están medidos**, no estimados:
-salen de un censo de las 22.394 mallas del juego base.
+salen de un censo de las 22.394 mallas del juego instalado (abajo, de qué
+edición).
 
 El censo en sí **no está en este repo** y no puede estarlo: se construye sobre
 assets extraídos de Skyrim, que son propiedad de Bethesda. Lo que sí está son
@@ -161,6 +162,21 @@ El parser está validado contra una segunda implementación escrita por separado
 400 archivos al azar, 400/400 de coincidencia. Y ningún campo entra al censo sin
 un caso en la suite de falsificación, por un motivo concreto que está contado
 ahí.
+
+**De qué edición.** Todo se midió sobre Skyrim SE en la versión 1.6.1170, con
+los diez plugins de una instalación sin contenido pago: `Skyrim.esm`,
+`Update.esm`, las tres expansiones, `_ResourcePack.esl` y los cuatro de
+Creation Club que vienen con el juego (pesca, Saints & Seducers, Rare Curios y
+supervivencia). Sus mallas están en el corpus: las expansiones y un arma de
+Creation Club entran en las cuentas. Si tenés otra:
+
+- **Anniversary Edition**: es esta misma versión del juego más contenido pago
+  de Creation Club. Ese contenido no está en el corpus; lo demás vale igual.
+- **LE (la de 2011)**: otro formato de NIF, `bs_version` 83 con `NiTriShape`
+  en vez de 100 con `BSTriShape` (trampa 33 de `modelo-ia-a-skyrim`). Ninguna
+  cifra del censo se midió sobre LE: lo único cubierto es no exportar LE por
+  accidente.
+- **GOG**: no se midió.
 
 ## Qué NO hay acá
 
