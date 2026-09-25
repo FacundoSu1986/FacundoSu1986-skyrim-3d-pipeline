@@ -212,11 +212,11 @@ class ReglaTests(unittest.TestCase):
         self.assertFalse(fallas)
 
     def test_reparto_por_material_no_la_corta_la_regra_de_piezas(self):
-        """El exportador parte un mesh en shapes por material: las piezas
-        crecen por el corte, no por rasgado. La guarda es la cantidad de
-        shapes: ahi se informa y no reprueba. (El BORDE si sube en este caso,
-        cada tramo pierde sus soldaduras entre shapes: esa limitacion es
-        anterior a la regla de piezas y queda documentada, no tapada.)"""
+        """Dos medidas que no se sueldan entre si --shapes en marcos
+        distintos--: las piezas crecen por el corte, no por rasgado. La guarda
+        es la cantidad de marcos: ahi se informa y no reprueba. (El BORDE si
+        sube, porque entre marcos no se suelda; las piezas de un MISMO marco
+        se sueldan y ahi no sube: ver VariasPiezasTests.)"""
         antes = self._t(CUBO_POS, CUBO_TRIS)
         despues = salud_malla.total([
             salud_malla.salud(CUBO_POS, CUBO_TRIS[:6], 1),
@@ -264,6 +264,185 @@ class ReglaUvTests(unittest.TestCase):
         fallas, _ = salud_malla.comparar_uv(self._t(CUBO_POS, CUBO_TRIS),
                                             None)
         self.assertTrue(fallas)
+
+
+def _correr(*args):
+    p = subprocess.run([sys.executable, SCRIPT] + list(args),
+                       capture_output=True, text=True)
+    return p.returncode, p.stdout + p.stderr
+
+
+def _tubo(cerrado=False):
+    """La primera pieza de la barra sintetica: un tubo con tapa en un
+    extremo y ABIERTO en el corte, cuatro aristas de borde. `cerrado=True` le
+    agrega la tapa del corte: el anillo del corte es el ultimo de la pieza,
+    indices locales 8 a 11."""
+    pieza = nif_sintetico.barra_en_piezas()[0]
+    tris = list(pieza["tris"])
+    if cerrado:
+        tris += [(8, 9, 10), (8, 10, 11)]
+    return list(pieza["pos"]), tris
+
+
+class VariasPiezasTests(unittest.TestCase):
+    """Un NIF exportado casi nunca es UNA malla: el exportador la reparte en
+    un shape por material, cada uno con su propia lista de vertices, y la
+    costura entre dos piezas queda escrita en las dos. Medida pieza por pieza,
+    la costura es borde dos veces. En el hacha de Filo Celeste daba 956
+    aristas de borde contra 8 del origen, con la malla sana; soldando entre
+    piezas, 8 y una sola pieza, como el origen.
+
+    Se sueldan entre si las piezas de un mismo MARCO, la misma transformada
+    de mundo. Entre marcos distintos las coordenadas locales no se pueden
+    comparar: en el corpus vanilla, soldarlas junto funde vertices que en el
+    mundo estan separados en 548 archivos.
+    """
+
+    def setUp(self):
+        self.borrar = []
+
+    def tearDown(self):
+        for r in self.borrar:
+            os.unlink(r)
+
+    def _nif(self, piezas):
+        datos, _ = nif_sintetico.construir_estatico_piezas(piezas)
+        ruta = _archivo(datos)
+        self.borrar.append(ruta)
+        return ruta
+
+    def _obj(self, pos, tris):
+        ruta = _obj(pos, tris)
+        self.borrar.append(ruta)
+        return ruta
+
+    def _barra(self, **kw):
+        return self._nif(nif_sintetico.barra_en_piezas(
+            80.0, (1000.0, -7.0, 0.0), **kw))
+
+    def test_la_premisa_pieza_por_pieza_la_costura_es_borde(self):
+        """Si cada pieza sola no tuviera borde, los tests de abajo no
+        probarian nada sobre la costura."""
+        medidas, avisos = salud_malla.leer(self._barra())
+        self.assertEqual(avisos, [])
+        self.assertEqual([m["borde"] for m in medidas], [4, 4])
+
+    def test_soldadas_miden_lo_mismo_que_el_origen(self):
+        pos, tris, _uvs = nif_sintetico.barra_cerrada()
+        origen = salud_malla.salud(pos, tris)
+        medidas, avisos = salud_malla.leer_soldado(self._barra())
+        self.assertEqual(avisos, [])
+        self.assertEqual(len(medidas), 1)
+        for campo in salud_malla.GEOMETRIA_UV:
+            self.assertEqual(medidas[0][campo], origen[campo], campo)
+        self.assertEqual(medidas[0]["shapes"], 2)
+
+    def test_dos_piezas_que_parten_una_malla_cerrada_pasan(self):
+        pos, tris, _uvs = nif_sintetico.barra_cerrada()
+        obj, nif = self._obj(pos, tris), self._barra()
+        codigo, salida = _correr(obj, nif)
+        self.assertEqual(codigo, 0, salida)
+        codigo, salida = _correr("--uv", obj, nif)
+        self.assertEqual(codigo, 0, salida)
+
+    def test_el_mismo_marco_aunque_no_sea_la_identidad(self):
+        """Un objeto de Blender con la transformada sin aplicar exporta todas
+        sus piezas con ESA transformada. Siguen en un mismo marco."""
+        piezas = nif_sintetico.barra_en_piezas(80.0)
+        for p in piezas:
+            p["traslacion"] = (3.0, 4.0, 5.0)
+            p["rot"] = nif_sintetico.CUARTO_DE_VUELTA
+        pos, tris, _uvs = nif_sintetico.barra_cerrada()
+        codigo, salida = _correr(self._obj(pos, tris), self._nif(piezas))
+        self.assertEqual(codigo, 0, salida)
+
+    def test_una_pieza_rasgada_sigue_reprobando(self):
+        """Soldar entre piezas no puede tapar una rotura de verdad."""
+        piezas = nif_sintetico.barra_en_piezas(80.0)
+        pos, tris = salud_malla._rasgar(piezas[1]["pos"], piezas[1]["tris"])
+        piezas[1] = {"nombre": piezas[1]["nombre"], "pos": pos, "tris": tris}
+        b_pos, b_tris, _uvs = nif_sintetico.barra_cerrada()
+        codigo, salida = _correr(self._obj(b_pos, b_tris), self._nif(piezas))
+        self.assertEqual(codigo, 1, salida)
+        self.assertIn("REGLA borde", salida)
+
+    def _dos_tubos(self, nombres):
+        """(obj, nif): el origen son dos tubos CERRADOS, uno al lado del otro;
+        el NIF, los mismos dos tubos ABIERTOS, con las MISMAS coordenadas
+        locales y el segundo corrido 10 unidades por su transformada. En el
+        mundo son dos tubos separados con cuatro aristas de borde cada uno:
+        la decimacion los abrio y la REGLA tiene que reprobar."""
+        c_pos, c_tris = _tubo(cerrado=True)
+        o_pos = c_pos + [(x, y + 10.0, z) for x, y, z in c_pos]
+        o_tris = c_tris + [(a + 12, b + 12, c + 12) for a, b, c in c_tris]
+        a_pos, a_tris = _tubo()
+        nif = self._nif([
+            {"nombre": nombres[0], "pos": a_pos, "tris": a_tris},
+            {"nombre": nombres[1], "pos": a_pos, "tris": a_tris,
+             "traslacion": (0.0, 10.0, 0.0)}])
+        return self._obj(o_pos, o_tris), nif
+
+    def test_piezas_en_marcos_distintos_no_se_sueldan(self):
+        """Soldadas por coordenadas locales, las dos copias caen una sobre la
+        otra: cada arista de borde queda con dos triangulos y el borde da 0.
+        La malla abierta pasaria por cerrada."""
+        obj, nif = self._dos_tubos(("TuboA", "TuboB"))
+        medidas, _ = salud_malla.leer_soldado(nif)
+        self.assertEqual(sorted(m["borde"] for m in medidas), [4, 4])
+        codigo, salida = _correr(obj, nif)
+        self.assertEqual(codigo, 1, salida)
+        self.assertIn("REGLA borde", salida)
+
+    def test_un_nombre_repetido_no_se_suelda_por_las_dudas(self):
+        """mundo_shapes() indexa por nombre y guarda el PRIMERO: con dos
+        piezas llamadas igual, la segunda heredaria el marco de la primera.
+        En el corpus vanilla hay 101 archivos con dos piezas del mismo nombre
+        en marcos distintos. Sin marco confiable, la pieza va sola."""
+        obj, nif = self._dos_tubos(("Tubo", "Tubo"))
+        medidas, _ = salud_malla.leer_soldado(nif)
+        self.assertEqual(sorted(m["borde"] for m in medidas), [4, 4])
+        codigo, salida = _correr(obj, nif)
+        self.assertEqual(codigo, 1, salida)
+        self.assertIn("REGLA borde", salida)
+
+    def test_indice_fuera_de_su_pieza_no_cae_en_la_siguiente(self):
+        """Un indice que se pasa de SU pieza, corrido por el offset de la
+        union, cae en un vertice VALIDO de la pieza siguiente: se mediria otra
+        malla sin avisar, el mismo agujero que el w[-2] de salud()."""
+        piezas = nif_sintetico.barra_en_piezas()
+        piezas[0]["tris"] = piezas[0]["tris"] + [(0, 1, 12)]
+        m = salud_malla.salud(*salud_malla.unir(piezas))
+        self.assertEqual(m["fuera_de_rango"], 1)
+        self.assertEqual(m["tris"], 36)
+        self.assertEqual(m["borde"], 0)
+
+    def test_el_rasgado_repartido_en_dos_shapes_no_se_escuda_en_el_reparto(
+            self):
+        """La REGLA piezas perdonaba el crecimiento cuando crecia la cantidad
+        de shapes: podia ser el reparto por material. Soldando las piezas del
+        mismo marco, el reparto ya no suma piezas, y la guarda es la cantidad
+        de MARCOS. El caso de Codex (un grid de 20x20 hecho 12 triangulos
+        sueltos) repartido en dos shapes del mismo marco tiene que reprobar."""
+        g_pos = [(float(i), float(j), 0.0) for i in range(20)
+                 for j in range(20)]
+        g_tris = []
+        for i in range(19):
+            for j in range(19):
+                a = i * 20 + j
+                g_tris += [(a, a + 1, a + 20), (a + 1, a + 21, a + 20)]
+        piezas = []
+        for k in range(2):
+            s_pos, s_tris = [], []
+            for q in range(k * 6, k * 6 + 6):
+                b = len(s_pos)
+                s_pos += [(q * 10.0, 0.0, 0.0), (q * 10.0 + 1.0, 0.0, 0.0),
+                          (q * 10.0, 0.0, 1.0)]
+                s_tris.append((b, b + 1, b + 2))
+            piezas.append({"nombre": "Suelto%d" % k, "pos": s_pos,
+                           "tris": s_tris})
+        codigo, salida = _correr(self._obj(g_pos, g_tris), self._nif(piezas))
+        self.assertEqual(codigo, 1, salida)
+        self.assertIn("REGLA piezas", salida)
 
 
 class LecturaNifTests(unittest.TestCase):

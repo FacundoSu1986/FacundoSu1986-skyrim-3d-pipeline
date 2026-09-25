@@ -607,7 +607,10 @@ NETO, y puede **bajar** mientras la malla se parte — un grid abierto de 20×20
 tiene 76 aristas de borde, partido en 12 triangulos sueltos quedan 36 y con
 una sola regla ese resultado salía con exit 0. Las piezas no pueden crecer
 decimando bien (colapsar fusiona, fusionar no parte); si crecen con la misma
-cantidad de shapes, la malla se rasgó.
+cantidad de marcos, la malla se rasgó. Un NIF repartido en shapes por material
+se mide con las piezas de un mismo marco soldadas entre sí: pieza por pieza,
+la costura entre dos contaba como borde en las dos, y el hacha de Filo Celeste,
+sana, reprobaba con 956 aristas de borde contra 8.
 
 **Lo que NO se puede exigir:** que la malla esté cerrada. `[MEASURED]` Solo el
 **15,1 %** de los shapes vanilla lo están; la mediana tiene el 15,4 % de sus
