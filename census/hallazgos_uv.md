@@ -131,7 +131,8 @@ set, pisándose 0,938** — y en el juego se ve perfecto.
 > desordenada. Un percentil que viola su propio orden es la señal más barata de
 > que hay basura en los datos.
 
-### (#41) El NIF guarda la V con el origen ARRIBA: un conversor desde OBJ tiene que invertirla
+### El NIF guarda la V con el origen ARRIBA: un conversor desde OBJ tiene que invertirla
+**ORIGEN**: PR [#40](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/40).
 
 **AFIRMACIÓN**: Un NIF almacena la coordenada V con el origen en la **fila 0 de la imagen** (convención DirectX); un OBJ y Blender la almacenan con el origen abajo. Un conversor OBJ → NIF que copie la V tal cual deja **todo el mapeo espejado en vertical**, y no da ningún error.
 

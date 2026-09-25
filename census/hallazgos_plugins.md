@@ -131,7 +131,8 @@ entendemos.
   tipos sí aparece, y la pasada de subrecords del autotest los descomprime y
   verifica, pero el censo no mide cuántos ni de qué tipos.
 
-### 7. (#21) `ARMA`: cuántas razas adicionales lleva un equipable
+### 7. `ARMA`: cuántas razas adicionales lleva un equipable
+**ORIGEN**: PR [#39](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/39).
 
 **AFIRMACIÓN**: De **1.170** records `ARMA`, la cantidad de razas adicionales (subrecords `MODL` repetidos) se reparte así: **234 (20,0 %) no tienen ninguna**, 232 (19,8 %) tienen una, y **215 (18,4 %) tienen 23**, que es el valor más frecuente por encima de 1. El máximo observado es 30.
 **CONSULTA**: recorrido de los subrecords de cada `ARMA` de los 10 plugins.
@@ -140,35 +141,40 @@ entendemos.
 
 > **Esto convierte un `[OBSERVED]` con N=1 en una regla con su población.** La skill `asset-nuevo-skyrim` decía "el `DwarvenShieldAA` lista 23 razas" y un lector podía leer "poné 23". El 23 es correcto para ese record y no es el número: es la lista del vanilla equivalente, que para un escudo humano nunca está vacía y para una criatura muchas veces sí.
 
-### 8. (#21) El núcleo mínimo de `ARMO` y de `ARMA`
+### 8. El núcleo mínimo de `ARMO` y de `ARMA`
+**ORIGEN**: PR [#39](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/39).
 
 **AFIRMACIÓN**: En `ARMO`, **`EDID+OBND+RNAM+MODL+DATA+DNAM+BOD2`** aparece en **3.905 de 3.915** records. En `ARMA`, la combinación mínima observada es **`EDID+RNAM+DNAM+BODT`** —1 record— y la habitual es `EDID+RNAM+DNAM+MOD2+MODL+BODT`, en 730.
 **CONSULTA**: presencia de subrecords de núcleo en cada `ARMO` y cada `ARMA`.
 **N**: 3.915 `ARMO`, 1.170 `ARMA`.
 **EXCEPCIONES**: los **10** `ARMO` restantes usan el `BODT` viejo en vez de `BOD2`. En `ARMA`, `MOD2` (la ruta del modelo masculino) está en el 99,6 % y `MODL` —que en este record **no** es una ruta de modelo sino la lista de razas— en el 80,0 %.
 
-### 9. (#21) Dos recorridos de plugin independientes dan el mismo número
+### 9. Dos recorridos de plugin independientes dan el mismo número
+**ORIGEN**: PR [#39](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/39).
 
 **AFIRMACIÓN**: El recorrido de `esl.py` —que entra a los `GRUP` sin usar su tamaño— y el de `census/parser_esm.py` —que comprueba la identidad en tres niveles— cuentan **exactamente los mismos records** en los **10 de 10** plugins: **1.188.811** en total.
 **CONSULTA**: `len(esl.recorrer_formids(d))` contra el recorrido de `Plugin` para cada archivo.
 **N**: 10 plugins, 1.188.811 records.
 **EXCEPCIONES**: 0. Lo que el cruce **no** cubre: `esl.py` nunca lee el tamaño de un `GRUP`, así que un `GRUP` con el tamaño inflado no le cambia el resultado. Su comprobación de cierre es la cadena de records, no las tres identidades.
 
-### 10. (#21) El piso de 0x800 para FormIDs de ESL es del Creation Kit, no del motor
+### 10. El piso de 0x800 para FormIDs de ESL es del Creation Kit, no del motor
+**ORIGEN**: PR [#39](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/39).
 
 **AFIRMACIÓN**: De los **3 archivos `.esl`** de una instalación SE —todos marcados como ESL y cargados por el juego— los **1.032** records propios tienen índices de objeto de **0x001 a 0xD9A**, y **ninguno** supera **0xFFF**. En `_ResourcePack.esl`, **368 de 373** están **por debajo de 0x800**.
 **CONSULTA**: clasificación de cada FormID por índice de mod contra la cantidad de `MAST` del `TES4`, y el índice de objeto de los propios.
 **N**: 3 archivos, 1.197 records, 1.032 propios.
 **EXCEPCIONES**: ninguna por encima del techo. **Esto refuta una regla que este repo tenía escrita**: `esl.py` exigía `0x800 ≤ índice ≤ 0xFFF` y habría rechazado a `_ResourcePack.esl`, que Bethesda distribuye y el juego carga. El techo de **0xFFF** sí es del motor —son 12 bits en el espacio `FE:xxx`— y es el único que bloquea; el piso se informa con su medición.
 
-### 11. (#21) Los overrides de un ESL no entran en la cuenta del rango
+### 11. Los overrides de un ESL no entran en la cuenta del rango
+**ORIGEN**: PR [#39](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/39).
 
 **AFIRMACIÓN**: `ccQDRSSE001-SurvivalMode.esl` trae **165 records override** —índice de mod menor que sus 5 masters— y **508 propios**. Un override conserva el FormID del master, así que el rango de ESL no lo toca.
 **CONSULTA**: `clasificar(formids, len(masters(d)))` sobre cada `.esl`.
 **N**: 3 archivos; 165 overrides en uno, 0 en los otros dos.
 **EXCEPCIONES**: la versión anterior de `esl.py` reportaba **los 165 como "fuera de rango"** y se habría negado a marcar un ESL que el juego ya carga. La comprobación se aplicaba a *todos* los records no-`TES4` y el informe los llamaba "records propios", que es otra cosa.
 
-### 12. (#31) `formVersion` es 44 en todo lo que Bethesda autoró para SE — y el corpus entero dice lo contrario
+### 12. `formVersion` es 44 en todo lo que Bethesda autoró para SE — y el corpus entero dice lo contrario
+**ORIGEN**: issue [#31](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/31) → PR [#45](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/45).
 
 **AFIRMACIÓN**: En los **5 plugins autorados para SE** —`_ResourcePack.esl` y los cuatro de Creation Club— los **10.273** records llevan `formVersion` (bytes 20-21 de la cabecera) **44**. Sobre los **10 plugins**, 44 es además el **máximo**: no existe un 45 en 1.188.821 records.
 **CONSULTA**: `struct.unpack_from("<H", d, offset + 20)` en cada record no-`GRUP`, separando los 5 masters de 2011 de los 5 autorados para SE.
