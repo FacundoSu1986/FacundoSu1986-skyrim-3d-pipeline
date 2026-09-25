@@ -140,6 +140,9 @@ de las versiones anteriores de estos documentos eran exactamente eso, y están
 documentadas como tales dentro de los propios archivos en vez de borradas — el
 patrón enseña más que el dato.
 
+Qué comprueba cada control, con qué número del corpus, qué test se pone rojo si
+se rompe y si lo corre el CI: [`docs/validacion.md`](docs/validacion.md).
+
 ## Sobre los números
 
 Los presupuestos de polígonos, las distribuciones de flags de partición, los
