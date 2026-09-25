@@ -56,6 +56,7 @@ La skill [`modelo-ia-a-skyrim`](skills/modelo-ia-a-skyrim):
 | [`scripts/hornear.py`](skills/modelo-ia-a-skyrim/scripts/hornear.py) | Hornea normal, AO, albedo, rugosidad y metal desde la malla alta (Blender) |
 | [`scripts/horneado_puro.py`](skills/modelo-ia-a-skyrim/scripts/horneado_puro.py) | Lo del horneado que no necesita Blender: reducción, margen, solape de UV |
 | [`scripts/uv_exportacion.py`](skills/modelo-ia-a-skyrim/scripts/uv_exportacion.py) | Conserva una UV por nombre y comprueba sus coordenadas al limpiar una copia de exportación (API de Blender) |
+| [`scripts/al_marco.py`](skills/modelo-ia-a-skyrim/scripts/al_marco.py) | Lleva un asset nuevo (baja y alta, la misma matriz) al espacio de su nodo de anclaje, con un plan JSON y sin espejo posible (Blender) |
 | [`scripts/montar.py`](skills/modelo-ia-a-skyrim/scripts/montar.py) | Pasos 5 y 6: monta las partes en el lugar de las piezas vanilla y copia sus pesos (Blender) |
 | [`scripts/montaje_puro.py`](skills/modelo-ia-a-skyrim/scripts/montaje_puro.py) | Lo del montaje que no necesita Blender: transformadas, pesos, controles, el plan |
 | [`scripts/correr_en_blender.py`](skills/modelo-ia-a-skyrim/scripts/correr_en_blender.py) | Que un script de Blender que revienta no salga con 0 |
