@@ -9,7 +9,9 @@ importa:
      transformar en local mezcla espacios y la figura termina acostada.
   2. SOLDAR antes de decimar. Los generadores parten los vertices por isla de
      UV, y el decimado por colapso necesita aristas compartidas: sin soldar se
-     topa con un piso (2.500 pedidos, 16.453 obtenidos).
+     topa con un piso (2.500 pedidos, 16.453 obtenidos). Soldar DE MAS tambien:
+     fusiona detalle, crea aristas no-manifold y el piso vuelve (ver
+     SOLDADURA, medido en dos modelos).
   3. Decimar al presupuesto. Preserva la silueta notablemente bien: 447.406 ->
      8.000 triangulos es visualmente indistinguible.
   4. Media vuelta sobre Z, SOLO SI SE PIDE. Muchos generadores devuelven el
@@ -33,7 +35,10 @@ ANTES (afinar) hay que aplicarselo igual a la alta. Montar va despues del bake
 y no toca las UV.
 
 Uso:
-  blender -b --python preparar_parte.py -- <entrada> <salida.blend> <tris> [--girar-180] [--guardar-alto <alto.blend>] [--force]
+  blender -b --python preparar_parte.py -- <entrada> <salida.blend> <tris> [--girar-180] [--guardar-alto <alto.blend>] [--soldadura F] [--force]
+
+  --soldadura F   distancia de soldadura como fraccion del alto (0.00001 por
+                  defecto: junta los duplicados de las costuras de UV)
 
 Ejemplo:
   blender -b --python preparar_parte.py -- cabeza.glb partes/cabeza.blend 8000
@@ -49,10 +54,25 @@ from mathutils import Matrix
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from correr_en_blender import correr  # noqa: E402
 
-# Fraccion del alto del modelo que se usa como distancia de soldadura. Lo
-# bastante chica para no fusionar detalle real, lo bastante grande para cerrar
-# los vertices partidos por isla de UV.
-SOLDADURA = 0.0008
+# Fraccion del alto del modelo que se usa como distancia de soldadura: la
+# justa para juntar los vertices DUPLICADOS por las costuras de UV, que en los
+# modelos de Tripo coinciden exactamente. Medido sobre dos modelos reales,
+# decimando al presupuesto:
+#
+#                               soldadura   borde   no-manifold   decimado
+#   hacha (1,5 M tris) -> 8.000  0,00001       0            0       8.000
+#                                0,0008    1.328        1.916      10.034
+#   escudo (2 M tris) -> 12.000  0,00001      14           13      11.999
+#                                0,0008    9.698       15.616      73.413
+#   partes del centurion (~440 k tris) -> 2.500, las dos soldaduras llegan:
+#     pie      0,00001: 4 de borde     0,0008: 70
+#     pierna   0,00001: 64             0,0008: 15
+#     cabeza   0,00001: 138            0,0008: 9
+#
+# El valor anterior, 0,0008, fusionaba detalle real --el escudo paso de
+# 1,98 M a 1,29 M triangulos al soldar--, creaba aristas no-manifold y el
+# decimado se trababa lejos del presupuesto. `--soldadura F` la cambia.
+SOLDADURA = 0.00001
 
 
 def limpiar():
@@ -102,17 +122,22 @@ def tris(obj):
     return sum(len(p.vertices) - 2 for p in obj.data.polygons)
 
 
-def soldar(obj):
+def soldar(obj, fraccion=SOLDADURA):
+    """Suelda y devuelve (aristas de borde, aristas no-manifold): lo que el
+    decimado despues no puede colapsar, y por eso lo que fija su piso."""
     co = [v.co for v in obj.data.vertices]
     alto = max(c.z for c in co) - min(c.z for c in co)
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     bmesh.ops.remove_doubles(bm, verts=list(bm.verts),
-                             dist=max(alto * SOLDADURA, 1e-6))
+                             dist=max(alto * fraccion, 1e-9))
     bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+    borde = sum(1 for e in bm.edges if len(e.link_faces) == 1)
+    no_manifold = sum(1 for e in bm.edges if len(e.link_faces) > 2)
     bm.to_mesh(obj.data)
     bm.free()
     obj.data.update()
+    return borde, no_manifold
 
 
 def decimar(obj, presupuesto):
@@ -143,6 +168,13 @@ def main():
         return
     entrada, salida, presupuesto = args[0], args[1], int(args[2])
     girar = "--girar-180" in args
+    fraccion = SOLDADURA
+    if "--soldadura" in args:
+        i = args.index("--soldadura")
+        try:
+            fraccion = float(args[i + 1])
+        except (IndexError, ValueError):
+            raise SystemExit("--soldadura necesita un numero: fraccion del alto")
     alto_destino = None
     if "--guardar-alto" in args:
         i = args.index("--guardar-alto")
@@ -175,7 +207,7 @@ def main():
     obj = unir(importar(entrada), nombre)
 
     antes = tris(obj)
-    soldar(obj)
+    borde, no_manifold = soldar(obj, fraccion)
     soldado = tris(obj)
     # Copia de los DATOS, no del objeto: el decimado aplica un modificador al
     # objeto activo y no toca un datablock que no es suyo. Lleva los
@@ -212,6 +244,8 @@ def main():
     print("  caja  X %.3f..%.3f  Y %.3f..%.3f  Z %.3f..%.3f"
           % (x[0], x[1], y[0], y[1], z[0], z[1]))
     print("  proporcion  %s" % prop_txt)
+    print("  soldadura %.6f del alto: %d aristas de borde, %d no-manifold"
+          % (fraccion, borde, no_manifold))
     print("  UV: %s" % [u.name for u in obj.data.uv_layers])
     print("[blend] %s" % destino)
 
@@ -225,12 +259,23 @@ def main():
         bpy.ops.wm.save_as_mainfile(filepath=alto_destino)
         print("[alto] %d tris sin decimar -> %s" % (soldado, alto_destino))
 
-    # Si el decimado no llego al presupuesto, la soldadura no alcanzo: hay
-    # cascaras sueltas que el colapso no puede reducir. Avisar, no fallar.
+    # Si el decimado no llego al presupuesto, algo frena el colapso: aristas
+    # de borde (cascaras sueltas, costuras sin cerrar) o aristas no-manifold,
+    # que una soldadura DEMASIADO grande crea al fusionar detalle. Son dos
+    # correcciones opuestas: el aviso dice cual, con el numero. Antes decia
+    # siempre "soldadura mas grande", que en los dos modelos medidos era al
+    # reves (ver SOLDADURA). Avisar, no fallar.
     if despues > presupuesto * 1.15:
-        print("[aviso] no se llego al presupuesto (%d vs %d pedidos). Quedan "
-              "cascaras sueltas: probar una soldadura mas grande que %.5f del "
-              "alto." % (despues, presupuesto, SOLDADURA))
+        if no_manifold > borde:
+            consejo = ("la soldadura dejo %d aristas no-manifold: probar una "
+                       "MAS CHICA que %g (--soldadura)" % (no_manifold,
+                                                            fraccion))
+        else:
+            consejo = ("quedan %d aristas de borde (cascaras sueltas o "
+                       "costuras sin cerrar): probar una soldadura MAS GRANDE "
+                       "que %g (--soldadura)" % (borde, fraccion))
+        print("[aviso] no se llego al presupuesto (%d vs %d pedidos): %s."
+              % (despues, presupuesto, consejo))
 
 
 correr(main)

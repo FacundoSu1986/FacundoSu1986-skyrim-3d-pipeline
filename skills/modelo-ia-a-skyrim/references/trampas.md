@@ -200,10 +200,29 @@ Tripo:
 O sea: una sola pieza maciza, cortada en cientos de parches por las costuras de
 UV. No hay "cáscaras sueltas" que arreglar — hay que **coserlas**.
 
-**Arreglo:** soldar antes de decimar (`remove_doubles` con distancia ~0,08% del
-alto del modelo). Con eso los seis presupuestos del proyecto de origen dieron
-exactos. Soldar también arregla las UV: Blender conserva las costuras como datos
-por cara (*loop*), así que unir los vértices no rompe el mapeo.
+**Arreglo:** soldar antes de decimar. Soldar también arregla las UV: Blender
+conserva las costuras como datos por cara (*loop*), así que unir los vértices no
+rompe el mapeo.
+
+**Pero soldar de más trae el piso de vuelta.** La distancia era ~0,08 % del
+alto, y con los seis presupuestos del centurión andaba. `[MEASURED]` Con dos
+modelos más densos de Tripo, esa soldadura fusionaba detalle real y creaba
+aristas no-manifold, que el colapso tampoco puede reducir:
+
+| modelo | soldadura | borde | no-manifold | decimado |
+|---|---|---|---|---|
+| hacha, 1,5 M tris → 8.000 | 0,00001 del alto | 0 | 0 | **8.000** |
+| | 0,0008 | 1.328 | 1.916 | 10.034 |
+| escudo, 2 M tris → 12.000 | 0,00001 | 14 | 13 | **11.999** |
+| | 0,0008 | 9.698 | 15.616 | 73.413 |
+| pie, pierna y cabeza del centurión → 2.500 | las dos | ≤ 138 | ≤ 138 | 2.500 |
+
+Las costuras de Tripo coinciden **exactamente**: basta con juntar los
+duplicados. `scripts/preparar_parte.py` suelda ahora a 0,00001 del alto, informa
+el borde y las no-manifold que deja, y `--soldadura F` la cambia. Si el decimado
+no llega, el aviso dice hacia dónde: no-manifold de más es soldadura **más
+chica**; borde de más, **más grande**. Antes decía siempre "más grande", que en
+los dos modelos densos era al revés.
 
 ### 8. Las normales vienen mezcladas {#8}
 
@@ -348,7 +367,23 @@ los nombres antes del cambio y los vuelve a crear.
 ### 17. `uv.pack_islands` y `uv.select_all` exigen un editor de UV abierto {#17}
 
 **Síntoma:** en Blender sin interfaz (`-b`), fallan con
-`context is incorrect`.
+`context is incorrect`. O, peor, `pack_islands` **corre sin error y no hace
+nada**.
+
+`[MEASURED]` Blender 4.4.1, la baja del escudo de Tripo (12.000 tris, 1.724
+islas después del `smart_project`): la cobertura del atlas no se movió de
+0,235. Dos causas, las dos silenciosas:
+
+- `pack_islands` solo mueve las UV **seleccionadas**, y en `-b` ninguna lo está
+  después del `smart_project`. Hay que marcarlas a mano con bmesh
+  (`loop[uv].select = True` en todos los loops).
+- El margen por defecto (`margin_method="SCALED"`) escala con las islas: con
+  muchas, reserva mucho más que lo pedido. Con `margin_method="FRACTION"` la
+  cobertura pasó a 0,339 con margen 0,003, y a **0,411** con 0,002 (un 2048
+  que rendía como un 993 pasa a rendir como un 1.313).
+
+La selección sincronizada (`use_uv_select_sync`) no alcanzó: una corrida dio
+0,466 y no se pudo reproducir.
 
 **Arreglo:** `smart_project` **no** lo necesita —trabaja sobre las caras
 seleccionadas— pero le da el cuadro 0..1 entero a **cada objeto**, así que
