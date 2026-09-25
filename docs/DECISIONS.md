@@ -348,3 +348,55 @@ que el montaje pone cada vértice donde el plan dice y que el NIF se parece al
 vanilla; que la pieza se vea bien al animarse lo dice el juego. Tampoco hay
 todavía un plan con partes reales de un generador: el camino está probado con
 el propio vanilla y con una pieza sacada a `.obj`.
+
+## El frontmatter de las skills: lo que el validador de subida acepta (#65)
+
+Una reseña externa pidió agregar `version`, `inputs`, `outputs`,
+`prerequisites` y `rendering-path` como claves del frontmatter, "porque los
+cargadores las esperan". Ninguno las espera: Claude Code decide cuándo cargar
+una skill por `name` y `description`. Y el validador de subida de claude.ai y
+de la API de Skills (`quick_validate.py` de skill-creator, el que corre
+`package_skill.py`) **rechaza** cualquier clave de primer nivel fuera de
+`name`, `description`, `license`, `allowed-tools`, `metadata` y
+`compatibility`. Escritas como se pedían, las dos skills dejaban de poder
+subirse, y Claude Code las seguía cargando: nadie se habría enterado hasta
+subirlas.
+
+Lo que el pedido buscaba entra donde el validador lo acepta: los
+prerrequisitos en `compatibility` (texto de hasta 500 caracteres) y las
+entradas, salidas y rutas de render en `metadata`. **Sin `version`**: nadie la
+sube cuando cambia el flujo, y un número que no se mantiene miente. Una copia
+instalada se identifica por el commit de `main` desde el que se empaquetó.
+
+`tests/test_frontmatter_skills.py` congela, por igualdad, qué skills hay y qué
+claves lleva cada una, y aplica las reglas del validador que se rompen
+editando texto. Falsificado: `version` de primer nivel, una subclave nueva en
+`metadata` y una `compatibility` de 727 caracteres lo ponen rojo; la primera y
+la última, además, las rechaza el validador oficial.
+
+## `nif_nodos.py` sigue duplicado, no en `skills/_shared/` (#75)
+
+`nif_nodos.py` está en las dos skills, byte a byte, porque cada una se
+empaqueta y se instala sola: `tests/test_skill_empaquetada.py` exige que el
+paquete corra sin nada más del repo. La reseña externa propuso sacarlo a un
+`skills/_shared/scripts/` común.
+
+**Se queda duplicado.**
+
+- Con `_shared/`, la carpeta de la skill deja de ser la skill. El README dice
+  "copiá `skills/<nombre>/` a tu carpeta de skills" y Claude Code la carga
+  directo de ahí; una carpeta que importa de `../_shared` revienta apenas se
+  copia sola. Para evitarlo, `build_skill.py` tendría que copiar el script en
+  cada paquete, y copiar la carpeta a mano dejaría de ser una forma válida de
+  instalar.
+- El riesgo del duplicado --que las copias diverjan-- ya lo cubre
+  `LasDosCopiasSonLaMismaTests` (`tests/test_skill_asset_nuevo.py`), que
+  compara byte a byte y existe porque una copia, la que estaba fuera del
+  repo, divergió de verdad.
+- El costo es chico y visible: un arreglo se aplica dos veces, y si falta la
+  segunda, la suite lo dice y nombra el archivo a copiar.
+
+**Cuándo revisarla.** Si aparece un segundo script compartido o una tercera
+skill que necesite `nif_nodos.py`. Ahí copiar desde `build_skill.py` empieza a
+pagar, y el test de equivalencia tendría que mirar lo que se empaqueta, no la
+fuente.
