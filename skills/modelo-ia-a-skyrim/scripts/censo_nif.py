@@ -98,6 +98,12 @@ TIPOS_SHAPE = ("BSTriShape", "BSDynamicTriShape", "BSSubIndexTriShape")
 # la medicion completa.
 UV_OFFSET = 16
 BIT_UV = 0x2
+
+# Los atributos del vertexDesc (vdesc >> 44), para formatos_vertice().
+ATRIBUTOS_VERTICE = ((0x1, "VERTEX"), (0x2, "UV"), (0x4, "UV2"),
+                     (0x8, "NORMAL"), (0x10, "TANGENT"), (0x20, "COLORS"),
+                     (0x40, "SKINNED"), (0x80, "LANDDATA"), (0x100, "EYEDATA"),
+                     (0x400, "FULLPREC"))
 # Los mismos tres que census/parser_nif.py. BSSubIndexTriShape no aparece
 # en este corpus (0 bloques en 22.394 archivos); va igual para que las dos
 # listas no vuelvan a separarse.
@@ -258,6 +264,26 @@ class Nif(object):
                 tri, = struct.unpack_from("<I", self.d, p); p += 4
             ver, = struct.unpack_from("<H", self.d, p)
             fuera.append((nombre, tri, ver))
+        return fuera
+
+    def formatos_vertice(self):
+        """{nombre del shape: frozenset de atributos del vertexDesc}.
+
+        Son los 12 bits de arriba del vertexDesc (>> 44), los mismos de los
+        que BIT_UV es uno: VERTEX 0x1, UV 0x2, UV2 0x4, NORMAL 0x8, TANGENT
+        0x10, COLORS 0x20, SKINNED 0x40, LANDDATA 0x80, EYEDATA 0x100,
+        FULLPREC 0x400. Mismo offset que trishapes(): bounding sphere y las
+        tres refs. Medido con el centurion: montar una parte que no trae capa
+        de color deja la pieza sin COLORS, y nada lo decia.
+        """
+        fuera = {}
+        for o, _ in self.de_tipo(*TIPOS_SHAPE):
+            p, nombre = self._saltar_niavobject(o)
+            p += 16 + 12
+            vdesc, = struct.unpack_from("<Q", self.d, p)
+            bits = vdesc >> 44
+            fuera.setdefault(nombre, frozenset(
+                n for b, n in ATRIBUTOS_VERTICE if bits & b))
         return fuera
 
     def geometria(self, con_uv=False):

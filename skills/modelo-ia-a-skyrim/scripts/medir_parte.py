@@ -32,6 +32,9 @@ import sys
 import bpy
 from mathutils import Matrix
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from correr_en_blender import correr  # noqa: E402
+
 
 def limpiar():
     for o in list(bpy.data.objects):
@@ -338,4 +341,4 @@ def main():
         print("[json] %s" % salida_json)
 
 
-main()
+correr(main)

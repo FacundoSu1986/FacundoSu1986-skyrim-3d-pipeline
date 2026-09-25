@@ -137,7 +137,8 @@ def _avobject_sin_hijos(nombre_idx, traslacion, escala=1.0, rot=IDENTIDAD):
 
 
 def _trishape(nombre_idx, skin_ref, traslacion=(0.0, 0.0, 0.0), escala=1.0,
-              rot=IDENTIDAD):
+              rot=IDENTIDAD,
+              vertex_desc=0x0000000000000004):
     """BSTriShape skinneado: sin geometria inline, con ref a la skin instance.
 
     numTriangles = numVertices = dataSize = 0 no es un atajo del fixture: es
@@ -147,7 +148,7 @@ def _trishape(nombre_idx, skin_ref, traslacion=(0.0, 0.0, 0.0), escala=1.0,
     p = _avobject_sin_hijos(nombre_idx, traslacion, escala, rot)
     p += struct.pack("<4f", 0.0, 0.0, 0.0, 0.0)      # esfera envolvente
     p += struct.pack("<3i", skin_ref, -1, -1)        # skin, shader, alpha
-    p += struct.pack("<Q", 0x0000000000000004)       # vertexDesc
+    p += struct.pack("<Q", vertex_desc)              # vertexDesc
     p += struct.pack("<H", 0)                        # numTriangles
     p += struct.pack("<H", 0)                        # numVertices
     p += struct.pack("<I", 0)                        # dataSize
@@ -536,7 +537,8 @@ def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,
                         skin_tipo="BSDismemberSkinInstance",
                         nombre_raiz=None, tr_raiz=(0.0, 0.0, 0.0),
                         esc_raiz=1.0, escalas=None, rot_pieza=IDENTIDAD,
-                        rot_huesos=None, bs=BS):
+                        rot_huesos=None, bs=BS,
+                        vertex_desc=0x0000000000000004):
     """Un NIF skinneado minimo, con TODO parametrizado para poder torcerlo.
 
     Va aparte de construir() y no como un flag suyo para no tocar el
@@ -573,7 +575,8 @@ def construir_skinneado(raiz_tipo="NiNode", nombre_pieza=PIEZA_NOMBRE,
     if len(rot_huesos) != n_huesos:
         raise ValueError("un hueso, una rotacion")
     bloques = [_avobject(0, [], tr_raiz, hijos, esc_raiz),
-               _trishape(1, 2, tr_pieza, esc_pieza, rot_pieza),
+               _trishape(1, 2, tr_pieza, esc_pieza, rot_pieza,
+                         vertex_desc=vertex_desc),
                _dismember(idx_huesos, body_parts, dismember)]
     tipo_de = [0, 1, 2]
     for i, t in enumerate(traslaciones):

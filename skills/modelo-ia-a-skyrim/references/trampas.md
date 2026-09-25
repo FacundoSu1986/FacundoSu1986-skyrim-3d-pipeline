@@ -1,4 +1,4 @@
-# Trampas: treinta y seis fallos que no tiran error
+# Trampas: treinta y nueve fallos que no tiran error
 
 Casi todas se pagaron en el proyecto de origen (`Centurion_Marfil_SE_v01`,
 reemplazo del Dwarven Steam Centurion); de la 28 en adelante salieron de otros
@@ -57,6 +57,9 @@ ya está en la lista.
 | El NIF "de SE" sale con `NiTriShape` y `bs_version 83` | [33](#33) |
 | El export dice `Export successful` y los verificadores de geometría no ven ninguna malla | [33](#33) |
 | El arma se ve opaca al lado de las vanilla, con la malla y las texturas bien | [36](#36) |
+| El control "pasó" y el log tiene un traceback | [37](#37) |
+| La pieza espejada no se ve, o se ve desde adentro | [38](#38) |
+| La pieza nueva perdió los colores de vértice que tenía el vanilla | [39](#39) |
 
 ---
 
@@ -303,8 +306,15 @@ def canon(n):
 **Síntoma:** el NIF sale con 41 `NiNode` contra los 21 del vanilla, incluidos
 huesos humanos (`NPC Spine1 [Spn1]`) que la criatura no tiene.
 
-**Arreglo:** antes de exportar, podar la armature a los huesos que el skin
-vanilla usa de verdad. En un NIF de malla los huesos son hijos planos de la
+**Arreglo:** que no entren. `import_scene.pynifly(..., create_bones=False)`
+deja en la armature solo los huesos del archivo. `[MEASURED]` Con el centurión
+y PyNifly en Blender 4.4.1: 21 `NiNode` en el vanilla, **53** en el exportado
+con el default (`CME *`, `NPC COM`, las clavículas...), **21** con
+`create_bones=False`. Es lo que hace `scripts/montar.py`, y la regla `nodos`
+de `verificar_export.py` lo reprueba si pasa.
+
+Si la armature ya viene con los huesos de más, podarla a los que el skin
+vanilla usa de verdad: en un NIF de malla los huesos son hijos planos de la
 raíz, así que borrarlos no rompe ninguna jerarquía.
 
 ## Blender
@@ -328,6 +338,12 @@ else:
     for g in original.vertex_groups:
         copia.vertex_groups.new(name=lado_opuesto(g.name))
 ```
+
+**El caso inverso:** como los nombres viven en la malla, **cambiarle la malla
+a un objeto le borra los grupos**. `[MEASURED]` Blender 4.4.1, `ob.data =
+otra_malla`: `ob.vertex_groups` queda con los de la malla nueva (ninguno, si
+vino de un `.obj`) y los del donante desaparecen. `scripts/montar.py` guarda
+los nombres antes del cambio y los vuelve a crear.
 
 ### 17. `uv.pack_islands` y `uv.select_all` exigen un editor de UV abierto {#17}
 
@@ -838,6 +854,56 @@ tramo vanilla caen la glossiness y la intensidad especular.
 Lo que **no** se probó: el hacha con EnvMap en el juego. Lo medido es qué
 material usan las armas vanilla y que la receta escribe ese material. Cuánto
 cambia a la vista no se comprobó.
+
+### 37. Blender sin interfaz sale con 0 aunque el script reviente {#37}
+
+**Síntoma:** el control "pasó". El log tiene un traceback.
+
+**Por qué pasa:** `[MEASURED]` Blender 4.4.1 con `-b --python`: una excepción
+sin atrapar imprime el traceback y Blender sale con **0**. Un error de
+sintaxis, también. `sys.exit(3)` sí sale con 3. Quien mira solo el código de
+salida --un automatizador, CI, un script que encadena pasos-- no se entera.
+Los cinco scripts de Blender del repo terminaban con un `main()` suelto:
+`preparar_parte.py` con un `.glb` inexistente salía con 0.
+
+**Arreglo:** todo script de Blender del repo termina con `correr(main)`
+(`scripts/correr_en_blender.py`): cualquier excepción sale con 1, y
+`tests/test_blender_sale_bien.py` recorre los scripts y reprueba el que no lo
+haga. El error de sintaxis ningún envoltorio lo ataja --revienta antes de
+ejecutar nada--: eso lo cubre el `compileall` del CI. Desde la línea de
+comandos, `blender -b --python-exit-code 1 --python ...` hace lo mismo para
+cualquier script.
+
+### 38. Espejar con `Mesh.transform` no da vuelta las caras {#38}
+
+**Síntoma:** la pieza espejada no se ve, o se ve "desde adentro".
+
+**Por qué pasa:** `[MEASURED]` Blender 4.4.1: `mesh.transform()` con una
+matriz de determinante negativo refleja las posiciones pero deja el orden de
+los vértices de cada cara. La normal geométrica, la que sale de ese orden,
+queda apuntando hacia **adentro**. Con backface culling (trampa 6) la pieza
+es invisible desde afuera. PyNifly exporta los triángulos en ese orden.
+
+**Arreglo:** `mesh.flip_normals()` después de toda transformada con
+determinante negativo. `scripts/montar.py` lo hace, y su `--falsificar` lo
+controla: la pantorrilla izquierda montada espejada en el lugar de la derecha
+tiene que salir con sus 371 caras hacia afuera; sin la inversión salen 3.
+
+### 39. Una parte sin colores de vértice cambia el formato de la pieza {#39}
+
+**Síntoma:** ninguno a la vista en el archivo. El NIF exporta, y todas las
+reglas que `verificar_export.py` tenía entonces pasaban.
+
+**Por qué pasa:** `[MEASURED]` Las piezas del centurión vanilla llevan
+`COLORS` en el formato de vértice. Una parte que llega de un `.obj` no trae
+capa de color, y PyNifly exporta la pieza **sin** `COLORS`: la pieza cambia
+de formato respecto del vanilla sin ningún aviso. Qué cambia en el juego, no
+se midió.
+
+**Arreglo:** `scripts/montar.py` le crea una capa blanca a la parte que no
+trae. Y `verificar_export.py` compara el formato de vértice de cada pieza
+contra el vanilla (regla `formato`). En los 1.216 pares `_0`/`_1` del corpus
+el formato de cada pieza coincide siempre: la regla no reprueba nada vanilla.
 
 ## Proceso
 
