@@ -1,0 +1,12 @@
+# Lo que hace falta para correr la suite completa:
+#
+#   python -m pip install -r requirements-dev.txt
+#   python -m unittest discover -s tests
+#
+# El CI instala exactamente este archivo (.github/workflows/ci.yml).
+-r requirements.txt
+
+# Pillow: solo ORACULO de tests/test_compresor_dxt.py (su decodificador y su
+# compresor DXT, para comparar contra census/compresor_dxt.py). Ningun script
+# del repo lo importa: no es dependencia del repo.
+pillow
