@@ -38,7 +38,7 @@ puede hacer" que era falso. El control práctico: si una regla tuya te lleva a
 declarar un bloqueo, comprobala contra un archivo real de Bethesda antes de
 anunciarlo. Un bloqueo inventado cuesta más que un bug.
 
-## Antes de tocar nada: dos preguntas
+## Antes de tocar nada: tres preguntas
 
 **1. ¿Es un replacer o un asset nuevo?**
 
@@ -60,7 +60,28 @@ Antes de pedirle nada a la IA 3D, medí el vanilla que vas a reemplazar. Esas
 medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
 (sección "Medir el vanilla primero").
 
+**3. ¿Para el shader vanilla o para el True PBR de Community Shaders?**
+
+Por defecto, vanilla: el paso 7 escribe el `_n` con la máscara especular en su
+alfa y la `_m`, y el NIF lleva las flags de siempre. El True PBR
+`[PROVIDER]` usa los mismos mapas horneados con otro destino: la fase de
+texturas con `sombreado="cs_pbr"` arma un `_rmaos` en vez de la `_m` y usa la
+altura como `_p`, y el NIF lleva prendido el bit 23 de `Shader_Flags_2`, que
+cambia el significado de otros campos. Cambian el paso 7 y el export; lo demás
+es igual. No se mezclan las dos rutas en una misma pieza. Nada de la ruta PBR
+se vio todavía en el juego, y no se sabe cómo dibuja el juego un NIF PBR sin
+Community Shaders: si el mod es para todos, hace falta una versión vanilla
+aparte. Si vas por ahí: `references/pbr-community-shaders.md`.
+
 ## El flujo
+
+**Qué se vio en el juego, al 2026-09-25.** Un escudo generado con Tripo pasó
+por los pasos 3, 4, 7 y 8 --`medir_parte`, `preparar_parte`, `hornear.py`, la
+fase de texturas con DXT y `verificar_export`-- y se vio en el juego. El
+replacer del centurión funciona en el juego, pero se armó con scripts propios
+del proyecto, sin `montar.py`. **Ningún asset armado con `montar.py` (pasos 5 y
+6) se vio todavía en el juego**: su falsificación prueba que reconstruye el
+vanilla, no cómo se ve una pieza nueva al animarse.
 
 1. **Medir el vanilla** — extraer del BSA la malla y el esqueleto, parsear las
    posiciones de hueso del binario, anotar la caja de cada pieza.
@@ -138,57 +159,23 @@ prueba en el juego:
 
 ## Verificar sobre el archivo, no sobre la escena
 
-Esta es la disciplina que más veces salvó el proyecto de origen, así que vale
-explicar por qué.
-
 Entre la escena de Blender y el archivo que carga el juego hay un exportador, y
 ese exportador puede perder o deformar cosas sin avisar. Verificar la escena en
 memoria confirma lo que vos armaste, no lo que se va a cargar. **El último paso
-siempre reimporta el NIF generado** y lo compara contra el vanilla:
-
-- mismos tipos y cantidades de bloque, misma tabla de strings;
-- las posiciones de hueso contra el `skeleton.nif` — desvío esperado 0,0;
-- **dónde quedó cada pieza**, que es lo que se rompe cuando el exportador
-  desarma el modelo;
-- cada pieza con el mismo juego de huesos que su equivalente vanilla, más su
-  partición, su UV y su capa de color;
-- cada hueso dentro de la caja de la pieza que lo usa.
-
-Ese último control encontró un NIF completamente desarmado —las piezas
-desplazadas una por una— que visualmente ya se daba por bueno. Sin él se habría
-instalado.
-
-**Pero el cuarto de esa lista no es una regla absoluta, y medirlo lo demostró.**
-De 27.927 piezas skinneadas del corpus vanilla, solo el **24,1 %** tiene todos
-sus huesos dentro de su propia caja; de 114.751 pares (pieza, hueso), el
-**64,8 %**. Escrito en forma absoluta, ese control reprobaría a tres de cada
-cuatro mallas de Bethesda. Lo que sirve es su forma **relativa** —que la
-distancia del hueso a la caja no crezca respecto del original—, y eso exige la
-geometría de la pieza: la compara `fixtures/comparar.py --fiel`. Ver la entrada
-22 de `census/hallazgos.md`.
-
-**De los otros, `scripts/verificar_export.py` hace la mayor parte, no todo.**
-Lee los bytes y no abre Blender. Compara bloques, tipo de raíz, nombres y
-posiciones de nodo, nombres y **colocación** de cada pieza, y sus huesos,
-particiones y tipo de skin instance. Lo que **no** hace, y conviene saberlo
-antes de darlo por cubierto:
-
-| del control | lo cubre |
-|---|---|
-| tabla de strings completa | **no** — solo los nombres de nodo y de pieza |
-| UV y capa de color por pieza | **no** — están en la geometría, que no lee |
-| desvío exactamente 0,0 | **no** — usa 0,01, que es el redondeo del lector; el propio vanilla difiere en 0,010 en 4 de 2.112 comparaciones |
-| hueso dentro de la caja | **no**, y a propósito: ver arriba |
-
-Para lo que falta: `fixtures/comparar.py --fiel` compara la colocación contra
-un original con la geometría en la mano. **No se empaqueta con la skill**:
-vive en el repo.
+siempre reimporta el NIF generado** y lo compara contra el vanilla con
+`scripts/verificar_export.py`: bloques, nodos, dónde quedó cada pieza, su
+formato de vértice, sus huesos y particiones. Ese control encontró un NIF
+desarmado --las piezas desplazadas una por una-- que a ojo ya se daba por
+bueno. Si el NIF lo escribió un conversor propio, además
+`scripts/verificar_uv.py`.
 
 **Y un chequeo tiene que poder fallar.** Si un control pasa siempre, no prueba
-nada. Alimentalo a propósito con datos equivocados (por ejemplo, las posiciones
-de un esqueleto humano en vez del de la criatura) y confirmá que revienta. En
-el proyecto de origen esa falsificación dio 7 fallos de 16 huesos comparables —
-recién ahí el `[ok]` valió algo.
+nada: alimentalo a propósito con datos equivocados y confirmá que revienta.
+
+`verificar_export.py` no lo cubre todo --no lee los valores de UV ni de color,
+ni la tabla de strings entera--, y uno de los controles que parecen obvios, "cada
+hueso dentro de la caja de su pieza", es falso en el 75,9 % del vanilla. Qué
+cubre cada control, con la evidencia: `references/verificar-el-archivo.md`.
 
 ## Enumerar en vez de recordar
 
@@ -218,6 +205,10 @@ pieza que mañana pierda una atadura.
   IA sobre la baja de juego, en qué orden (el bake va entre las UV y el
   montaje), qué controla cada paso y qué sigue sin medir. Leelo antes de
   desplegar las UV si vas a hornear.
+- **`references/verificar-el-archivo.md`** — qué cubre cada control del NIF
+  reimportado y qué no, con la evidencia: por qué "cada hueso dentro de la
+  caja de su pieza" no es regla, y qué no mira `verificar_export.py`. Leelo
+  antes de dar un NIF por verificado.
 - **`references/acabado-y-validacion.md`** — cuando un bake correcto se mancha
   al exportar, o el usuario pide más definición: conservar el atlas, comparar
   el archivo final y separar resolución, relieve y fidelidad de diseño.
