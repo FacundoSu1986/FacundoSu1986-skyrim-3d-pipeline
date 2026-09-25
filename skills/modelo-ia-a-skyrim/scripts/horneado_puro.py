@@ -19,6 +19,9 @@ lo que se puede separar de Blender vive aca, con autotest:
   principled_conectado   el Principled que de verdad alimenta la salida de
                          un material (sobre nodos de Blender o imitaciones)
   densidad_texel         texeles por unidad de una pieza, para comparar piezas
+  area_uv / fuera_del_cuadro / juzgar_despliegue
+                         el juicio de desplegar_uv.py: que empaquetar haya
+                         movido las UV (trampa 17), el cuadro 0..1 y el solape
   media / correlacion    estadisticas sobre los texeles CUBIERTOS
 
 El autotest cuenta sus comprobaciones y dice cuantas SALTEO por no tener
@@ -455,6 +458,56 @@ def densidad_texel(area_3d, area_uv, res):
     return math.sqrt(area_uv * res * res / area_3d)
 
 
+def area_uv(tris_uv):
+    """Area de los triangulos UV [((u,v), (u,v), (u,v))], en fraccion del
+    atlas: el cuadro 0..1 mide 1."""
+    return sum(abs((b[0] - a[0]) * (c[1] - a[1])
+                   - (c[0] - a[0]) * (b[1] - a[1])) / 2.0
+               for a, b, c in tris_uv)
+
+
+def fuera_del_cuadro(tris_uv, tol=1e-6):
+    """Cuantos vertices UV caen fuera del cuadro 0..1."""
+    return sum(1 for t in tris_uv for u, v in t
+               if not (-tol <= u <= 1 + tol and -tol <= v <= 1 + tol))
+
+
+def juzgar_despliegue(antes, despues, res=GRID_UV):
+    """(fallas, medidas) de un despliegue para hornear (desplegar_uv.py).
+
+    `antes`: los triangulos UV de TODAS las piezas despues de smart_project y
+    antes de igualar y empaquetar; `despues`, los finales. Todas juntas,
+    porque comparten el atlas.
+
+    REGLA empaquetado  igualar la densidad y empaquetar tiene que MOVER las
+                       UV. Si no se movio nada, pack_islands no vio las UV
+                       seleccionadas y corrio en vacio (trampa 17).
+    REGLA rango        todo dentro del cuadro 0..1.
+    REGLA solape       la huella solapada no pasa de TOPE_SOLAPE, el mismo
+                       tope con el que corta hornear.py.
+    """
+    if not despues:
+        return ["no hay triangulos con UV: nada que desplegar"], {}
+    solape = solape_uv(despues, res)
+    medidas = {"triangulos": len(despues),
+               "cobertura": round(area_uv(despues), 4),
+               "solape": round(solape, 5),
+               "fuera_del_cuadro": fuera_del_cuadro(despues)}
+    fallas = []
+    if antes == despues:
+        fallas.append("REGLA empaquetado: igualar y empaquetar no movio "
+                      "ninguna UV. pack_islands corrio en vacio: en Blender "
+                      "sin interfaz solo mueve las UV seleccionadas (trampa 17)")
+    if medidas["fuera_del_cuadro"]:
+        fallas.append("REGLA rango: %d vertices UV fuera del cuadro 0..1"
+                      % medidas["fuera_del_cuadro"])
+    if solape > TOPE_SOLAPE:
+        fallas.append("REGLA solape: %.2f %% de la huella UV pisada por dos o "
+                      "mas triangulos (tope %.1f %%): hornear.py cortaria"
+                      % (solape * 100, TOPE_SOLAPE * 100))
+    return fallas, medidas
+
+
 def media(valores, mascara):
     """Media de `valores` donde `mascara` es verdadera; None si no hay."""
     sel = [v for v, m in zip(valores, mascara) if m]
@@ -736,6 +789,33 @@ def autotest():
     exigir(abs(densidad_texel(4.0, 1.0, 1024) - 512.0) < 1e-9,
            "densidad: 4x area 3D = mitad de texeles por unidad")
     exigir(densidad_texel(0.0, 1.0, 1024) is None, "densidad sin area 3D")
+
+    # --- el despliegue: area, cuadro y las tres REGLAS ---
+    medio = ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0))
+    exigir(abs(area_uv([medio]) - 0.5) < 1e-12, "area_uv: medio cuadro")
+    exigir(fuera_del_cuadro([((0, 0), (1.2, 0.5), (0.5, 1))]) == 1,
+           "fuera_del_cuadro: un vertice en u=1,2")
+    exigir(fuera_del_cuadro([medio]) == 0, "fuera_del_cuadro: el borde es adentro")
+    abajo = ((0.05, 0.05), (0.45, 0.05), (0.05, 0.45))
+    arriba = ((0.55, 0.55), (0.95, 0.55), (0.55, 0.95))
+    corrido = ((0.1, 0.1), (0.4, 0.1), (0.1, 0.4))
+    f, m = juzgar_despliegue([corrido, arriba], [abajo, arriba])
+    exigir(f == [] and m["solape"] == 0.0 and m["triangulos"] == 2,
+           "juzgar_despliegue: dos piezas separadas y movidas tienen que "
+           "pasar: %r %r" % (f, m))
+    f, _m = juzgar_despliegue([abajo, arriba], [abajo, arriba])
+    exigir(len(f) == 1 and "trampa 17" in f[0],
+           "juzgar_despliegue: sin movimiento tiene que reprobar por "
+           "empaquetado y solo por eso: %r" % f)
+    f, _m = juzgar_despliegue([corrido, arriba], [abajo, abajo])
+    exigir(len(f) == 1 and f[0].startswith("REGLA solape"),
+           "juzgar_despliegue: dos piezas encimadas: %r" % f)
+    f, _m = juzgar_despliegue([corrido], [((0.5, 0.5), (1.3, 0.5), (0.5, 0.9))])
+    exigir(len(f) == 1 and f[0].startswith("REGLA rango"),
+           "juzgar_despliegue: fuera del cuadro: %r" % f)
+    f, _m = juzgar_despliegue([], [])
+    exigir(len(f) == 1 and "nada que desplegar" in f[0],
+           "juzgar_despliegue: sin triangulos no es exito")
 
     # --- media y correlacion sobre texeles cubiertos ---
     exigir(media([0, 10, 2], [False, True, True]) == 6.0, "media mascarada")

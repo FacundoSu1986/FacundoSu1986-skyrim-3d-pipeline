@@ -25,10 +25,14 @@ todavía con un asset real de un generador ni dentro del juego.
     salud_malla.py antes despues
     Todo lo que AGREGA CARAS o DEFORMA va aca, antes de las UV: Solidify si
     la medicion dijo cascara, afinar (trampa 34, a la alta tambien).
-4b. UV de la baja, en Blender (trampa 32). Varias piezas que comparten
-    textura: un solo atlas, con area proporcional al area 3D (trampa 17).
-    salud_malla.py --uv antes despues: la malla soldada tiene que ser la
-    misma (cortar costuras parte vertices, y nada mas).
+4b. desplegar_uv.py -- baja.blend
+    UV de la baja, en Blender (trampa 32): todas las piezas en un solo
+    atlas, con la densidad de texel igualada, en una capa UV_Bake activa y
+    de render. No guarda si empaquetar no movio nada (trampa 17), si algo
+    cae fuera de 0..1 o si las islas se pisan. Si las UV se hacen en OTRA
+    herramienta y vuelven: salud_malla.py --uv antes despues, porque la
+    malla soldada tiene que ser la misma (cortar costuras parte vertices,
+    y nada mas). Desplegar en Blender no mueve vertices.
 4c. hornear.py -- baja.blend texturas/ 2048 X_alto.blend [...]
     Aca la alta y la baja coinciden: salieron juntas de preparar_parte, y lo
     que deformo la baja en el paso 4 (afinar) se le aplico tambien a la alta.

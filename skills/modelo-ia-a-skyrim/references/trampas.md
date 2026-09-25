@@ -387,13 +387,20 @@ islas después del `smart_project`): la cobertura del atlas no se movió de
 La selección sincronizada (`use_uv_select_sync`) no alcanzó: una corrida dio
 0,466 y no se pudo reproducir.
 
-**Arreglo:** `smart_project` **no** lo necesita —trabaja sobre las caras
-seleccionadas— pero le da el cuadro 0..1 entero a **cada objeto**, así que
-varios objetos quedan superpuestos usando el mismo pedazo de atlas. Ése es el
-síntoma de "texturas desordenadas" en el juego. Si necesitás un atlas
-compartido, empaquetá a mano: repartí área de atlas proporcional al **área real
-en 3D** de cada pieza (eso da densidad de téxel pareja), rotá cada isla a
-horizontal y bajá el factor de llenado hasta que entre.
+**Arreglo:** `scripts/desplegar_uv.py`. Marca las UV con bmesh antes de
+`pack_islands`, usa `margin_method="FRACTION"`, y **no guarda si empaquetar no
+movió ninguna UV**, que es cómo se ve esta trampa desde afuera.
+`--falsificar` lo prueba: sin la marca, reprueba.
+
+`smart_project` **no** necesita la selección de UV —trabaja sobre las caras
+seleccionadas—, pero desplegado **de a un objeto** le da el cuadro 0..1
+entero a cada uno, y varios objetos quedan pisándose en el mismo pedazo de
+atlas: el síntoma de "texturas desordenadas" en el juego. `[MEASURED]`
+Blender 4.4.1, con todas las mallas en edición **a la vez**: `smart_project`
+las reparte en un solo atlas sin pisarlas (esfera, toro y cubo: solape
+0,0000), y `average_islands_scale` + `pack_islands` dejan la densidad de téxel
+igual en las tres (máx/mín 1,0). Es lo que hace el script; empaquetar a mano,
+repartiendo área a ojo, ya no hace falta.
 
 ### 18. `img.pixels` no admite slice con paso {#18}
 

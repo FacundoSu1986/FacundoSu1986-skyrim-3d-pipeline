@@ -52,6 +52,7 @@ La skill [`modelo-ia-a-skyrim`](skills/modelo-ia-a-skyrim):
 | [`scripts/preparar_parte.py`](skills/modelo-ia-a-skyrim/scripts/preparar_parte.py) | Soldar, decimar, orientar; guarda la malla alta para el bake (Blender) |
 | [`scripts/render_referencia.py`](skills/modelo-ia-a-skyrim/scripts/render_referencia.py) | Renders de referencia de un asset vanilla para ControlNet (Blender) |
 | [`scripts/salud_malla.py`](skills/modelo-ia-a-skyrim/scripts/salud_malla.py) | Si la malla se rompió al decimarla: aristas de borde, sobre el archivo |
+| [`scripts/desplegar_uv.py`](skills/modelo-ia-a-skyrim/scripts/desplegar_uv.py) | Despliega las UV de la baja en un solo atlas para hornear, y no guarda si el empaquetado no se movió o las islas se pisan (Blender) |
 | [`scripts/hornear.py`](skills/modelo-ia-a-skyrim/scripts/hornear.py) | Hornea normal, AO, albedo, rugosidad y metal desde la malla alta (Blender) |
 | [`scripts/horneado_puro.py`](skills/modelo-ia-a-skyrim/scripts/horneado_puro.py) | Lo del horneado que no necesita Blender: reducción, margen, solape de UV |
 | [`scripts/uv_exportacion.py`](skills/modelo-ia-a-skyrim/scripts/uv_exportacion.py) | Conserva una UV por nombre y comprueba sus coordenadas al limpiar una copia de exportación (API de Blender) |
