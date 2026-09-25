@@ -100,7 +100,7 @@ vanilla, no cómo se ve una pieza nueva al animarse.
    la fuente, no el archivo del juego. Si vas a hornear texturas HD, agregá
    `--guardar-alto <alto.blend>`: guarda la malla sin decimar, que es la
    fuente del bake. El bake (`scripts/hornear.py`) va justo después de
-   desplegar las UV y **antes** de montar, y lo que agregue caras (Solidify)
+   desplegar las UV (`scripts/desplegar_uv.py`) y **antes** de montar, y lo que agregue caras (Solidify)
    va antes de las UV: orden completo en `references/hd-texturas.md`.
 5. **Montar** — cada parte en el lugar de una pieza del NIF vanilla, que hace
    de **donante**: `scripts/montar.py` (Blender) con un plan JSON. Una pieza
@@ -374,6 +374,11 @@ pieza que mañana pierda una atadura.
   corpus vanilla eso pasa en 548 archivos. Lo que está en marcos distintos se
   mide aparte, y ahí la guarda de la regla de piezas es la cantidad de marcos:
   se informa, no reprueba.
+- **`scripts/desplegar_uv.py`** (Blender) — el paso 4b: despliega las UV de
+  todas las mallas de la baja en un solo atlas, en una capa `UV_Bake` activa
+  y de render, con la densidad de téxel igualada. No guarda si empaquetar no
+  movió ninguna UV (trampa 17), si algo cae fuera del cuadro 0..1 o si las
+  islas se pisan. `--falsificar` lo prueba sin archivos del juego.
 - **`scripts/hornear.py`** (Blender) — hornea la malla alta que guarda
   `preparar_parte.py --guardar-alto` sobre la baja ya desplegada: normal, AO,
   albedo, rugosidad y metalicidad, al doble de resolución y reducidos. Antes

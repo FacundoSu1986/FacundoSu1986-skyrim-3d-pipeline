@@ -43,7 +43,8 @@ CONTROLES = {
 }
 # Flags de salida, de opciones o de escritura: no hace falta documentarlos acá.
 NO_CONTROLES = {
-    "--clase", "--continuar", "--distancia-ao", "--extrusion", "--force",
+    "--angulo", "--capa", "--clase", "--continuar", "--distancia-ao",
+    "--extrusion", "--force", "--margen",
     "--frente-az", "--girar-180", "--guardar-alto", "--help", "--json",
     "--marcar", "--maximo", "--muestras-ao", "--quitar", "--relativo-a",
     "--salida", "--soldadura", "--vistas",
