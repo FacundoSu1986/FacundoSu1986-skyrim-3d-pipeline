@@ -95,25 +95,29 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **N**: 22.394
 **EXCEPCIONES ENCONTRADAS**: 0 de 22.394 archivos fuera del censo (ningún archivo fue salteado en silencio).
 
-### 16. (#19) Reparto de los tipos de shape, y el 17 % que la semilla no veía
+### 16. Reparto de los tipos de shape, y el 17 % que la semilla no veía
+**ORIGEN**: issue [#19](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/19) → PR [#24](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/24).
 **AFIRMACIÓN**: De los 82.694 shapes del corpus, **60.737 son `BSTriShape`** y **21.957 `BSDynamicTriShape`**; `BSSubIndexTriShape` **no aparece** (0 bloques). Y el reparto por archivo es excluyente: **18.128 archivos tienen solo `BSTriShape`, 3.803 solo `BSDynamicTriShape`, y ninguno los dos**. Los 3.803 son el **17 %** del corpus y son los que `censo_nif.py` reportaba con `n_shapes = 0` sin avisar, porque iteraba únicamente `BSTriShape`.
 **CONSULTA QUE LA PRODUJO**: recuento de `cuenta_tipos()` sobre los 22.394 archivos; comparación semilla vs parser completo sobre una muestra al azar de 1.500.
 **N**: 22.394 archivos / 82.694 shapes (coincide con §15); 1.500 archivos en la comparación.
 **EXCEPCIONES ENCONTRADAS**: 0 desacuerdos entre los dos parsers después del arreglo; 250 de esos 1.500 (16,7 %) daban 0 shapes antes. Que ningún archivo mezcle los dos tipos es lo que hacía el síntoma **total y silencioso**: no "faltan algunos shapes" sino "no hay ninguno".
 
-### 17. (#20) `bhkRigidBody`: la identidad de tamaño se cumple entera
+### 17. `bhkRigidBody`: la identidad de tamaño se cumple entera
+**ORIGEN**: issue [#20](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/20) → PR [#24](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/24).
 **AFIRMACIÓN**: `size == 250 + 4 * numConstraints` (con `numConstraints` leído en el offset +244) se cumple en **14.586 de 14.586 bloques**. Los tamaños observados son exactamente cuatro: 250 (c=0) ×12.939, 254 (c=1) ×1.645, 262 (c=3) ×1, 266 (c=4) ×1. **No existe ningún bloque entre 246 y 249 bytes.**
 **CONSULTA QUE LA PRODUJO**: recorrido de todos los bloques `bhkRigidBody`/`bhkRigidBodyT` del corpus comprobando la identidad.
 **N**: 14.586 bloques.
 **EXCEPCIONES ENCONTRADAS**: 0 violaciones. El umbral `s >= 246` que usaba `parser_nif.colision_info` no lo justificaba ningún archivo. Subirlo a 250 cerraba la franja 246–249 pero **no el desacuerdo**: con `s=251` y `c=0` el parser seguía publicando layer/masa/motion de un bloque que `verificar` marcaba como roto. El parser exige ahora la identidad completa, igual que el verificador. Barrido de 192 combinaciones sintéticas (tamaños 246–277 × constraints 0–5): **0 desacuerdos**. Sobre el corpus real no cambia nada — **11.126 de 11.126** archivos con `bhkRigidBody` conservan su dato de colisión.
 
-### 18. (#18) BS version: lo que el corpus puede validar, y lo que no
+### 18. BS version: lo que el corpus puede validar, y lo que no
+**ORIGEN**: issue [#18](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/18) → PR [#24](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/24).
 **AFIRMACIÓN**: **22.393 archivos con BS version 100** y **1 con BS 83** (`creationclub/_shared/dungeons/ayleidruins/interior/triggers/artrigpressureplate01.nif`). **Cero con BS ≥ 130.** Los 22.394 comparten `version 335675399 / user 12`.
 **CONSULTA QUE LA PRODUJO**: lectura de la cabecera de los 22.394 archivos.
 **N**: 22.394.
 **EXCEPCIONES ENCONTRADAS**: los tres parsers del repo traían **dos lecturas distintas e incompatibles** del campo extra de cabecera para BS ≥ 130 —`nif_nodos.py` un SizedString en medio de los tres shorts, los del censo un cuarto ShortString después— y **ningún archivo del corpus ejercita ninguna de las dos**. No se eligió una: las tres ahora rechazan BS ≥ 130 explícitamente. Adivinar el largo de un campo de cabecera corre *todos* los offsets de bloque, que es la familia exacta del bug que produjo el `pesos por vértice = 1035` de `census/README.md`.
 
-### 19. (#26) `BSMasterParticleSystem` sí es un nodo, y `BSRangeNode` no existe
+### 19. `BSMasterParticleSystem` sí es un nodo, y `BSRangeNode` no existe
+**ORIGEN**: issue [#26](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/26) → PR [#30](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/30).
 **AFIRMACIÓN**: **93 archivos** traen `BSMasterParticleSystem`, y en los 93 está como **raíz**. El layout de `NiNode` —nombre, extra data, controller, flags, transform, colisión, hijos— parsea de forma coherente en **93 de 93** bloques: 1 hijo en 92 archivos, 2 en uno, y una cola de 14 a 30 bytes que son sus campos propios. Incluirlo en `TIPOS_NODO` recupera **93 nodos y 94 referencias de hijo** que se salteaban, y `verificar.py` devuelve **exactamente la misma evidencia** que antes: `header_cola` 93, `trailer` 93, `shape_tail` 1. Cero violaciones nuevas.
 **CONSULTA QUE LA PRODUJO**: intento del layout de `NiNode` dentro de cada bloque, comprobando que los contadores no excedan el bloque y que los hijos sean índices válidos; después `nodos()` y `verificar._chequear()` sobre los 93, con y sin el tipo en la lista.
 **N**: 22.394 archivos; 93 bloques `BSMasterParticleSystem`.
@@ -135,7 +139,8 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 **EXCEPCIONES ENCONTRADAS**: el caso más extremo es `actors/atronachfrost/character assets/shield.nif`, con los centros a 13,9 diagonales de distancia. **Esta entrada existe para impedir una regla**: "la colisión tiene que envolver la malla" parece obvia, la viola el propio escudo de vidrio de Bethesda —su colisión es 1,2 unidades más corta que la malla en Y— y reprobaría al 96,7 % del corpus. Saber si una colisión quedó donde debía exige un original contra qué comparar, que es lo que hace `comparar.py --fiel`.
 
 
-### 22. (#21) "Cada hueso dentro de la caja de su pieza" es falso en el 75,9 %
+### 22. "Cada hueso dentro de la caja de su pieza" es falso en el 75,9 %
+**ORIGEN**: issue [#21](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/21) → PR [#38](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/38).
 
 **AFIRMACIÓN**: De **27.927** shapes skinneados con huesos y caja calculable, solo **6.719 (24,1 %)** tienen **todos** sus huesos dentro de su propia caja envolvente; de los **114.751** pares (pieza, hueso), el **64,8 %** cae adentro. Aflojar el criterio no lo salva: aceptando que el peor hueso se salga hasta **una diagonal entera** de la caja, siguen fallando **467 shapes (1,7 %)**.
 **CONSULTA QUE LA PRODUJO**: para cada `BSTriShape`/`BSDynamicTriShape` skinneado, la lista de huesos de su skin instance contra la caja de sus vértices en espacio de mundo (`parser_colision.cajas_de_shapes`).
@@ -144,56 +149,64 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 > **Y el 24,1 % no es un accidente de Bethesda: la comparación está mal construida.** El origen de un hueso no es un punto de la malla. Un peso en la manga se articula en el codo, y el codo puede caer fuera de la caja de la manga sin que nada esté mal. Las bocas del hombre lobo y de los khajiit son el caso extremo del mismo efecto: huesos de cara compartidos, cuyo origen está en otra parte de la cabeza. Dicho así, la regla no es "falsa el 76 % de las veces" — es **la comparación equivocada por construcción**, que es un argumento más fuerte para no escribirla nunca.
 
-### 23. (#21) El nodo raíz lleva el nombre del archivo
+### 23. El nodo raíz lleva el nombre del archivo
+**ORIGEN**: issue [#21](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/21) → PR [#38](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/38).
 
 **AFIRMACIÓN**: En **2.786 de 3.000** archivos de una muestra aleatoria (**92,9 %**) el nodo raíz se llama igual que el `.nif` que lo contiene, con o sin extensión.
 **CONSULTA QUE LA PRODUJO**: nombre del bloque 0 contra el basename, sobre `random.sample(rutas, 3000)` con semilla fija.
 **N**: 3.000 archivos, 0 errores de lectura, 0 sin nodo raíz.
 **EXCEPCIONES ENCONTRADAS**: 214 (7,1 %) con otro nombre, casi siempre el del asset del que se derivó: `werewolfhead3.nif` → `WerewolfStaff3`, `rustymaceofmolagbal.nif` → `RustyMaceLow`, `1stpersonskullofcorruption.nif` → `Staff`. **Consecuencia práctica**: comparar el juego de nombres de nodo entre dos archivos sin sacar la raíz es comparar nombres de archivo. Reprobaba **1.198 de los 1.216** pares `_0.nif`/`_1.nif` —el mismo asset— y dejaba a los LOD, que traen un solo nodo, sin ningún nodo en común.
 
-### 24. (#21) Las posiciones de hueso del mismo asset son idénticas
+### 24. Las posiciones de hueso del mismo asset son idénticas
+**ORIGEN**: issue [#21](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/21) → PR [#38](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/38).
 
 **AFIRMACIÓN**: Entre el mismo asset a peso 0 y a peso 100 (`_0.nif` / `_1.nif`), **21.641 de 21.683** comparaciones de posición de nodo en mundo dan el valor **idéntico**. Los **42** desacuerdos son **todos** `InvMarker`, el marcador de cámara del inventario, que no mueve geometría. Dentro de `actors/character/character assets/` —569 archivos sobre el mismo esqueleto humano— **2.108 de 2.112** son idénticas y las 4 restantes difieren en exactamente **0,010**, que es el redondeo a dos decimales del lector.
 **CONSULTA QUE LA PRODUJO**: `nif_nodos.mundo()` sobre 1.166 pares `_0`/`_1` y sobre la carpeta de character assets.
 **N**: 21.683 + 2.112 comparaciones.
 **EXCEPCIONES ENCONTRADAS**: 42 `InvMarker` y 4 de redondeo. Esto es lo que da la tolerancia de **0,01 u** de `verificar_export.py`: no es un umbral elegido, es la unidad más chica que el lector distingue. Y está muy por debajo de lo que tiene que atrapar — ponerle a `childbody.nif` el esqueleto de `frostgiant2.nif` mueve los 10 huesos comparables, el que menos **57,34 u**.
 
-### 25. (#21) Vanilla no es consistente consigo mismo entre `_0` y `_1`
+### 25. Vanilla no es consistente consigo mismo entre `_0` y `_1`
+**ORIGEN**: issue [#21](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/21) → PR [#38](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/38).
 
 **AFIRMACIÓN**: De los **1.216** pares `_0.nif`/`_1.nif`, **1.163 (95,6 %)** pasan la comparación completa de `verificar_export.py`. Los **53** que no son diferencias reales de contenido de Bethesda, no artefactos del lector.
 **CONSULTA QUE LA PRODUJO**: `verificar_export.comparar(a, b)` sobre cada par.
 **N**: 1.216 pares.
 **EXCEPCIONES ENCONTRADAS**: los conteos por regla que siguen **no son disjuntos** —un par puede fallar por varias a la vez, y suman 65 sobre 53 pares—. 1 es `tfxbloodshirt_0.nif`, que repite **15 nombres de hueso** dentro del archivo y por eso no se puede comparar por nombre (ver entrada 27); 47 difieren en nombres de pieza — `dragonhelm_0.nif` llama a las suyas `DragonHood:0`/`:1` y `dragonhelm_1.nif` las llama `Plane02:0`/`:1`—, 15 en cuenta de bloques —`1stpersondraugrarmormale_0.nif` tiene 17 `NiNode` y el `_1` tiene 16— y 1 en huesos por pieza. Verificado contra `parser_nif` en los dos casos citados.
 
-### 26. (#21) La esfera envolvente de un shape skinneado está en cero
+### 26. La esfera envolvente de un shape skinneado está en cero
+**ORIGEN**: issue [#21](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/21) → PR [#38](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/38).
 
 **AFIRMACIÓN**: En un `BSTriShape` skinneado, la esfera envolvente que precede a los refs de skin viene **centro (0,0,0) radio 0**, igual que `numTriangles`, `numVertices` y `dataSize`.
 **CONSULTA QUE LA PRODUJO**: los 4 floats en el offset de la esfera contra la caja real de los vértices, en `childbody.nif`.
 **N**: 1 archivo para determinar; no se barrió el corpus.
 **EXCEPCIONES ENCONTRADAS**: sin medir. **Queda declarado como no barrido**: se anota para que nadie use la esfera como atajo a la caja de la pieza —que es lo que se intentó— sin medirla antes.
 
-### 27. (#21) Nombres repetidos dentro de un mismo archivo
+### 27. Nombres repetidos dentro de un mismo archivo
+**ORIGEN**: issue [#21](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/21) → PR [#38](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/38).
 
 **AFIRMACIÓN**: **557 de 22.394** archivos (**2,49 %**) tienen al menos un nombre de nodo repetido, y **222 (0,99 %)** tienen dos o más shapes con el mismo nombre.
 **CONSULTA QUE LA PRODUJO**: `Counter` sobre los nombres de `nodos()` y sobre los de los bloques de `TIPOS_SHAPE`, en los 22.394 archivos.
 **N**: 22.394 archivos, 0 errores de lectura.
 **EXCEPCIONES ENCONTRADAS**: el nodo repetido es casi siempre `InvMarker`. En los shapes el caso típico es distinto y peor: en `_resourcepack/landscape/trees/mugopine01.nif` los dos shapes **no tienen nombre**, los dos caen en la clave `"?"`, y una estructura indexada por nombre los reduce a **uno**. **Consecuencia práctica**: cualquier comparación por nombre —la de `verificar_export.py` entre otras— no puede decidir nada sobre esos archivos, y una pieza perdida sería invisible. Se reprueba en vez de comparar mal. El caso más extremo es `tfxbloodshirt_0.nif`, con 15 nombres de hueso repetidos.
 
-### 28. (#21) Ningún hueso vanilla apunta fuera de la jerarquía de nodos
+### 28. Ningún hueso vanilla apunta fuera de la jerarquía de nodos
+**ORIGEN**: issue [#21](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/21) → PR [#38](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/38).
 
 **AFIRMACIÓN**: De **115.766** referencias de hueso en los `Bones[]` de las skin instances del corpus, **115.766 (100 %)** resuelven a un bloque que está en `TIPOS_NODO`. Cero apuntan a `-1` o a un tipo que la tabla no reconozca.
 **CONSULTA QUE LA PRODUJO**: barrido de `Bones[]` de los 28.012 bloques `NiSkinInstance`/`BSDismemberSkinInstance`, contra `nodos()`.
 **N**: 22.394 archivos, 28.012 skin instances, 115.766 refs.
 **EXCEPCIONES ENCONTRADAS**: 0. Esto **acota un desacuerdo conocido entre los dos lectores**: ante un ref que no resuelve, `censo_nif.skin_por_shape()` devuelve `"?N"` y `parser_nif._parse_dismember_instances()` lo descarta. Sobre el corpus la diferencia no se puede manifestar, pero la entrada del vanilla no es la única del pipeline —el archivo a verificar lo escribe un exportador—, así que la divergencia queda **declarada en el test que ata a los dos lectores** en vez de quedar tapada por un fixture que solo emite refs resolubles.
 
-### 29. (#21) La esfera envolvente como ancla, no como medida
+### 29. La esfera envolvente como ancla, no como medida
+**ORIGEN**: issue [#21](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/21) → PR [#38](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/38).
 
 **AFIRMACIÓN**: complemento de la entrada 26. La esfera envolvente de un `BSTriShape` se usa en el lector **solo como ancla de offset** (`p += 16` para llegar a los refs de skin), nunca como caja de la pieza.
 **CONSULTA QUE LA PRODUJO**: lectura del código de `_skin_de_shape` y `trishapes`.
 **N**: no aplica — es una aclaración sobre el uso, no una medición.
 **EXCEPCIONES ENCONTRADAS**: ninguna. Se anota porque la entrada 26 mide la esfera con **N=1** y sin barrido; quien la lea dentro de seis meses podría tomarla como la caja disponible. No lo es: para la caja de una pieza hay que leer la geometría, que está en `census/parser_uv.py`.
 
-### 30. (#21) Las rotaciones de nodo del mismo asset son idénticas
+### 30. Las rotaciones de nodo del mismo asset son idénticas
+**ORIGEN**: issue [#21](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/21) → PR [#38](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/38).
 
 **AFIRMACIÓN**: Entre `_0.nif` y `_1.nif` del mismo asset, **22.151 de 22.179** rotaciones de nodo en espacio de mundo son **idénticas** al redondeo de cuatro decimales (99,874 %).
 **CONSULTA QUE LA PRODUJO**: composición de la cadena de rotaciones desde la raíz, sobre los 1.216 pares.
@@ -202,14 +215,16 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 > **Por qué hacía falta medirlo**: `mundo()` devuelve posición y escala, no ejes. Un hueso **hoja** girado en su lugar tiene la misma posición y arrastra la malla con él, así que `verificar_export.py` daba "pasa: 0 fallas" con dos huesos girados 90°. Un giro en un nodo **con hijos** sí se veía, porque mueve a los hijos: el agujero era exactamente el de las hojas.
 
-### 31. (#21) Ningún bloque vanilla cuelga de dos padres
+### 31. Ningún bloque vanilla cuelga de dos padres
+**ORIGEN**: issue [#21](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/21) → PR [#38](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/38).
 
 **AFIRMACIÓN**: De **3.000** archivos de una muestra aleatoria, **0** tienen un bloque referenciado como hijo por dos nodos distintos.
 **CONSULTA QUE LA PRODUJO**: `Counter` sobre las listas de hijos de todos los nodos de cada archivo.
 **N**: 3.000 archivos, 0 errores de lectura.
 **EXCEPCIONES ENCONTRADAS**: 0. Se mide porque el recorrido de `censo_nif` se queda con el **primer** padre que visita y no avisa; sobre entrada vanilla eso no puede manifestarse, pero el archivo que `verificar_export.py` recibe lo escribe un exportador. Queda declarado en la cabecera del script, no arreglado.
 
-### 32. (#40) Casi ninguna malla vanilla está cerrada — la regla no puede ser absoluta
+### 32. Casi ninguna malla vanilla está cerrada — la regla no puede ser absoluta
+**ORIGEN**: PR [#40](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/40).
 
 **AFIRMACIÓN**: Solo el **15,1 %** de los shapes vanilla son mallas cerradas (menos del 0,5 % de aristas de borde). La mediana tiene el **15,4 %** de sus aristas al aire, y por categoría va desde `actors` (mediana 1,6 %, el 36,4 % cerradas) hasta `architecture` (mediana 24,7 %, solo el **2,6 %** cerradas).
 **CONSULTA QUE LA PRODUJO**: para cada shape, soldar los vértices por posición (tolerancia 2e-5 del lado mayor) y contar las aristas usadas por un solo triángulo. Sobre `census/parser_uv.geometria()`.
@@ -218,7 +233,8 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 > **Por qué importa**: "la malla tiene que estar cerrada" parecía la regla obvia después del hacha de Tencent, y es **falsa**. Escrita como REGLA habría bloqueado el 85 % de lo que Bethesda publica. Ver la entrada 33 para la que sí se sostiene.
 
-### 33. (#40) Decimar correctamente nunca aumenta las aristas de borde
+### 33. Decimar correctamente nunca aumenta las aristas de borde
+**ORIGEN**: PR [#40](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/40).
 
 **AFIRMACIÓN**: Decimando al 25 % de sus triángulos, **soldar por distancia antes** de aplicar el modificador deja el número de aristas de borde **igual o menor** — peor caso medido **x0,70**, y las mallas cerradas siguen en cero. Decimar **sin soldar** lo multiplica: creció en **12 de 14** shapes, hasta **x25,5**, y las dos mallas cerradas de la muestra pasaron de 0 a **956** y a **544** aristas de borde.
 **CONSULTA QUE LA PRODUJO**: las mismas 14 mallas decimadas de las dos formas en Blender 4.4, midiendo el borde sobre vértices soldados antes y después.
@@ -229,14 +245,16 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 > **Consecuencia práctica**: la REGLA es **relacional** y la implementa `skills/modelo-ia-a-skyrim/scripts/salud_malla.py`. Sobre los archivos reales del hacha, la cadena vieja sale con exit 1 (59.078 aristas de borde contra 0 del origen) y la nueva con exit 0.
 
-### 34. (#40) Contar aristas por índice de vértice no mide nada
+### 34. Contar aristas por índice de vértice no mide nada
+**ORIGEN**: PR [#40](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/40).
 
 **AFIRMACIÓN**: En un NIF los vértices de costura están **duplicados**, así que dos triángulos vecinos no comparten índice y toda arista parece de borde. Hay que soldar por posición **antes** de contar.
 **CONSULTA QUE LA PRODUJO**: el mismo shape del hacha contado de las dos formas.
 **N**: 1 asset, pero el efecto es estructural: los 8.608 vértices del NIF que se envía sueldan a 3.991.
 **EXCEPCIONES ENCONTRADAS**: no aplica. Contando por índice, el hacha daba **2.953** piezas sueltas donde había 382, y 382 donde en realidad hay **1**. Los tres números salieron del mismo archivo.
 
-### 35. (#42) El radio convexo de una caja es el semieje menor, pero con tope en 0,1
+### 35. El radio convexo de una caja es el semieje menor, pero con tope en 0,1
+**ORIGEN**: PR [#41](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/41).
 
 **AFIRMACIÓN**: `bhkRadius == min(semieje_menor, 0,1)` en **2.667 de 2.684** cajas del corpus (99,37 %), y con coincidencia **exacta** — la cuenta no se mueve entre tolerancia relativa 1e-6 y 5e-2.
 **CONSULTA QUE LA PRODUJO**: enumerar todos los bloques `bhkBoxShape` de la tabla de bloques y leer el radio en +4 y las medias extensiones en +16.
@@ -245,7 +263,8 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 > **La versión sin el tope es falsa.** Medida solo sobre armas daba **62 de 62** y parecía una regla; sobre el corpus entero es **73,25 %**. El subconjunto estaba sesgado: un arma es fina y su semieje menor casi siempre cae debajo de 0,1. Es el mismo modo de error que la entrada 32 — una regla que se sostiene en la muestra que uno miró primero.
 
-### 36. (#42) Masa cero y inercia cero son la misma condición
+### 36. Masa cero y inercia cero son la misma condición
+**ORIGEN**: PR [#41](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/41).
 
 **AFIRMACIÓN**: en un `bhkRigidBody` con `bhkBoxShape`, **masa > 0 ⟺ diagonal de inercia > 0**. Con masa 0, la inercia está en cero en **383 de 383**; con masa > 0, está en cero en **0 de 811**. Sin una sola excepción en los dos sentidos.
 **CONSULTA QUE LA PRODUJO**: masa en +180 y diagonal de inercia en +116/+136/+156 del bloque del cuerpo, sobre los cuerpos cuya forma es una caja.
@@ -254,7 +273,8 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 > **Corrige una regla de la skill.** `asset-nuevo-skyrim/references/trampas.md` pedía "exigir diagonal > 0" a secas. Escrita así rechaza **383 cuerpos de Bethesda** — el 32 % de los que tienen caja. La condición es el bicondicional, no la desigualdad suelta.
 
-### 37. (#42) Resultado negativo: la inercia de una caja no sigue ninguna fórmula
+### 37. Resultado negativo: la inercia de una caja no sigue ninguna fórmula
+**ORIGEN**: PR [#41](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/41).
 
 **AFIRMACIÓN**: no hay relación utilizable entre la inercia escrita y la geometría de la caja. Contra la fórmula de libro `m(a²+b²)/12`, la razón va de **1,2 a 471** con mediana **7,1**, y solo **1 de 2.433** ejes cae dentro del ±10 %. Tampoco se sostienen las **proporciones** entre los tres ejes: apenas el **3,6 %** de las cajas queda dentro del 10 %, con desvío mediano del **51,5 %**.
 **CONSULTA QUE LA PRODUJO**: comparar la diagonal medida contra la fórmula, en magnitud y normalizada por el primer eje.
@@ -263,7 +283,8 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 > **Consecuencia práctica**: adaptar la inercia de un donante escalándola por la fórmula de la caja es una **heurística** razonable, no una regla, y `colision_caja.py` **no la exige**: informa la razón como OBSERVACIÓN. Se anota porque es exactamente la regla que estuve a punto de escribir.
 
-### 38. (#44) Las proporciones de un arma son de su CLASE, no de "las armas"
+### 38. Las proporciones de un arma son de su CLASE, no de "las armas"
+**ORIGEN**: PR [#44](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/44).
 
 **AFIRMACIÓN**: una daga y un martillo a dos manos no comparten una sola proporción. Medido en coordenadas de mundo sobre **197** armas vanilla, el largo mediano va de **40,5** (daga) a **120,7** (bastón), y el grosor relativo de **0,034** (mandoble) a **0,260** (maza). Una tabla única para "armas" no dice nada de ninguna.
 
@@ -275,7 +296,8 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 > **Leer los vértices locales da números sin sentido.** `daedricwarhammer.nif` mide **1.128** unidades en local y **341** al componer la transformada. La primera versión de esta medición descartaba esos archivos por "largo implausible" en vez de arreglarlos.
 
-### 39. (#44) La tabla y el clasificador tienen que ser el mismo
+### 39. La tabla y el clasificador tienen que ser el mismo
+**ORIGEN**: PR [#44](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/44).
 
 **AFIRMACIÓN**: una regla derivada del corpus tiene que aceptar el corpus del que salió. La primera versión de `proporciones_arma.py` generó la tabla con un clasificador y envió otro —con un comodín `axe`— y **rechazaba 14 de 220 armas vanilla (6,36 %)**.
 **CONSULTA QUE LA PRODUJO**: correr la REGLA sobre todo `meshes/weapons/` y contar rechazos.
@@ -284,21 +306,24 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 > **La prueba que decide** si una regla derivada del corpus sirve es correrla contra ese corpus. Es barata y no la había hecho.
 
-### 40. (#44) El rango vanilla es ancho: la regla no reemplaza al ojo
+### 40. El rango vanilla es ancho: la regla no reemplaza al ojo
+**ORIGEN**: PR [#44](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/44).
 
 **AFIRMACIÓN**: el mango del hacha de Tencent medía **0,1124** del largo, y el rango de las hachas a dos manos es **[0,0369, 0,1854]**. La REGLA **no lo marca**. Lo que sí lo dice es el percentil: 0,1124 está por encima de la mediana (0,0827) de su clase.
 **N**: 26 hachas a dos manos.
 
 > **Corrige una afirmación mía.** Dije que ese mango era "más grueso que el de cualquier arma de dos manos del juego". Salía de mezclar hachas, mandobles y martillos en una sola muestra de 28 —donde el máximo era 9,83— y de leer varios archivos en coordenadas locales. Separando por clase y en coordenadas de mundo, el máximo de las hachas a dos manos es **11,27** y el del arma era **10,12**: grueso, por encima de la mediana, y **dentro** del rango.
 
-### 41. (#56) El BSLightingShaderProperty de SSE cierra exacto en todo el corpus
+### 41. El BSLightingShaderProperty de SSE cierra exacto en todo el corpus
+**ORIGEN**: PR [#56](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/56).
 
 **AFIRMACIÓN**: después de la ref al texture set, el bloque lleva color emisivo (3f), multiplicador emisivo, modo de clamp (u32), alfa, refracción, glossiness, color especular (3f), intensidad especular, luz suave y luz de borde, más un final que depende del tipo de shader: EnvMap 4 bytes, SkinTint y HairTint 12, MultiLayer 20, SparkleSnow 16, EyeEnvmap 28, el resto 0. Con ese layout, **74.489 de 74.489** bloques cierran exacto en su tamaño declarado.
 **CONSULTA QUE LA PRODUJO**: `material_arma.py --censo <meshes>`: por cada BSLightingShaderProperty, comparar dónde termina la lectura contra el tamaño de la tabla de bloques.
 **N**: 22.393 NIF de BS 100, 74.489 bloques de diez tipos (0, 1, 2, 3, 4, 5, 6, 11, 14, 16).
 **EXCEPCIONES ENCONTRADAS**: ninguna. El cierre no fija el orden de los campos; lo fijan los rangos: el alfa y las tres componentes del color especular caen en [0, 1] en los 74.489, y la glossiness —que va entre los dos— no. Los tipos que no aparecen en el corpus (7, 8-10, 12, 13, 15, 17+) quedan sin validar.
 
-### 42. (#56) Tipo de shader, flag y ranura van juntos
+### 42. Tipo de shader, flag y ranura van juntos
+**ORIGEN**: PR [#56](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/56).
 
 **AFIRMACIÓN**: el tipo EnvMap lleva el flag Environment_Mapping (flags1, bit 7) en **6.843 de 6.843** bloques. El tipo Glow y el flag Glow_Map (flags2, bit 6) van juntos en los dos sentidos: 1.396 de 1.396 con el tipo tienen el flag, y 73.093 de 73.093 sin el tipo no lo tienen. En las armas, EnvMap trae cubemap en la ranura 4 en **149 de 149**.
 **CONSULTA QUE LA PRODUJO**: la misma pasada de `--censo`.
@@ -307,7 +332,8 @@ Fuente: `meshes/` (22.394 archivos .nif, solo lectura). Parser: `parser_nif.py` 
 
 > **Falsificado sobre datos reales**: `material_arma.py --falsificar <meshes>` no reprueba ninguna de las 198 armas sanas, y rompe su material de cinco formas —apagar el flag de EnvMap (313), prender Glow_Map sin el tipo (478), pasar un Default a Glow (165) o a EnvMap sin agregarle los 4 bytes (165), vaciar la ranura 4 de un EnvMap (313)—: **1.434 roturas, 0 sin detectar**.
 
-### 43. (#56) El material de las armas vanilla
+### 43. El material de las armas vanilla
+**ORIGEN**: PR [#56](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/56).
 
 **AFIRMACIÓN**: la pieza principal de **149 de 198** armas usa el shader EnvMap (reflejo de cubemap); en las hachas a dos manos, **16 de 17**. Los cubemaps están todos en `textures\cubemaps` (143) o `textures\dlc01\cubemaps` (6), y 143 de las 149 traen además la máscara `_m` en la ranura 5. La glossiness tiene mediana **80** (p10 30, p25 50, máximo 164).
 **CONSULTA QUE LA PRODUJO**: los NIF bajo una carpeta `weapons`, sin `1stperson*`, con clase según `proporciones_arma.clase_por_nombre`; de cada uno, la pieza con más triángulos.

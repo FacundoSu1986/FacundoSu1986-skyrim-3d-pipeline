@@ -123,7 +123,8 @@ Mediana del lado mayor por clase: `terrain` 256, `actors` 512, `clutter` 512,
   10.008 rutas sin resolver, de las cuales solo 6 malformadas) pero no está
   automatizado acá.
 
-### (#43) La máscara especular: la mediana de un objeto es 0 % saturada, pero el corpus entero dice lo contrario
+### La máscara especular: la mediana de un objeto es 0 % saturada, pero el corpus entero dice lo contrario
+**ORIGEN**: PR [#42](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/42).
 
 **AFIRMACIÓN**: el alfa del `_n` es la máscara especular, y en un objeto portable **no** está saturada: mediana **0,00 %** de bloques con alfa constante 255, p90 **0,34 %**. Pero medido sobre el corpus **entero** el 79,8 % de los `_n` tiene más de la mitad de sus bloques en blanco — porque **9.360 de los 12.058** archivos medibles son de `terrain`, que usa alfa plano. Promediar sin separar da la conclusión contraria a la correcta.
 
@@ -137,7 +138,8 @@ Mediana del lado mayor por clase: `terrain` 256, `actors` 512, `clutter` 512,
 
 > **Tercera vez.** Una regla medida sobre armas ya falló al generalizar dos veces en este repo: el radio de la caja de colisión (62 de 62 sobre armas, 73,25 % sobre el corpus) y "la malla tiene que estar cerrada" (obvia sobre armas, falsa sobre `architecture`). La diferencia acá es que el alcance se **declara** en vez de suponerse.
 
-### (#43) Los 12.075 `_n` del corpus son DXT5
+### Los 12.075 `_n` del corpus son DXT5
+**ORIGEN**: PR [#42](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/42).
 
 **AFIRMACIÓN**: todas las texturas `_n` del corpus usan **DXT5**. Cero usan DXT1, BC5 o BC7.
 **CONSULTA QUE LA PRODUJO**: lectura del FourCC / DXGI de cada `_n`.
@@ -146,7 +148,8 @@ Mediana del lado mayor por clase: `terrain` 256, `actors` 512, `clutter` 512,
 
 > **Matiz importante**: eso refuerza la regla que ya existía —DXT1 no tiene alfa, así que un `_n` en DXT1 no puede llevar máscara— pero **no** convierte a BC7 en un error. BC7 lleva alfa y el motor lo carga; el corpus refleja el pipeline de Bethesda de 2011, no un límite del motor. Lo que sí implica es que un `_n` en BC7 **no se puede verificar** con un lector de bloques simple: BC7 tiene ocho modos con particionado variable. `mascara_especular.py` lo reporta como límite de la herramienta, no como defecto del archivo, y no lo da por bueno.
 
-### (#44) Resultado negativo: la convención del canal verde NO se pudo medir sobre el corpus
+### Resultado negativo: la convención del canal verde NO se pudo medir sobre el corpus
+**ORIGEN**: PR [#43](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/43).
 
 **AFIRMACIÓN**: no se encontró ninguna medición sobre el corpus que determine si el canal verde de un normal map de Skyrim está en convención OpenGL (+Y) o DirectX (−Y). Se intentaron dos, y **las dos fallaron de formas distintas y útiles de conocer**.
 

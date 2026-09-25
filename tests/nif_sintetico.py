@@ -240,6 +240,139 @@ def construir_estatico(pos, tris, nombre_pieza=PIEZA_NOMBRE, data_size=None,
     return datos, esperado
 
 
+def construir_estatico_piezas(piezas):
+    """(bytes, esperado) de un NIF con VARIAS piezas estaticas bajo la raiz.
+
+    Cada pieza es un dict con `pos` y `tris`, y opcionales `uvs`, `nombre`,
+    `traslacion`, `rot` y `escala`. Es el caso que construir_estatico() no
+    puede armar y que un export real tiene siempre que hay dos materiales: el
+    exportador reparte la malla en un shape por material, cada uno con su
+    PROPIA lista de vertices, asi que la costura entre dos piezas queda escrita
+    dos veces, una en cada una.
+
+        0   BSFadeNode                hijos: 1..n
+        1+  BSTriShape  <nombre>      estatico, geometria inline
+
+    Dos piezas con el mismo nombre comparten la entrada de la tabla de
+    strings, como en un archivo real.
+    """
+    tipos = ["BSFadeNode", "BSTriShape"]
+    strings = [RAIZ_NOMBRE]
+    bloques = [_avobject(0, [], (0.0, 0.0, 0.0),
+                         list(range(1, len(piezas) + 1)))]
+    for k, p in enumerate(piezas):
+        nombre = p.get("nombre", "%s%d" % (PIEZA_NOMBRE, k))
+        if nombre not in strings:
+            strings.append(nombre)
+        bloques.append(_trishape_estatico(
+            strings.index(nombre), p["pos"], p["tris"],
+            traslacion=p.get("traslacion", (0.0, 0.0, 0.0)),
+            escala=p.get("escala", 1.0), rot=p.get("rot", IDENTIDAD),
+            uvs=p.get("uvs")))
+
+    h = bytearray(CABECERA)
+    h += struct.pack("<I", VERSION)
+    h += struct.pack("<B", 1)                        # endian: little
+    h += struct.pack("<I", USER)
+    h += struct.pack("<I", len(bloques))
+    h += struct.pack("<I", BS)
+    h += _corta("")                                  # author
+    h += _corta("")                                  # process script
+    h += _corta("")                                  # export script
+    h += struct.pack("<H", len(tipos))
+    for t in tipos:
+        h += _larga(t)
+    for k in range(len(bloques)):
+        h += struct.pack("<H", 0 if k == 0 else 1)
+    for b in bloques:
+        h += struct.pack("<I", len(b))
+    h += struct.pack("<I", len(strings))
+    h += struct.pack("<I", max(len(s) for s in strings))
+    for s in strings:
+        h += _larga(s)
+    h += struct.pack("<I", 0)                        # numGroups
+
+    esperado = {"piezas": [p.get("nombre", "%s%d" % (PIEZA_NOMBRE, k))
+                           for k, p in enumerate(piezas)]}
+    return bytes(h) + b"".join(bloques), esperado
+
+
+# Una barra CERRADA a lo largo de X: cinco anillos de cuatro vertices, 36
+# triangulos. Las coordenadas son IRREGULARES a proposito, y las dos
+# versiones regulares se probaron y no sirven. Con anillos equiespaciados y
+# una seccion cuadrada, normalizar cada pieza por su propia caja apareaba de
+# casualidad dos esquinas con la U correcta: 2 votos "invertida" y el caso que
+# tiene que reprobar pasaba. Con una seccion en rombo, un cuarto de vuelta
+# sobre Y o sobre Z llevaba dos vertices a su propio lugar normalizado: una
+# rotacion apareaba y pasaba. Los dos resultados se exigen en los tests; si
+# alguien regulariza estos numeros, lo dicen ellos.
+BARRA_X = (0.0, 0.9, 2.3, 3.1, 4.0)
+BARRA_SECCION = ((1.0, 0.1), (-0.2, 0.9), (-1.1, -0.1), (0.15, -0.8))
+# La V de cada vertice de la seccion: ninguna cerca de 0,5, donde invertir no
+# cambia nada y el vertice no vota.
+BARRA_V = (0.1, 0.3, 0.7, 0.9)
+# El anillo donde termina la primera pieza y empieza la segunda.
+BARRA_CORTE = 2
+
+
+def barra_cerrada():
+    """(pos, tris, uvs) de la barra entera: la malla del OBJ de origen.
+
+    Una UV por vertice, con la U distinta en cada uno (separadas 0,04 o mas,
+    cuatro veces la tolerancia de verificar_uv): un apareo por posicion que
+    caiga en el vertice equivocado no puede coincidir tambien en la U.
+    Winding coherente hacia afuera: las caras laterales recorren el anillo en
+    el sentido de la seccion y las tapas al reves.
+    """
+    pos, uvs = [], []
+    for i, x in enumerate(BARRA_X):
+        for j, (y, z) in enumerate(BARRA_SECCION):
+            pos.append((x, y, z))
+            uvs.append((0.05 + 0.18 * i + 0.04 * j, BARRA_V[j]))
+    n = len(BARRA_X) - 1
+    tris = []
+    for i in range(n):
+        for j in range(4):
+            a, b = 4 * i + j, 4 * i + (j + 1) % 4
+            c, d = 4 * (i + 1) + (j + 1) % 4, 4 * (i + 1) + j
+            tris += [(a, b, c), (a, c, d)]
+    m = 4 * n
+    tris += [(0, 3, 2), (0, 2, 1),                   # tapa de X minimo
+             (m, m + 1, m + 2), (m, m + 2, m + 3)]   # tapa de X maximo
+    return pos, tris, uvs
+
+
+def barra_en_piezas(escala=1.0, traslacion=(0.0, 0.0, 0.0), invertir_v=False,
+                    nombres=("Barra:0", "BarraBrillo:0")):
+    """La misma barra repartida en DOS piezas, como la reparte un exportador
+    por material: los anillos 0..BARRA_CORTE van a la primera, y
+    BARRA_CORTE..final a la segunda. El anillo del corte queda escrito en las
+    dos, y cada pieza sola es un tubo abierto de 18 triangulos con cuatro
+    aristas de borde.
+
+    `escala` y `traslacion` se aplican a los VERTICES, iguales en las dos
+    piezas: es lo que hace un conversor con el modelo entero. Las piezas no
+    llevan transformada propia. `invertir_v` escribe (u, 1 - v), la convencion
+    del NIF.
+    """
+    pos, tris, uvs = barra_cerrada()
+    ultimo = len(BARRA_X) - 1
+    piezas = []
+    for nombre, anillos in ((nombres[0], range(0, BARRA_CORTE + 1)),
+                            (nombres[1], range(BARRA_CORTE, ultimo + 1))):
+        usados = [4 * i + j for i in anillos for j in range(4)]
+        local = dict((g, k) for k, g in enumerate(usados))
+        piezas.append({
+            "nombre": nombre,
+            "pos": [tuple(c * escala + t for c, t in zip(pos[g], traslacion))
+                    for g in usados],
+            "tris": [tuple(local[v] for v in t) for t in tris
+                     if all(v in local for v in t)],
+            "uvs": [(uvs[g][0], 1.0 - uvs[g][1] if invertir_v else uvs[g][1])
+                    for g in usados]})
+    return piezas
+
+
 def _lighting_shader(tipo, flags1, flags2, texset_ref, glossiness, spec_str,
                      env_scale):
     """BSLightingShaderProperty de SSE (BS 100), escrito desde nif.xml.

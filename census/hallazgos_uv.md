@@ -131,7 +131,8 @@ set, pisándose 0,938** — y en el juego se ve perfecto.
 > desordenada. Un percentil que viola su propio orden es la señal más barata de
 > que hay basura en los datos.
 
-### (#41) El NIF guarda la V con el origen ARRIBA: un conversor desde OBJ tiene que invertirla
+### El NIF guarda la V con el origen ARRIBA: un conversor desde OBJ tiene que invertirla
+**ORIGEN**: PR [#40](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/40).
 
 **AFIRMACIÓN**: Un NIF almacena la coordenada V con el origen en la **fila 0 de la imagen** (convención DirectX); un OBJ y Blender la almacenan con el origen abajo. Un conversor OBJ → NIF que copie la V tal cual deja **todo el mapeo espejado en vertical**, y no da ningún error.
 
@@ -147,6 +148,6 @@ set, pisándose 0,938** — y en el juego se ve perfecto.
 
 **EXCEPCIONES ENCONTRADAS**: la línea 2 **no es unánime** — 30 de 120 archivos prefieren lo contrario, y los casos más fuertes en contra son mallas de ojo (`EyeBrown.dds`), donde la región que usa la malla es tan oscura que comprime a bloques negros y el detector la cuenta como vacía. Por eso la línea 2 queda como **tendencia**, no como prueba, y la afirmación se apoya en la 1, que es categórica.
 
-> **Cómo se comprueba**: `skills/modelo-ia-a-skyrim/scripts/verificar_uv.py <origen.obj> <exportado.nif>`. Aparea por posición **normalizada por la caja de cada lado**, porque el conversor escala el modelo a tamaño de arma (en el hacha, ×79,7). Sobre los archivos reales del hacha: **8.299 invertidas, 0 iguales** (exit 0); regenerando el mismo NIF sin la inversión, **0 invertidas, 8.299 iguales** (exit 1).
+> **Cómo se comprueba**: `skills/modelo-ia-a-skyrim/scripts/verificar_uv.py <origen.obj> <exportado.nif>`. Aparea por posición **normalizada por la caja de cada lado**, porque el conversor escala el modelo a tamaño de arma (en el hacha, ×79,7); del lado del NIF, la caja de **todas sus piezas juntas** (con la de cada pieza, el hacha de Filo Celeste —dos piezas por material— apareaba 0 vértices; con la de la unión, 12.898 invertidas y 0 iguales). Sobre los archivos reales del hacha: **8.299 invertidas, 0 iguales** (exit 0); regenerando el mismo NIF sin la inversión, **0 invertidas, 8.299 iguales** (exit 1).
 
 > **Por qué importa**: con el atlas ruidoso de una IA 3D —una isla por triángulo— el espejado no se nota, porque ya era ruido. Con una textura horneada salta a la vista, y el síntoma se confunde con "el horneado salió mal", que es el paso más caro de rehacer.

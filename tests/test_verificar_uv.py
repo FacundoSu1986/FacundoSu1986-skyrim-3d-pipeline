@@ -44,6 +44,23 @@ def _archivo(datos, sufijo):
     return ruta
 
 
+def _obj_con_uv(pos, tris, uvs):
+    """Un OBJ con una vt por v, en el mismo orden."""
+    lineas = (["v %f %f %f" % p for p in pos]
+              + ["vt %f %f" % uv for uv in uvs]
+              + ["f %d/%d %d/%d %d/%d" % (a + 1, a + 1, b + 1, b + 1,
+                                          c + 1, c + 1) for a, b, c in tris])
+    return _archivo(("\n".join(lineas) + "\n").encode("ascii"), ".obj")
+
+
+# Cuartos de vuelta sobre cada eje. Un conversor que rote el modelo tiene que
+# dejar de aparear: tolerar la escala y la traslacion es a proposito, la
+# rotacion no.
+ROTACIONES = (("X", lambda p: (p[0], -p[2], p[1])),
+              ("Y", lambda p: (p[2], p[1], -p[0])),
+              ("Z", lambda p: (-p[1], p[0], p[2])))
+
+
 class ReglaTests(unittest.TestCase):
     """REGLA: la V del NIF es el complemento de la del origen."""
 
@@ -103,6 +120,104 @@ class ReglaTests(unittest.TestCase):
             [(0.42, 1.0 - v) for _u, v in UV_LISTA])
         self.assertEqual(votos["apareados"], 0)
         self.assertTrue(any("U no coincide" in n for n in notas))
+
+
+class VariasPiezasTests(unittest.TestCase):
+    """Un NIF exportado casi nunca es UNA malla: el exportador la reparte en
+    un shape por material, todos en el mismo marco. El conversor escala el
+    modelo ENTERO, no cada pieza, asi que las piezas se normalizan por la caja
+    de su UNION. Normalizada cada una por la suya, en el hacha de Filo Celeste
+    (dos piezas) no apareaba ni un vertice y reprobaba por "cero vertices
+    comparables"; con la caja de la union, 12.898 invertidas y 0 iguales.
+
+    El fixture es una barra cerrada de 36 triangulos partida en dos tubos de
+    18 (nif_sintetico.barra_en_piezas), con coordenadas irregulares para que
+    ni el metodo viejo ni una rotacion apareen de casualidad.
+    """
+
+    def setUp(self):
+        self.pos, self.tris, self.uvs = nif_sintetico.barra_cerrada()
+        self.uv_obj = dict((i, {uv}) for i, uv in enumerate(self.uvs))
+
+    def _piezas(self, invertir_v=True):
+        """Las dos piezas como las devuelve censo_nif.geometria(con_uv=True):
+        escaladas x80 y trasladadas, como las deja el conversor."""
+        return [{"nombre": p["nombre"], "pos": p["pos"], "uv": p["uvs"]}
+                for p in nif_sintetico.barra_en_piezas(
+                    80.0, (1000.0, -7.0, 0.0), invertir_v=invertir_v)]
+
+    def test_la_premisa_cada_pieza_por_su_caja_no_aparea(self):
+        """El metodo viejo sobre este fixture. Si apareara algo, pasar el
+        test de abajo no probaria el arreglo."""
+        for p in self._piezas():
+            votos, _ = verificar_uv.comparar(self.pos, self.uv_obj,
+                                             p["pos"], p["uv"])
+            self.assertEqual(votos["apareados"], 0, p["nombre"])
+
+    def test_las_dos_piezas_invertidas_votan_todas(self):
+        votos, _ = verificar_uv.comparar_piezas(self.pos, self.uv_obj,
+                                                self._piezas())
+        # 12 vertices por pieza: el anillo del corte esta escrito en las dos,
+        # y vota en las dos.
+        self.assertEqual(votos["invertida"], 24)
+        self.assertEqual(votos["igual"], 0)
+        self.assertEqual(verificar_uv.juzgar(votos)[0], [])
+
+    def test_las_dos_piezas_sin_invertir_reprueban(self):
+        """La caja de la union no puede volver el control un sello: el
+        conversor que copia la V tal cual sigue reprobando."""
+        votos, _ = verificar_uv.comparar_piezas(self.pos, self.uv_obj,
+                                                self._piezas(False))
+        self.assertEqual(votos["igual"], 24)
+        self.assertEqual(votos["invertida"], 0)
+        fallas = verificar_uv.juzgar(votos)[0]
+        self.assertTrue(fallas and "REGLA v_invertida" in fallas[0], fallas)
+
+    def test_una_rotacion_sigue_sin_aparear(self):
+        for eje, rotar in ROTACIONES:
+            with self.subTest(eje=eje):
+                piezas = [dict(p, pos=[rotar(q) for q in p["pos"]])
+                          for p in self._piezas()]
+                votos, _ = verificar_uv.comparar_piezas(
+                    self.pos, self.uv_obj, piezas)
+                self.assertEqual(votos["apareados"], 0)
+                fallas = verificar_uv.juzgar(votos)[0]
+                self.assertTrue(fallas and
+                                "cero vertices comparables" in fallas[0],
+                                fallas)
+
+    def test_una_pieza_sin_uv_cuenta_igual_para_la_caja(self):
+        """La pieza sin UV tambien es parte del modelo que el conversor
+        escalo. Sacarla de la caja achica la caja, y la otra pieza deja de
+        aparear."""
+        piezas = self._piezas()
+        piezas[1]["uv"] = None
+        votos, notas = verificar_uv.comparar_piezas(self.pos, self.uv_obj,
+                                                    piezas)
+        self.assertEqual(votos["invertida"], 12)
+        self.assertTrue(any("no declara UV" in n for n in notas), notas)
+
+    def test_nif_de_dos_piezas_por_linea_de_comandos(self):
+        ruta_obj = _obj_con_uv(self.pos, self.tris, self.uvs)
+        bien, _ = nif_sintetico.construir_estatico_piezas(
+            nif_sintetico.barra_en_piezas(80.0, (1000.0, -7.0, 0.0),
+                                          invertir_v=True))
+        mal, _ = nif_sintetico.construir_estatico_piezas(
+            nif_sintetico.barra_en_piezas(80.0, (1000.0, -7.0, 0.0)))
+        r_bien = _archivo(bien, ".nif")
+        r_mal = _archivo(mal, ".nif")
+        try:
+            p = subprocess.run([sys.executable, SCRIPT, ruta_obj, r_bien],
+                               capture_output=True, text=True)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertIn("invertida 24, igual 0", p.stdout)
+            p = subprocess.run([sys.executable, SCRIPT, ruta_obj, r_mal],
+                               capture_output=True, text=True)
+            self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+            self.assertIn("REGLA v_invertida", p.stdout)
+        finally:
+            for r in (ruta_obj, r_bien, r_mal):
+                os.unlink(r)
 
 
 class LecturaUvTests(unittest.TestCase):

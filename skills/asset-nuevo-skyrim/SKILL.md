@@ -1,6 +1,10 @@
 ---
 name: asset-nuevo-skyrim
 description: Crea un asset NUEVO y equipable para Skyrim SE — escudo, arma, pieza de armadura, clutter — desde el modelado en Blender hasta el plugin que lo registra. Usala cuando haya que hacer un item nuevo (no un replacer); cuando el item ya esté en el inventario pero no se equipe o sea invisible al equiparlo; cuando salga girado, flotando al costado del brazo o con el agarre lejos de la mano; cuando al soltarlo se hunda o salga volando; cuando haya que escribir, reparar o inspeccionar records ARMO/ARMA o WEAP de un .esp; cuando un arma pese 0 o haga 0 de daño con el valor bien, no se vea en primera persona o cuelgue envainada en el lugar equivocado; convertir un plugin a ESL, poner colisión Havok a un objeto suelto, o hacer un panel transparente estilo vidrio de Skyrim. También cuando el mod no aparezca con `help "..." 0`, o cuando haya que decidir qué campos llenar en el Creation Kit.
+compatibility: Blender 4.4 con PyNifly (io_scene_nifly) para modelar y exportar el NIF. Los scripts de la skill (plugin, ESL, colisión, nodos) son Python 3.11 o 3.12 sin nada fuera de la biblioteca estándar. Para copiar los valores del vanilla hacen falta Skyrim.esm y los NIF vanilla extraídos del juego, y el repo no los trae. Todo se midió sobre Skyrim SE.
+metadata:
+  inputs: un modelo en Blender, propio o salido de modelo-ia-a-skyrim, o un plugin .esp/.esl a revisar o reparar
+  outputs: un NIF colgado del nodo de anclaje correcto, con su colisión, y un plugin ESL con los records ARMO/ARMA o WEAP que lo registran
 ---
 
 # Un asset nuevo y equipable para Skyrim SE
