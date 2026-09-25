@@ -10,7 +10,7 @@
 - [Texturas](#texturas)
 - [Una textura por shape](#una-textura-por-shape-no-por-hueso)
 - [Backface culling](#backface-culling)
-- [SE y LE](#se-y-le)
+- [Solo SE](#solo-se)
 
 ---
 
@@ -134,7 +134,7 @@ asset.
 | Bloque | Qué es |
 |---|---|
 | `BSFadeNode` / `NiNode` | raíz y nodos de hueso |
-| `BSTriShape` | la geometría (en SE; en LE es `NiTriShape` + `NiTriShapeData`) |
+| `BSTriShape` | la geometría. `NiTriShape` + `NiTriShapeData` es el formato de LE: ver "Solo SE" |
 | `BSDismemberSkinInstance` | el skin, con las particiones de body-part |
 | `NiSkinData` / `NiSkinPartition` | pesos y reparto en particiones |
 | `BSLightingShaderProperty` | el material |
@@ -259,10 +259,10 @@ Copiá los que use el vanilla que reemplazás en vez de elegirlos.
 **Formato:** DDS con mipmaps completos. Sin mipmaps, la textura titila a
 distancia.
 
-| Uso | Formato recomendado SE | Formato LE |
-|---|---|---|
-| Difuso (color) | BC7 sRGB | DXT1 / DXT5 |
-| Normal, máscaras | BC7 lineal | DXT5 / BC5 |
+| Uso | Formato recomendado |
+|---|---|
+| Difuso (color) | BC7 sRGB |
+| Normal, máscaras | BC7 lineal |
 
 Herramienta: `texconv.exe` (de DirectXTex).
 
@@ -426,14 +426,14 @@ Cuando hace falta de verdad, dos arreglos en orden de preferencia:
    donde antes había un agujero y la iluminación queda rara. Tiene costo real:
    desactiva el culling para ese shape, o sea el doble de fragmentos.
 
-## SE y LE
+## Solo SE
 
-Esta referencia asume **Special Edition**. Para Legendary Edition:
+El proyecto apunta solo a **Special Edition**. LE (Legendary Edition, la de
+2011) quedó obsoleta y no se soporta.
 
-- BS version 83 en vez de 100
-- `NiTriShape` + `NiTriShapeData` en vez de `BSTriShape`
-- Sin BC7: DXT1/DXT3/DXT5
-- Los BSA usan zlib en vez de LZ4
-
-Un NIF de SE **no carga en LE**. Hay conversores, pero si el objetivo es LE
-conviene apuntar ahí desde el export.
+Lo único que queda de LE es reconocer un export que salió en su formato por
+accidente: `bs_version` 83 en vez de 100, y `NiTriShape` + `NiTriShapeData` en
+vez de `BSTriShape`. PyNifly lo hace aunque le pidas SE (trampa 33), y
+`scripts/verificar_export.py` lo reprueba por la regla `version`. En el corpus
+de SE es 1 archivo de 22.394 (`artrigpressureplate01.nif`): todo lo demás, y
+todo lo que mide este repo, es BS 100.

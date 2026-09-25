@@ -172,10 +172,10 @@ Creation Club entran en las cuentas. Si tenés otra:
 
 - **Anniversary Edition**: es esta misma versión del juego más contenido pago
   de Creation Club. Ese contenido no está en el corpus; lo demás vale igual.
-- **LE (la de 2011)**: otro formato de NIF, `bs_version` 83 con `NiTriShape`
-  en vez de 100 con `BSTriShape` (trampa 33 de `modelo-ia-a-skyrim`). Ninguna
-  cifra del censo se midió sobre LE: lo único cubierto es no exportar LE por
-  accidente.
+- **LE (la de 2011)**: no está soportada; el proyecto apunta solo a SE. Su
+  NIF es otro formato (`bs_version` 83 con `NiTriShape`), y lo único que
+  queda de LE es no exportarlo por accidente (trampa 33 de
+  `modelo-ia-a-skyrim`).
 - **GOG**: no se midió.
 
 ## Qué NO hay acá
