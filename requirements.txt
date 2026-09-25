@@ -1,0 +1,15 @@
+# Lo que los scripts del repo importan fuera de la biblioteca estandar.
+# Es una lista, no un paquete: no hay pyproject ni src/ a proposito (el
+# paquete src/ de #1 se descarto; ver docs/DECISIONS.md).
+#
+#   python -m pip install -r requirements.txt
+#
+# numpy: census/compresor_dxt.py (DXT1/DXT5, y por eso escritor_dds.py y la
+# fase de texturas cuando se pide compresion="dxt") y
+# skills/modelo-ia-a-skyrim/scripts/horneado_puro.py (margen, relleno y
+# reduccion del bake HD). montaje_puro.py lo usa si esta y si no calcula los
+# vecinos en Python puro. Sin numpy, lo demas corre igual.
+numpy
+
+# No van aca: bpy, mathutils, bmesh y PyNifly (io_scene_nifly) corren dentro
+# de Blender, y el Python de Blender ya trae numpy.

@@ -28,8 +28,10 @@ jobs:
       # compresor DXT, para comparar). No es dependencia del repo.
       # tests/test_horneado_puro.py y tests/test_compresor_dxt.py fallan si
       # falta alguno.
-      - name: numpy y Pillow (horneado_puro.py, compresor_dxt.py)
-        run: python -m pip install --disable-pip-version-check numpy pillow
+      # La lista vive en requirements-dev.txt (numpy via requirements.txt): el
+      # CI instala ESE archivo para que lo declarado y lo probado no se separen.
+      - name: numpy y Pillow (requirements-dev.txt)
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
 
       # Sintaxis de TODOS los scripts, incluidos los de Blender (medir_parte,
       # preparar_parte): compileall no ejecuta los imports, así que valida su
