@@ -172,6 +172,24 @@ salieron de ahí, y `SKILL.md` es explícito sobre qué verifica el pipeline y q
 no. Un asset puede pasar todos los chequeos y ser feo — ninguna métrica acá
 mide eso.
 
+Después se usó para dos assets **nuevos** generados con IA, y los dos se
+vieron en el juego:
+
+- **Un hacha a dos manos** clonada de `DaedricBattleaxe`, con
+  `asset-nuevo-skyrim` para el plugin (`references/plugin-weap.md`). Cada
+  vuelta que salió mal en el juego dejó algo en el repo: la textura espejada
+  (trampa 29), la máscara especular en blanco que la volvía plástico
+  (`mascara_especular.py`), el material `Default` de PyNifly (trampa 36), el
+  mango que hubo que afinar (trampa 34) y, del lado del plugin, el peso y el
+  daño en 0 (trampa 23 de `asset-nuevo-skyrim`).
+- **Un escudo ovalado dwemer** de Tripo, de 2 M a 12.000 triángulos, con la
+  capa HD horneada a 2048 y comprimida a DXT: el camino entero de
+  `references/hd-texturas.md`. Visto una vez: "quedó casi igual" a su imagen
+  de referencia.
+
+Ninguno de los dos pasó por `montar.py`: son assets nuevos, no replacers.
+Ningún asset armado con `montar.py` se vio todavía en el juego.
+
 **Del execution framework, qué está conectado y qué no.** De las 9 fases del
 runner, INGEST, INSPECT, PROCESS_TEXTURES y PUBLISH hacen trabajo real;
 PREPARE, EXPORT_NIF, READ_BACK, VALIDATE y PACKAGE siguen siendo stubs que se

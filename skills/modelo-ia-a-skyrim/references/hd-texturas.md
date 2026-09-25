@@ -267,14 +267,20 @@ Blender y no corre en CI. Los puntos 6 y 7 son manuales.
 
 ## Qué sigue abierto
 
-- **Juego.** Nada de esto se vio todavía en Skyrim.
 - **Asset real: probado una vez.** El escudo ovalado de Tripo (2 M tris,
   tres texturas 4K) hizo el camino entero: `medir_parte` → `preparar_parte`
   (12.000 tris, 35 s) → UV (cobertura 0,411, trampa 17) → `hornear.py` a 2048
   (1 min 21 s, 0,03 % de fallidos, sin avisos) → fase de texturas con
   `compresion="dxt"` (máscara especular 0,009 % en blanco, sin revisión) →
   NIF que pasa `verificar_export` contra la versión anterior del escudo. Lo
-  que encontró está en las trampas 7 y 17. **No** se vio todavía en el
+  que encontró está en las trampas 7 y 17.
+- **Juego: visto una vez.** Ese escudo se instaló en Skyrim SE el 2026-09-24
+  y quien lo probó lo comparó con su imagen de referencia: "quedó casi
+  igual", con "algún pequeño detalle fino" que no especificó. Eso dice que el
+  juego carga el NIF y las texturas DXT1/DXT5 que salen de este camino, y que
+  el resultado se parece a la referencia: una vez, con un asset mayormente
+  metálico, a la luz en que se miró. No aísla la máscara especular, no se
+  comparó contra un escudo vanilla en la misma escena y no se midió nada en el
   juego.
 - **Luz horneada.** No hay corrección automática del albedo, solo el aviso.
 - **BC7.** El repo comprime a DXT1/DXT5, no a BC7. El corpus corta los
