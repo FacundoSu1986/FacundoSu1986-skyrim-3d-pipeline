@@ -229,7 +229,9 @@ compartida. Si lo es, usá una ruta propia y cambiala en el NIF.
 
 ## Qué no hacer
 
-- Subir los triángulos para que se vea HD. El detalle va en el `_n`.
+- Subir triángulos sin identificar qué detalle falta. Un grabado superficial
+  puede ir en el `_n`; una silueta, un hueco o piezas separadas necesitan
+  geometría. Ver [acabado-y-validacion.md](acabado-y-validacion.md).
 - Pasar la malla de juego por ZBrush.
 - Poner el metal o la rugosidad del generador **tal cual** en `_n` o `_m`: el
   shader vanilla no es PBR. Se **convierten** (rugosidad → alfa del `_n`,
@@ -247,7 +249,9 @@ Por asset, en este orden:
    `<base>_horneado.json`, o con los avisos entendidos.
 3. `census/parser_uv.py` sobre el NIF escrito: que el solape siga como lo
    dejó el bake (lo mide `hornear.py` antes de hornear; acá se comprueba que
-   el export no lo cambió, trampa 32).
+   el export no lo cambió, trampa 32). El mismo solape no prueba que sea el
+   mismo mapeo: comparar también las coordenadas con la copia de exportación
+   (trampa 40 y [acabado-y-validacion.md](acabado-y-validacion.md)).
 4. `mascara_especular.py [--arma]` sobre el `_n` que se entrega: DXT5 o sin
    comprimir. Un BC7 no se puede medir; medí el sin comprimir antes.
 5. `verificar_export.py nuevo.nif vanilla.nif`, que también compara rutas de

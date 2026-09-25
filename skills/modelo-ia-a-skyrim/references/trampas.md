@@ -1,8 +1,9 @@
-# Trampas: treinta y nueve fallos que no tiran error
+# Trampas: cuarenta fallos que no tiran error
 
 Casi todas se pagaron en el proyecto de origen (`Centurion_Marfil_SE_v01`,
-reemplazo del Dwarven Steam Centurion); de la 28 en adelante salieron de otros
-assets, y cada una lo dice. **Ninguna tira excepción.** El pipeline
+reemplazo del Dwarven Steam Centurion); varias de la 28 en adelante salieron
+de otros assets, y cada una lo dice. **Muchas no tiran excepción; otras no
+propagan el error al proceso** (37). El pipeline
 termina "bien", el archivo se escribe, el mod se instala, y el problema aparece
 mirando el archivo generado o probando en el juego.
 
@@ -46,6 +47,7 @@ ya está en la lista.
 | Textura en negro | [16](#16), [31](#31) |
 | El metal sale negro en el atlas y el cuero bien | [31](#31) |
 | Una isla de la textura muestra el color de otro material | [32](#32) |
+| El bake está bien, pero al limpiar las UV y exportar aparecen manchas | [40](#40) |
 | Bordes dentados en el horneado, sobre todo en el normal map | [35](#35) |
 | Texturas desordenadas, varias piezas sobre el mismo pedazo | [17](#17) |
 | El archivo no tiene texturas ni UV | [10](#10) |
@@ -942,6 +944,63 @@ se midió.
 trae. Y `verificar_export.py` compara el formato de vértice de cada pieza
 contra el vanilla (regla `formato`). En los 1.216 pares `_0`/`_1` del corpus
 el formato de cada pieza coincide siempre: la regla no reprueba nada vanilla.
+
+### 40. Borrar capas UV invalida referencias guardadas {#40}
+
+**Síntoma:** el bake se ve bien; después de limpiar capas, la pieza queda
+marrón o con detalles mal ubicados. Puede quedar una capa sobrante o fallar
+`remove` con «UV map ... not found».
+
+**Por qué:** `[OBSERVED]` en el centurión V21 se conservaron referencias RNA
+con `list(mesh.uv_layers)` y luego se eliminaron capas dentro de ese bucle.
+La lista copia las referencias, no los datos de Blender. Al modificar la
+colección, las referencias anteriores dejan de ser confiables. Marcar la UV
+correcta **antes** de esa operación no garantiza el resultado posterior.
+
+Reproducción sintética con Blender **4.4.1**: tres capas con coordenadas
+distintas, en sus seis órdenes. El bucle defectuoso deja capas sobrantes en
+dos órdenes y lanza `RuntimeError` en otros dos; los dos restantes pasan.
+`tests/blender_uv_exportacion.py --repro` contiene ese control negativo.
+Esto no es una regla del formato NIF ni prueba el comportamiento de todas las
+versiones de Blender. PyNifly **27.2** instalado en esta prueba lee la UV
+activa en `nif/export_nif.py`; no es correcto afirmar que siempre lee la primera.
+
+**Arreglo:** después del bake, en una **copia para exportación**, usar
+`scripts/uv_exportacion.py`: `conservar_uv(mesh, "UV_Bake")`. Copia nombres
+y coordenadas a valores Python, vuelve a buscar cada capa antes de borrarla,
+deja una sola UV activa/de render y comprueba que sus valores no cambiaron.
+Si falta el nombre o sigue en Edit Mode, rechaza antes de borrar. Al entrar
+y salir de Edit Mode, volver a buscar también las capas por nombre.
+
+No elimina capas del archivo fuente de trabajo ni reconecta materiales por
+sí solo. Los nodos del material final deben usar el atlas horneado; si siguen
+nombrando una UV eliminada, corregirlos antes de exportar. Receta y controles
+posteriores en [acabado-y-validacion.md](acabado-y-validacion.md).
+
+Desde la raíz del repo, en PowerShell:
+
+```powershell
+$env:BLENDER_EXE = 'C:\Program Files\Blender Foundation\Blender 4.4\blender.exe'
+python -m unittest discover -s tests -p test_uv_exportacion_blender.py -v
+```
+
+En bash (Linux, macOS o Git Bash):
+
+```bash
+export BLENDER_EXE=/ruta/a/blender
+python -m unittest discover -s tests -p test_uv_exportacion_blender.py -v
+```
+
+La lógica del helper (guardas, avisos de nodos) la prueba en CI
+`tests/test_uv_exportacion.py` con una malla falsa; esta prueba agrega lo que
+solo Blender puede probar, y corre `--repro` como control negativo: tiene que
+reprobar.
+
+La prueba crea mallas sintéticas: seis órdenes, conservación exacta de UV,
+segunda ejecución, nombre ausente sin pérdida de datos, copia independiente
+y rechazo de Edit Mode. No usa assets de Bethesda ni necesita PyNifly.
+Sin `BLENDER_EXE` queda **omitida**, no aprobada: el CI de Python puro no
+demuestra esta propiedad de Blender.
 
 ## Proceso
 
