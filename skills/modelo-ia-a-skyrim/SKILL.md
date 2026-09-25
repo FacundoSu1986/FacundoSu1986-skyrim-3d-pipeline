@@ -99,6 +99,9 @@ medidas son el pliego de condiciones. Ver `references/limites-skyrim.md`
    `references/pbr-community-shaders.md`.
 8. **Exportar y verificar** — reimportar el archivo generado y compararlo
    contra el vanilla: `scripts/verificar_export.py <nuevo.nif> <vanilla.nif>`.
+   Si cambiaste de atlas, conservar activa = render antes del bake no alcanza:
+   comprobá las coordenadas después de limpiar capas y en el NIF reimportado.
+   Ver `references/acabado-y-validacion.md` y trampa 40.
    Y si el NIF lo escribió un conversor propio, además
    `scripts/verificar_uv.py <origen.obj> <nuevo.nif>`: el NIF guarda la V al
    revés que el OBJ y copiarla tal cual espeja toda la textura (trampa 29).
@@ -201,7 +204,7 @@ pieza que mañana pierda una atadura.
 - **`references/limites-skyrim.md`** — presupuestos de polígonos reales, formatos
   de textura, estructura del NIF, escala y ejes, límites de huesos y
   particiones. Leelo antes de decidir presupuestos o tocar el export.
-- **`references/trampas.md`** — treinta y nueve fallos que no tiran error, con el
+- **`references/trampas.md`** — cuarenta fallos que no tiran error, con el
   síntoma y el arreglo, más un índice por síntoma al principio. **Leelo entero
   antes de empezar**, no cuando algo falle: la mitad de estas trampas se
   descubren recién probando en el juego, y para entonces ya perdiste la
@@ -210,6 +213,9 @@ pieza que mañana pierda una atadura.
   IA sobre la baja de juego, en qué orden (el bake va entre las UV y el
   montaje), qué controla cada paso y qué sigue sin medir. Leelo antes de
   desplegar las UV si vas a hornear.
+- **`references/acabado-y-validacion.md`** — cuando un bake correcto se mancha
+  al exportar, o el usuario pide más definición: conservar el atlas, comparar
+  el archivo final y separar resolución, relieve y fidelidad de diseño.
 - **`references/pbr-community-shaders.md`** — el True PBR de Community Shaders
   `[PROVIDER]`: el bit de `Shader_Flags_2` que lo prende, qué va en cada
   ranura (el `_rmaos` en la 5) y qué campos del NIF cambian de significado.
@@ -372,6 +378,10 @@ pieza que mañana pierda una atadura.
   Blender (reducción por tipo de mapa, margen, relleno, PNG sin alfa,
   alineación, solape de UV), con `--autotest`. El CI instala numpy para que
   corran también las funciones que usa el bake real.
+- **`scripts/uv_exportacion.py`** — `conservar_uv(mesh, nombre)`, para una copia
+  de exportación en Object Mode después del bake: elimina por nombres, vuelve
+  a buscar las capas y exige las mismas coordenadas. No modifica materiales
+  ni valida el NIF. Prueba real optativa con `BLENDER_EXE`, ver trampa 40.
 - **`scripts/montar.py`** (Blender) — los pasos 5 y 6: monta las partes de la
   IA en el lugar de las piezas de un NIF vanilla, les copia los pesos del
   vértice vanilla más cercano, exporta y compara contra el donante. El plan
