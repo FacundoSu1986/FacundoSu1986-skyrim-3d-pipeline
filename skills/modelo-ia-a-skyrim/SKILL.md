@@ -1,6 +1,11 @@
 ---
 name: modelo-ia-a-skyrim
 description: Convierte modelos 3D generados por IA (Tripo, Meshy, Hunyuan3D, Rodin, Trellis) en assets funcionales de Skyrim SE o LE con Blender y PyNifly — malla, rig, texturas DDS y NIF verificado. Usala siempre que aparezca un .glb/.fbx/.obj generado por IA que haya que meter en Skyrim, cuando haya que reemplazar una criatura, armadura o arma vanilla, cuando haya que escribir el prompt para pedirle el modelo a la IA 3D, o cuando se hable de presupuesto de polígonos, exportar NIF, convertir texturas a DDS, riggear a un esqueleto vanilla, o por qué un asset sale invisible, de espaldas, deformado u opaco al lado de los vanilla en el juego. También cuando alguien pregunte si un modelo generado por IA "sirve" para un juego.
+compatibility: Blender 4.4 con PyNifly (io_scene_nifly) para los scripts marcados Blender, que corren con el Python de Blender; Python 3.11 o 3.12 para el resto, con numpy para la compresión DXT y el bake HD. Los NIF, esqueletos y texturas vanilla hay que extraerlos de los BSA del juego, y el repo no los trae. Todo se midió sobre Skyrim SE.
+metadata:
+  inputs: un .glb/.fbx/.obj generado por IA, y el NIF y el esqueleto vanilla que hacen de donante o de referencia
+  outputs: un NIF verificado contra el vanilla con verificar_export.py y sus DDS con mipmaps en la convención de Skyrim; opcional, la capa HD horneada
+  rendering-paths: vanilla por defecto, o community-shaders-pbr (references/pbr-community-shaders.md)
 ---
 
 # Modelos 3D de IA → assets de Skyrim
