@@ -24,12 +24,16 @@ sobren inventadas.
 
   REGLA  version        la misma version de NIF que el vanilla (SE: BS 100)
   REGLA  comparables    ningun nombre repetido (si no, no hay como decidir)
-  REGLA  bloques        mismos tipos y cantidades de bloque
+  REGLA  bloques        mismos tipos y cantidades de bloque (salvo
+                        BSShaderTextureSet, que el vanilla comparte o repite
+                        por shape: ver COMPARTIBLES)
   REGLA  raiz           mismo TIPO de raiz (el nombre es observacion)
   REGLA  nodos          mismo juego de nombres de nodo, sin la raiz
   REGLA  posiciones     cada nodo comun, posicion y escala, la raiz incluida
   REGLA  orientacion    cada nodo y cada pieza, sus ejes
   REGLA  piezas         mismo juego de nombres de shape
+  REGLA  formato        cada pieza comun, con los mismos atributos de vertice
+                        (UV, normal, tangente, colores, skin...)
   REGLA  colocacion     cada pieza comun, donde quedo y con que escala
   REGLA  huesos/pieza   cada pieza, con el mismo juego de huesos
   REGLA  body parts     cada pieza, con las mismas particiones Y en su orden
@@ -132,7 +136,7 @@ def _nombre_raiz(nif):
 # fallar. Agregar una regla sin ese caso es agregar una garantia que no se sabe
 # si puede fallar -- el modo de error mas caro que tuvo este repo.
 REGLAS = ("version", "comparables", "bloques", "raiz", "nodos", "posiciones",
-          "orientacion", "piezas", "colocacion", "huesos/pieza",
+          "orientacion", "piezas", "formato", "colocacion", "huesos/pieza",
           "body parts", "skin")
 
 
@@ -154,6 +158,36 @@ class Nota(object):
 
     def __str__(self):
         return "[obs]   %-14s %s" % (self.tema, self.detalle)
+
+
+# Bloques que un NIF puede compartir entre shapes o repetir uno por shape, y
+# que por eso no se comparan por cantidad. Medido sobre los 13.109 NIF vanilla
+# con 2 o mas BSLightingShaderProperty: 9.375 llevan un BSShaderTextureSet por
+# shader y 3.734 comparten. PyNifly escribe uno por shape: el centurion
+# exportado tenia 15 donde el vanilla tiene 1, con las mismas rutas. Tenerlo
+# o no tenerlo si importa: 0 contra 1 sigue siendo falla.
+COMPARTIBLES = {
+    "BSShaderTextureSet": "9.375 de 13.109 NIF vanilla con 2+ shaders llevan "
+                          "uno por shader y 3.734 lo comparten",
+}
+
+
+def comparar_bloques(bn, bv):
+    """(fallas, notas, comparaciones) de dos {tipo: cantidad}."""
+    fallas, notas, n = [], [], 0
+    for tipo in sorted(set(bn) | set(bv)):
+        n += 1
+        a, b = bn.get(tipo, 0), bv.get(tipo, 0)
+        if a == b:
+            continue
+        if tipo in COMPARTIBLES and a and b:
+            notas.append(Nota("bloques", "%s: nuevo %d, vanilla %d. No "
+                                         "reprueba: %s"
+                              % (tipo, a, b, COMPARTIBLES[tipo])))
+        else:
+            fallas.append(Falla("bloques", "%s: nuevo %d, vanilla %d"
+                                % (tipo, a, b)))
+    return fallas, notas, n
 
 
 def _desvio(a, b):
@@ -217,12 +251,10 @@ def comparar(ruta_nuevo, ruta_vanilla):
                                                ", ".join(rep[:4]))))
 
     # --- bloques ------------------------------------------------------------
-    bn, bv = nuevo.cuenta_tipos(), van.cuenta_tipos()
-    for tipo in sorted(set(bn) | set(bv)):
-        n_comp += 1
-        if bn.get(tipo, 0) != bv.get(tipo, 0):
-            fallas.append(Falla("bloques", "%s: nuevo %d, vanilla %d"
-                                % (tipo, bn.get(tipo, 0), bv.get(tipo, 0))))
+    f, n, c = comparar_bloques(nuevo.cuenta_tipos(), van.cuenta_tipos())
+    fallas += f
+    notas += n
+    n_comp += c
 
     # --- raiz ---------------------------------------------------------------
     rn, rv = _nombre_raiz(nuevo), _nombre_raiz(van)
@@ -299,6 +331,22 @@ def comparar(ruta_nuevo, ruta_vanilla):
         fallas.append(Falla("piezas", "falta la pieza %r" % nom))
     for nom in sorted(set(sn) - set(sv)):
         fallas.append(Falla("piezas", "sobra la pieza %r" % nom))
+
+    # El formato de vertice de cada pieza: los atributos del vertexDesc. Una
+    # parte montada sin capa de color sale sin COLORS; una sin UV, sin UV, y
+    # la textura no tiene donde caer. Nada de eso da error al exportar.
+    # Medido montando el centurion: la pieza sin capa de color perdio COLORS
+    # y todas las demas reglas pasaban.
+    fn, fv = nuevo.formatos_vertice(), van.formatos_vertice()
+    for nom in sorted(set(fn) & set(fv)):
+        n_comp += 1
+        if fn[nom] != fv[nom]:
+            menos, mas = sorted(fv[nom] - fn[nom]), sorted(fn[nom] - fv[nom])
+            fallas.append(Falla(
+                "formato", "%s: %s%s" % (
+                    nom, "le falta %s" % ", ".join(menos) if menos else "",
+                    ("%strae %s de mas" % ("; " if menos else "",
+                                            ", ".join(mas))) if mas else "")))
 
     # Un BSTriShape NO es un nodo, asi que mundo() no lo miraba. Sobre un
     # ESTATICO --donde el unico nodo es la raiz-- eso dejaba CERO posiciones

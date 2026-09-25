@@ -302,3 +302,49 @@ muestra. El test nuevo de la cabecera lo encontró al comparar con el corpus.
 sale en DXT1, que comprime juntos tres canales que no se parecen (rugosidad,
 metal, oclusión): el error por canal queda en el reporte, y cuánto se nota,
 no se sabe.
+
+## Montar y riggear: el enfoque donante, falsificado reconstruyendo el vanilla
+
+Los pasos 5 y 6 (issue #21) no tenían script. El método es el del replacer
+del centurión, el único que se probó en el juego con sus animaciones: cada
+parte de la IA toma el lugar de una pieza del NIF vanilla --el donante--, que
+pone material, particiones, propiedades del shape y esqueleto. Nada de eso se
+reconstruye a mano.
+
+**Por qué copiar los pesos del vértice vanilla más cercano.** Da el skin
+rígido del proyecto de origen sin programarlo (12 de las 15 piezas del
+centurión pesan a un solo hueso), y hereda el reparto donde lo hay: los pies
+con `Toe0`, la cabeza con párpados y mandíbula. Perder uno de esos huesos es
+perder una articulación sin error (trampa 12), y los controles lo reprueban.
+
+**Cómo se sabe que funciona.** `montar.py --falsificar` usa el vanilla como
+respuesta conocida: saca cada pieza, la corre, la gira y la escala como si
+viniera de la IA, y exige que cada vértice vuelva a **su** lugar. Con el
+centurión: 15 de 15, error máximo 0,0002 unidades. Y exige que un plan con
+los extremos cruzados deje la pieza lejos (158 unidades, el 80 % de su
+diagonal): la primera versión medía contra el vértice más cercano, y la
+cabeza --casi simétrica-- dada vuelta quedaba a solo el 13 %.
+
+**Lo que encontró la falsificación, que ninguna revisión a ojo habría visto:**
+
+- PyNifly agrega a la armature el esqueleto de referencia y lo exporta: 53
+  `NiNode` contra 21. `create_bones=False` (trampa 14).
+- En Blender 4 los nombres de los grupos de vértices viven en la malla:
+  cambiársela al objeto los borra (trampa 15).
+- Espejar con `Mesh.transform` no da vuelta las caras (trampa 38).
+- Una parte sin capa de color exporta la pieza sin `COLORS`, y ninguna regla
+  lo veía: `verificar_export.py` suma la regla `formato`, que en los 1.216
+  pares `_0`/`_1` del corpus no reprueba nada (trampa 39).
+- PyNifly escribe un `BSShaderTextureSet` por pieza y el centurión vanilla
+  comparte uno. No es un defecto: 9.375 de 13.109 NIF vanilla con 2+ shaders
+  llevan uno por shader. La regla `bloques` pasó a informarlo.
+- Una dirección de giro paralela al eje de la pieza (el pie es largo en Y) no
+  fija nada: era una nota y ahora es un error, con `arriba` como alternativa.
+- Blender sin interfaz sale con 0 cuando el script revienta. Estaba en los
+  cinco scripts de Blender del repo (trampa 37).
+
+**Qué no se hizo.** Nada de esto se vio en el juego. La falsificación prueba
+que el montaje pone cada vértice donde el plan dice y que el NIF se parece al
+vanilla; que la pieza se vea bien al animarse lo dice el juego. Tampoco hay
+todavía un plan con partes reales de un generador: el camino está probado con
+el propio vanilla y con una pieza sacada a `.obj`.

@@ -115,6 +115,7 @@ import bpy
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from correr_en_blender import correr  # noqa: E402
 import horneado_puro as hp  # noqa: E402
 
 MARGEN_FINAL = 8          # texeles de sangrado alrededor de cada isla
@@ -584,4 +585,4 @@ def main():
         print("[aviso] %s" % a)
 
 
-main()
+correr(main)

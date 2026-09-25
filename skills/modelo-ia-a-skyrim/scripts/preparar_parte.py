@@ -51,6 +51,9 @@ import bmesh
 import bpy
 from mathutils import Matrix
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from correr_en_blender import correr  # noqa: E402
+
 # Fraccion del alto del modelo que se usa como distancia de soldadura: la
 # justa para juntar los vertices DUPLICADOS por las costuras de UV, que en los
 # modelos de Tripo coinciden exactamente. Medido sobre dos modelos reales,
@@ -275,4 +278,4 @@ def main():
               % (despues, presupuesto, consejo))
 
 
-main()
+correr(main)
