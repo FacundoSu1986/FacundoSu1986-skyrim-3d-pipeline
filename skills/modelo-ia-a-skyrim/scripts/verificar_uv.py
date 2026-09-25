@@ -51,6 +51,27 @@ por su propia caja antes de aparear. Eso tolera escala uniforme y traslacion,
 que es lo que hace un conversor; NO tolera rotacion, y si alguien la agrega
 esto deja de aparear y reprueba por "nada que comparar" -- que es el modo de
 fallar correcto.
+
+LA CAJA DEL NIF ES LA DE TODAS SUS PIEZAS JUNTAS
+
+Un NIF exportado casi nunca es una malla sola: el exportador la reparte en un
+shape por material, todos en el mismo marco. El conversor escala el modelo
+ENTERO, no cada pieza, asi que la caja que corresponde a la del OBJ es la de
+la union. Normalizada cada pieza por la suya, ninguna coincide:
+
+  - en el hacha de Filo Celeste --dos piezas, la hoja y el filo que brilla--
+    apareaba 0 vertices y reprobaba por "nada que comparar". Con la caja de
+    la union, 12.898 invertidas y 0 iguales;
+  - y sobre una figura chica es peor que no aparear: la caja de cada pieza
+    puede llevar un vertice al lugar de OTRO que tiene la misma U, y votar
+    "igual" con el conversor correcto. El autotest lo arma con el cuadrado
+    partido en dos.
+
+La pieza sin UV tambien entra en la caja: es parte del modelo que se escalo.
+Y las piezas tienen que compartir el marco, que es como las escribe un
+exportador que reparte por material; si no lo comparten, la caja de la union
+tampoco es la del modelo, el apareo falla y reprueba por "nada que comparar",
+el mismo modo de fallar que la rotacion.
 """
 import os
 import sys
@@ -72,8 +93,8 @@ MARGEN_MEDIO = 0.02
 TOL_UV = 0.01
 
 
-def _normalizar(pos):
-    """Posiciones llevadas a su propia caja unitaria, como clave de rejilla."""
+def _caja(pos):
+    """(esquina minima, lado mayor) de las posiciones finitas, o None."""
     finitos = [p for p in pos if all(-1e9 < c < 1e9 for c in p)]
     if not finitos:
         return None
@@ -82,6 +103,17 @@ def _normalizar(pos):
     dim = max(hi[k] - lo[k] for k in range(3))
     if dim <= 0:
         return None
+    return lo, dim
+
+
+def _normalizar(pos, caja=None):
+    """Posiciones llevadas a una caja unitaria, como clave de rejilla. Sin
+    `caja`, la de las propias posiciones."""
+    if caja is None:
+        caja = _caja(pos)
+    if caja is None:
+        return None
+    lo, dim = caja
     claves = []
     for p in pos:
         if not all(-1e9 < c < 1e9 for c in p):
@@ -115,11 +147,12 @@ def _leer_obj(ruta):
     return v, pares
 
 
-def comparar(pos_obj, uv_por_vertice, pos_nif, uv_nif):
+def comparar(pos_obj, uv_por_vertice, pos_nif, uv_nif, caja_nif=None):
     """(votos, notas). votos: cuantos vertices dicen 'invertida' y cuantos
-    'igual'."""
+    'igual'. `caja_nif` es la caja por la que se normaliza el lado del NIF;
+    sin ella, la de `pos_nif` (ver comparar_piezas)."""
     ka = _normalizar(pos_obj)
-    kb = _normalizar(pos_nif)
+    kb = _normalizar(pos_nif, caja_nif)
     notas = []
     if ka is None or kb is None:
         return {"invertida": 0, "igual": 0, "otra": 0, "apareados": 0}, notas
@@ -164,13 +197,38 @@ def comparar(pos_obj, uv_por_vertice, pos_nif, uv_nif):
     return votos, notas
 
 
+def comparar_piezas(pos_obj, uv_por_vertice, piezas):
+    """(votos, notas) de TODAS las piezas del NIF contra el origen.
+
+    Cada pieza es {nombre, pos, uv}, como sale de geometria(con_uv=True).
+    Todas se normalizan por la caja de su UNION --tambien las que no traen
+    UV, que igual son parte del modelo que el conversor escalo-- porque es la
+    que corresponde a la caja del OBJ: ver la cabecera.
+    """
+    caja = _caja([p for s in piezas for p in s["pos"]])
+    votos = {"invertida": 0, "igual": 0, "otra": 0, "apareados": 0}
+    notas = []
+    if caja is None:
+        return votos, notas
+    for s in piezas:
+        if not s.get("uv"):
+            notas.append("OBS %s no declara UV" % s["nombre"])
+            continue
+        v, n = comparar(pos_obj, uv_por_vertice, s["pos"], s["uv"], caja)
+        for k in votos:
+            votos[k] += v[k]
+        notas.extend("%s: %s" % (s["nombre"], x) for x in n)
+    return votos, notas
+
+
 def juzgar(votos):
     """(fallas, resumen). La REGLA."""
     fallas = []
     if votos["apareados"] == 0:
         fallas.append("cero vertices comparables: no comprobar nada no es "
                       "exito. Aparear falla si el conversor ROTA el modelo, "
-                      "o si el OBJ no es el que se convirtio.")
+                      "si las piezas del NIF no comparten marco, o si el OBJ "
+                      "no es el que se convirtio.")
         return fallas, "sin datos"
     if votos["igual"] >= votos["invertida"]:
         fallas.append(
@@ -190,27 +248,16 @@ def revisar(ruta_obj, ruta_nif):
     if not uv_por_vertice:
         print("   el OBJ no trae UV (vt): no hay nada que comparar")
         return 1
-    shapes = [s for s in censo_nif.Nif(ruta_nif).geometria(con_uv=True)
-              if not s.get("error")]
-    avisos = [s for s in censo_nif.Nif(ruta_nif).geometria(con_uv=True)
-              if s.get("error")]
+    geometria = censo_nif.Nif(ruta_nif).geometria(con_uv=True)
+    shapes = [s for s in geometria if not s.get("error")]
+    avisos = [s for s in geometria if s.get("error")]
     if not shapes:
         print("   el NIF no tiene shapes con geometria legible")
         for s in avisos:
             print("   AVISO %s: %s" % (s.get("nombre"), s["error"]))
         return 1
 
-    total = {"invertida": 0, "igual": 0, "otra": 0, "apareados": 0}
-    notas = []
-    for s in shapes:
-        if not s.get("uv"):
-            notas.append("OBS %s no declara UV" % s["nombre"])
-            continue
-        v, n = comparar(pos_obj, uv_por_vertice, s["pos"], s["uv"])
-        for k in total:
-            total[k] += v[k]
-        notas.extend("%s: %s" % (s["nombre"], x) for x in n)
-
+    total, notas = comparar_piezas(pos_obj, uv_por_vertice, shapes)
     fallas, resumen = juzgar(total)
     print("== %s  ->  %s" % (os.path.basename(ruta_obj),
                              os.path.basename(ruta_nif)))
@@ -227,8 +274,13 @@ def revisar(ruta_obj, ruta_nif):
 # --------------------------------------------------------------------------
 def autotest():
     fallas = []
+    hechas = [0]
 
     def exigir(cond, texto):
+        # Se cuentan, no se declaran: el print de abajo decia "12
+        # comprobaciones" escrito a mano y el banco hacia 11. Es el defecto
+        # que salud_malla.py ya se habia cazado a si misma.
+        hechas[0] += 1
         if not cond:
             fallas.append(texto)
 
@@ -288,7 +340,47 @@ def autotest():
     exigir(any("U no coincide" in n for n in notas),
            "no informo las U distintas")
 
-    print("autotest: %d comprobaciones, %d fallas" % (12, len(fallas)))
+    # --- varias piezas: la caja del NIF es la de la UNION -------------------
+    # El cuadrado partido como lo parte un exportador por material: la pieza
+    # de abajo (vertices 0 y 1) y la de arriba (2 y 3), escaladas juntas.
+    abajo = {"nombre": "abajo", "pos": escalado[:2], "uv": inv[:2]}
+    arriba = {"nombre": "arriba", "pos": escalado[2:], "uv": inv[2:]}
+    votos, _ = comparar_piezas(pos, uvs, [abajo, arriba])
+    exigir(votos["invertida"] == 4 and votos["igual"] == 0,
+           "dos piezas con la V invertida: se esperaban 4 'invertida' y 0 "
+           "'igual', salio %d y %d" % (votos["invertida"], votos["igual"]))
+    f, _ = juzgar(votos)
+    exigir(not f, "dos piezas con la V invertida reprobaron: %s" % f)
+
+    # La premisa, y por que no alcanza con sumar pieza por pieza: normalizada
+    # por SU caja, la pieza de arriba cae sobre los vertices de abajo, que
+    # tienen su misma U, y vota "igual" con el conversor correcto.
+    v_arriba, _ = comparar(pos, uvs, arriba["pos"], arriba["uv"])
+    exigir(v_arriba["igual"] == 2,
+           "la pieza de arriba por su propia caja tenia que votar 2 'igual' "
+           "(si no, este caso no discrimina): salio %d" % v_arriba["igual"])
+
+    # la caja de la union no vuelve el control un sello
+    votos, _ = comparar_piezas(pos, uvs, [dict(abajo, uv=tal_cual[:2]),
+                                          dict(arriba, uv=tal_cual[2:])])
+    f, _ = juzgar(votos)
+    exigir(f and "v_invertida" in f[0],
+           "dos piezas con la V tal cual NO reprobaron")
+
+    # la pieza sin UV igual cuenta para la caja: sin ella, la caja es la de
+    # la pieza de arriba sola, y vota "igual" como en la premisa
+    votos, notas = comparar_piezas(pos, uvs, [dict(abajo, uv=None), arriba])
+    exigir(votos["invertida"] == 2 and votos["igual"] == 0,
+           "la pieza sin UV no entro en la caja: %d 'invertida' y %d "
+           "'igual', se esperaban 2 y 0" % (votos["invertida"],
+                                            votos["igual"]))
+    exigir(any("no declara UV" in n for n in notas),
+           "no informo la pieza sin UV")
+
+    if not hechas[0]:
+        print("autotest: NO se comprobo NADA")
+        return 1
+    print("autotest: %d comprobaciones, %d fallas" % (hechas[0], len(fallas)))
     for x in fallas:
         print("  FALLA %s" % x)
     return 1 if fallas else 0

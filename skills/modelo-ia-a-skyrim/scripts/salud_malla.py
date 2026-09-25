@@ -50,8 +50,9 @@ Decimando 14 shapes vanilla al 25 % de sus triangulos, de las dos formas:
 
   REGLA  borde        el numero de aristas de borde no puede aumentar
   REGLA  piezas       las componentes conexas por posicion soldada no pueden
-                      crecer (salvo si crece la cantidad de shapes: puede ser
-                      reparto por material, y ahi se informa)
+                      crecer (salvo si crece la cantidad de MARCOS: lo que
+                      esta en marcos distintos no se suelda entre si, y ahi
+                      se informa)
   OBS    ratio         tri/vert soldado (~2 = cerrada, ~1 = sopa de
                       triangulos; OJO: un tetraedro tambien da 1,0 -- el ratio
                       ABSOLUTO nunca seria regla, por eso es observacion)
@@ -97,6 +98,41 @@ Contar aristas por indice de vertice en un NIF no mide nada: los vertices de
 costura estan duplicados, asi que dos triangulos vecinos no comparten indice y
 toda arista parece de borde. En el hacha eso daba 2.953 piezas donde habia
 382, y 382 donde en realidad habia 1. Primero se sueldan las posiciones.
+
+POR QUE SE SUELDA ENTRE PIEZAS, Y SOLO DENTRO DE UN MARCO
+
+Un NIF exportado casi nunca es UNA malla: el exportador la reparte en un
+shape por material, cada uno con su propia lista de vertices, y la costura
+entre dos piezas queda escrita en las dos. Medida pieza por pieza, la costura
+es borde DOS veces. En el hacha de Filo Celeste --dos piezas, la hoja y el
+filo que brilla-- daba 956 aristas de borde contra 8 del origen, y 26 piezas
+contra 1, con la malla sana. Soldando entre piezas: 8 aristas de borde, 6
+no-manifold y 1 pieza, lo mismo que el origen.
+
+Para las REGLAS, entonces, cada archivo se mide con sus piezas estaticas
+soldadas entre si; el informe sigue dando cada pieza por separado. Pero solo
+las de un mismo MARCO --la misma transformada de mundo--, porque las
+coordenadas locales de marcos distintos no se pueden comparar. Medido sobre
+el corpus vanilla, en los 9.812 NIF con dos o mas piezas estaticas:
+
+    todas en un mismo marco               7.141  (72,8 %)
+    en marcos distintos                   2.671
+      soldadas igual, funden vertices
+      que en el mundo estan separados       548  (14 son armas, entre
+                                                  ellas dawnbreaker.nif)
+
+Fundir de mas es el modo de fallar PELIGROSO: dos copias de un tubo abierto,
+cada una en su marco, caen una sobre la otra; cada arista de borde queda con
+dos triangulos y la malla abierta pasa por cerrada. Por eso lo que esta en
+marcos distintos se mide por separado, aunque una costura entre dos marcos
+cuente como borde: esa falla es ruidosa, y el informe dice cuantos marcos hay.
+
+El marco sale de censo_nif.mundo_shapes(), que indexa por NOMBRE y ante un
+nombre repetido guarda el primero. Una pieza de nombre repetido no tiene
+marco confiable y va sola: en el corpus hay 101 archivos con dos piezas del
+mismo nombre en marcos distintos. Contra el marco leido bloque por bloque,
+esta particion coincide en 9.721 de los 9.812 archivos y es mas fina en los
+otros 91: no junta, en ninguno, lo que el bloque separa.
 """
 import os
 import sys
@@ -115,6 +151,10 @@ SOLDAR_FRACCION = 2e-5
 # Un shape con menos de esto no dice nada: un cartel de dos triangulos tiene el
 # 100 % de aristas de borde y esta perfecto.
 MIN_TRIANGULOS = 12
+
+# Lo que sale en lugar de un indice que no apunta a ningun vertice. salud() lo
+# cuenta en `fuera_de_rango`; nunca puede caer en un vertice valido.
+INDICE_IMPOSIBLE = -10 ** 12
 
 
 # --------------------------------------------------------------------------
@@ -218,18 +258,71 @@ def salud(pos, tris, min_triangulos=MIN_TRIANGULOS):
             "degenerados": degenerados, "fuera_de_rango": fuera_de_rango}
 
 
+def unir(piezas):
+    """(pos, tris) de varias piezas como UNA malla, para soldarlas entre si.
+
+    Cada pieza trae su propia lista de vertices, asi que sus triangulos se
+    corren por el offset de la pieza. Un indice que se pasa de SU pieza sale
+    como INDICE_IMPOSIBLE: corrido por el offset caeria en un vertice VALIDO
+    de la pieza siguiente, y se mediria otra malla sin avisar -- el mismo
+    agujero que el w[-2] de salud().
+    """
+    pos, tris = [], []
+    for s in piezas:
+        base, n = len(pos), len(s["pos"])
+        pos.extend(s["pos"])
+        tris.extend(tuple(base + i if 0 <= i < n else INDICE_IMPOSIBLE
+                          for i in t) for t in s["tris"])
+    return pos, tris
+
+
+def soldar_piezas(piezas):
+    """([medidas], [avisos]): una medida por MARCO, con las piezas de ese
+    marco soldadas como una sola malla. Ver la cabecera.
+
+    `marco` es la clave de cada pieza: las que la comparten tienen los
+    vertices en el mismo espacio y se sueldan entre si. Una pieza sin marco
+    (None) va sola, porque no se sabe donde esta.
+    """
+    grupos, de_marco = [], {}
+    for s in piezas:
+        clave = s.get("marco")
+        if clave in de_marco:
+            grupos[de_marco[clave]].append(s)
+            continue
+        if clave is not None:
+            de_marco[clave] = len(grupos)
+        grupos.append([s])
+    medidas, avisos = [], []
+    for k, grupo in enumerate(grupos):
+        nombre = (grupo[0].get("nombre", "?") if len(grupo) == 1
+                  else "marco %d: %d piezas" % (k + 1, len(grupo)))
+        m = salud(*unir(grupo))
+        if m is None:
+            avisos.append("%s: sin geometria medible (menos de %d triangulos "
+                          "utiles)" % (nombre, MIN_TRIANGULOS))
+            continue
+        m["nombre"] = nombre
+        m["shapes"] = len(grupo)
+        medidas.append(m)
+    return medidas, avisos
+
+
 def total(medidas):
-    """Suma de shapes medibles, para comparar archivo contra archivo.
+    """Suma de las medidas, para comparar archivo contra archivo.
 
     Se compara el TOTAL y no shape por shape porque decimar puede unir o
-    partir shapes, y entonces los nombres ya no aparean.
+    partir shapes, y entonces los nombres ya no aparean. `shapes` cuenta las
+    piezas del archivo --una medida de soldar_piezas() dice cuantas junto--
+    y `marcos` las medidas: lo que no se pudo soldar entre si.
     """
     if not medidas:
         return None
     campos = ("verts", "soldados", "tris", "aristas", "borde", "no_manifold",
               "winding", "piezas", "degenerados", "fuera_de_rango")
     out = dict((c, sum(m[c] for m in medidas)) for c in campos)
-    out["shapes"] = len(medidas)
+    out["shapes"] = sum(m.get("shapes", 1) for m in medidas)
+    out["marcos"] = len(medidas)
     out["borde_pct"] = (100.0 * out["borde"] / out["aristas"]
                         if out["aristas"] else 0.0)
     out["ratio"] = (out["tris"] / float(out["soldados"])
@@ -260,23 +353,27 @@ def comparar(antes, despues):
             "decimar directo lo multiplico hasta x25,5."
             % (despues["borde"], antes["borde"], cuanto))
     if (despues["piezas"] > antes["piezas"]
-            and despues["shapes"] <= antes["shapes"]):
+            and despues["marcos"] <= antes["marcos"]):
         # soldar junta, la decimacion colapsa (fusiona vertices), y fusionar
         # no parte: el numero de piezas NO puede crecer decimando bien. Si
         # crece, lo que crecieron son parches sueltos -- el defecto del hacha
-        # en su forma pura. Cuando ademas crece la cantidad de shapes, el
-        # aumento puede ser reparto por material del exportador y ahi se
-        # informa en vez de reprobar; la salvedad teorica (un colapso que corta
-        # dos parches pegados en un UNICO vertice) es una union no-manifold:
-        # si bloquea un asset real, se mide y se afloja entonces, no antes.
+        # en su forma pura. La guarda eran los SHAPES: el reparto por material
+        # del exportador subia las piezas sin rasgar nada. Ahora las piezas de
+        # un mismo marco se sueldan entre si (soldar_piezas) y ese reparto ya
+        # no suma; lo unico que no se suelda es lo que esta en marcos
+        # distintos, y por eso la guarda son los MARCOS. Con la de shapes, un
+        # rasgado repartido en dos materiales pasaba. La salvedad teorica (un
+        # colapso que corta dos parches pegados en un UNICO vertice) es una
+        # union no-manifold: si bloquea un asset real, se mide y se afloja
+        # entonces, no antes.
         fallas.append(
             "REGLA piezas: %d piezas sueltas contra %d del origen, con la "
-            "misma cantidad de shapes (%d->%d). La malla se RASGO en parches. "
+            "misma cantidad de marcos (%d->%d). La malla se RASGO en parches. "
             "Que el borde no crezca no salva: el conteo de borde es NETO y "
             "puede bajar mientras la malla se parte (20x20 abierto: 76 bordes; "
             "12 triangulos sueltos: 36)."
             % (despues["piezas"], antes["piezas"],
-               antes["shapes"], despues["shapes"]))
+               antes["marcos"], despues["marcos"]))
     for campo, texto in (("piezas", "piezas sueltas"),
                          ("no_manifold", "aristas no-manifold"),
                          ("winding", "aristas con winding incoherente")):
@@ -286,6 +383,10 @@ def comparar(antes, despues):
     if despues["shapes"] != antes["shapes"]:
         notas.append("OBS shapes: %d contra %d del origen"
                      % (despues["shapes"], antes["shapes"]))
+    if despues["marcos"] != antes["marcos"]:
+        notas.append("OBS marcos: %d contra %d del origen (entre marcos "
+                     "distintos no se suelda: una costura entre dos cuenta "
+                     "como borde)" % (despues["marcos"], antes["marcos"]))
     notas.append("OBS ratio tri/vert: %.2f -> %.2f  (~2 cerrada, ~1 sopa)"
                  % (antes["ratio"], despues["ratio"]))
     return fallas, notas
@@ -333,12 +434,12 @@ def _indice_obj(tok, n):
     try:
         i = int(tok.split("/")[0])
     except ValueError:
-        return -10 ** 12
+        return INDICE_IMPOSIBLE
     if i > 0:
         return i - 1
     if i < 0:
         return n + i
-    return -10 ** 12
+    return INDICE_IMPOSIBLE
 
 
 def _leer_obj(ruta):
@@ -374,22 +475,43 @@ def _leer_obj(ruta):
     return [{"nombre": os.path.basename(ruta), "pos": pos, "tris": tris}]
 
 
-def leer(ruta):
-    """([medidas], [avisos]). Un shape que no se pudo medir sale en avisos: no
-    se omite en silencio."""
+def _marcos(nif):
+    """{nombre de shape: clave de su marco}, la transformada de MUNDO como la
+    redondea censo_nif. Un nombre repetido no entra: mundo_shapes() guarda el
+    primero, y la otra pieza heredaria un marco que no es el suyo."""
+    tr, rot = nif.mundo_shapes(), nif.rotaciones_shapes()
+    repetidos = set(nif.nombres_repetidos())
+    return dict((n, (tr[n], rot[n])) for n in tr
+                if n in rot and n not in repetidos)
+
+
+def _leer_piezas(ruta):
+    """(piezas, avisos): las piezas con geometria del archivo, cada una con
+    la clave de su `marco` (None si no hay una confiable). Un shape que no se
+    pudo leer sale en avisos: no se omite en silencio."""
     ext = os.path.splitext(ruta)[1].lower()
     if ext == ".obj":
-        shapes = _leer_obj(ruta)
-    elif ext == ".nif":
-        shapes = censo_nif.Nif(ruta).geometria()
-    else:
+        piezas = _leer_obj(ruta)
+        for s in piezas:
+            s["marco"] = "obj"
+        return piezas, []
+    if ext != ".nif":
         raise ValueError("extension no soportada: %s (.nif o .obj)" % ext)
-
-    medidas, avisos = [], []
-    for s in shapes:
+    nif = censo_nif.Nif(ruta)
+    marcos = _marcos(nif)
+    piezas, avisos = [], []
+    for s in nif.geometria():
         if s.get("error"):
             avisos.append("%s: %s" % (s.get("nombre", "?"), s["error"]))
             continue
+        s["marco"] = marcos.get(s.get("nombre"))
+        piezas.append(s)
+    return piezas, avisos
+
+
+def _por_pieza(piezas):
+    medidas, avisos = [], []
+    for s in piezas:
         m = salud(s.get("pos"), s.get("tris"))
         if m is None:
             avisos.append("%s: sin geometria medible (menos de %d triangulos "
@@ -400,18 +522,47 @@ def leer(ruta):
     return medidas, avisos
 
 
+def leer(ruta):
+    """([medidas], [avisos]) POR PIEZA, para el informe. Un shape que no se
+    pudo medir sale en avisos: no se omite en silencio."""
+    piezas, avisos = _leer_piezas(ruta)
+    medidas, mas = _por_pieza(piezas)
+    return medidas, avisos + mas
+
+
+def leer_soldado(ruta):
+    """([medidas], [avisos]) para las REGLAS: una medida por marco, con las
+    piezas de ese marco soldadas entre si (ver la cabecera)."""
+    piezas, avisos = _leer_piezas(ruta)
+    medidas, mas = soldar_piezas(piezas)
+    return medidas, avisos + mas
+
+
+def _linea(m, nombre):
+    print("   %-24s verts %6d->%-6d tris %6d  ratio %.2f  borde %5d "
+          "(%.1f%%)  nm %d  winding %d  piezas %d"
+          % (nombre[:24], m["verts"], m["soldados"], m["tris"], m["ratio"],
+             m["borde"], m["borde_pct"], m["no_manifold"], m["winding"],
+             m["piezas"]))
+
+
 def informe(ruta):
-    medidas, avisos = leer(ruta)
+    """Imprime cada pieza y, donde varias se sueldan entre si, la medida
+    soldada, que es la que va a las REGLAS. ([por pieza], [avisos],
+    [soldadas])."""
+    piezas, avisos = _leer_piezas(ruta)
+    medidas, a_pieza = _por_pieza(piezas)
+    soldadas, a_soldadas = soldar_piezas(piezas)
     print("== %s" % os.path.basename(ruta))
     for m in medidas:
-        print("   %-24s verts %6d->%-6d tris %6d  ratio %.2f  borde %5d "
-              "(%.1f%%)  nm %d  winding %d  piezas %d"
-              % (m["nombre"][:24], m["verts"], m["soldados"], m["tris"],
-                 m["ratio"], m["borde"], m["borde_pct"], m["no_manifold"],
-                 m["winding"], m["piezas"]))
-    for a in avisos:
+        _linea(m, m["nombre"])
+    for m in soldadas:
+        if m["shapes"] > 1:
+            _linea(m, "= " + m["nombre"])
+    # una pieza sola sin nada medible da el mismo aviso por los dos caminos
+    for a in dict.fromkeys(avisos + a_pieza + a_soldadas):
         print("   AVISO %s" % a)
-    return medidas, avisos
+    return medidas, avisos + a_pieza, soldadas
 
 
 # --------------------------------------------------------------------------
@@ -607,15 +758,71 @@ def autotest():
     f, _ = comparar(grid, total([salud(*_grid(10), 1)]))
     exigir(not f, "grid decimado correctamente: la REGLA piezas reprobo")
 
-    # el reparto por material del exportador: misma geometria, mas shapes. Las
-    # piezas suben por el corte, y ahi la REGLA piezas NO reprueba (se informa).
-    # OJO el borde SI sube (por shape se pierden las soldaduras entre tramos):
-    # esa limitacion es anterior y queda documentada en la cabecera.
+    # dos medidas que no se sueldan entre si --piezas en marcos distintos--:
+    # las piezas suben por el corte, y ahi la REGLA piezas NO reprueba (se
+    # informa). El borde SI sube: entre marcos no se suelda, y la costura
+    # cuenta como borde (ver la cabecera).
     f2, _ = comparar(total([salud(pos, tris, 1)]),
                      total([salud(pos, tris[:6], 1), salud(pos, tris[6:], 1)]))
     exigir(not any("REGLA piezas" in x for x in f2),
-           "cubo partido en 2 shapes (material): la REGLA piezas no debia "
+           "cubo en 2 medidas (dos marcos): la REGLA piezas no debia "
            "reprobar y dijo: %s" % f2)
+
+    # --- varias piezas en un MARCO: se sueldan entre si ---------------------
+    # El cubo repartido en dos piezas como lo reparte un exportador por
+    # material: cada una con su PROPIA lista de vertices, la costura escrita
+    # en las dos.
+    mitad_a = {"nombre": "a", "pos": pos, "tris": tris[:6], "marco": 0}
+    mitad_b = {"nombre": "b", "pos": pos, "tris": tris[6:], "marco": 0}
+    ms, _ = soldar_piezas([mitad_a, mitad_b])
+    exigir(len(ms) == 1 and ms[0]["borde"] == 0 and ms[0]["piezas"] == 1
+           and ms[0]["soldados"] == 8 and ms[0]["tris"] == 12,
+           "cubo en dos piezas del mismo marco: soldadas no dan el cubo (%s)"
+           % [(m["borde"], m["piezas"], m["soldados"], m["tris"])
+              for m in ms])
+    f, _ = comparar(cerrada, total(ms))
+    exigir(not f, "cubo en dos piezas del mismo marco reprobo: %s" % f)
+
+    # soldar entre piezas no tapa una rotura: una de las dos, rasgada
+    r_pos, r_tris = _rasgar(pos, tris[6:])
+    ms, _ = soldar_piezas([mitad_a, dict(mitad_b, pos=r_pos, tris=r_tris)])
+    f, _ = comparar(cerrada, total(ms))
+    exigir(f, "una pieza rasgada, soldada con la otra: la REGLA no reprobo")
+
+    # la guarda de la REGLA piezas son los MARCOS, no los shapes: el caso de
+    # Codex repartido en dos shapes del mismo marco se escudaba en el reparto
+    s_pos, s_tris = _sueltos(12)
+    ms, _ = soldar_piezas([
+        {"nombre": "s0", "pos": s_pos[:18], "tris": s_tris[:6], "marco": 0},
+        {"nombre": "s1", "pos": s_pos[18:], "marco": 0,
+         "tris": [(a - 18, b - 18, c - 18) for a, b, c in s_tris[6:]]}])
+    f, _ = comparar(grid, total(ms))
+    exigir(any("REGLA piezas" in x for x in f),
+           "grid -> 12 sueltos repartidos en dos shapes del mismo marco: la "
+           "REGLA piezas no reprobo")
+
+    # un indice que se pasa de SU pieza no puede caer en la siguiente
+    mu = salud(*unir([{"pos": pos, "tris": tris + [(0, 1, 8)]},
+                      {"pos": pos, "tris": tris}]), min_triangulos=1)
+    exigir(mu["fuera_de_rango"] == 1,
+           "indice 8 de una pieza de 8 vertices: fuera_de_rango %d, se "
+           "esperaba 1 (cayo en la pieza siguiente)" % mu["fuera_de_rango"])
+
+    # marcos distintos NO se sueldan: dos copias del par de cubos con un
+    # hueco, mismas coordenadas locales. Soldadas juntas caerian una sobre la
+    # otra y el borde daria 0 -- abierta por cerrada. Sin marco, lo mismo.
+    hueco = {"nombre": "h", "pos": pos2, "tris": tris2[2:]}
+    for marcos in (("uno", "otro"), (None, None)):
+        ms, _ = soldar_piezas([dict(hueco, marco=marcos[0]),
+                               dict(hueco, marco=marcos[1])])
+        exigir(len(ms) == 2 and sum(m["borde"] for m in ms) == 8,
+               "dos copias en marcos %s: se soldaron entre si (%d medidas, "
+               "borde %d)" % (marcos, len(ms), sum(m["borde"] for m in ms)))
+    ms, _ = soldar_piezas([dict(hueco, marco="uno"),
+                           dict(hueco, marco="uno")])
+    exigir(len(ms) == 1 and ms[0]["borde"] == 0,
+           "la premisa: las dos copias en el MISMO marco tenian que fundirse "
+           "(borde 0); si no, el caso de arriba no discrimina")
 
     # --- la REGLA del paso 4b: rehacer las UV no cambia la geometria --------
     partida = total([salud(*_partir_por_costura(pos, tris), min_triangulos=1)])
@@ -816,15 +1023,17 @@ def _comparar_archivos(antes, despues, regla):
     if os.path.abspath(antes) == os.path.abspath(despues):
         print("los dos caminos son el mismo archivo: no hay que comparar")
         return 2
-    ma, _aa = informe(antes)
-    mb, _ab = informe(despues)
-    fallas, notas = regla(total(ma), total(mb))
+    # las REGLAS van sobre lo soldado entre piezas; el informe por pieza
+    # queda impreso arriba para ver de donde sale cada numero
+    _ma, _aa, sa = informe(antes)
+    _mb, _ab, sb = informe(despues)
+    fallas, notas = regla(total(sa), total(sb))
     print()
     for n in notas:
         print("   %s" % n)
     for f in fallas:
         print("   FALLA %s" % f)
-    if not ma or not mb:
+    if not sa or not sb:
         print("   FALLA: no hubo nada que medir -- cero comprobaciones no "
               "es exito")
         return 1
@@ -841,8 +1050,8 @@ def main(argv):
     if len(argv) == 1:
         if not _ext_ok(argv[0]):
             return 2
-        medidas, avisos = informe(argv[0])
-        return 0 if medidas else 1
+        medidas, _avisos, soldadas = informe(argv[0])
+        return 0 if medidas or soldadas else 1
     if len(argv) == 2:
         return _comparar_archivos(argv[0], argv[1], comparar)
     print(__doc__.strip().splitlines()[0])

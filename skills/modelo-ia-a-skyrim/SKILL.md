@@ -336,7 +336,10 @@ pieza que mañana pierda una atadura.
   normalizada por la caja de cada lado, así que tolera la escala y la
   traslación que aplica un conversor, pero no una rotación — y si alguien la
   agrega, deja de aparear y reprueba por "nada que comparar", que es el modo de
-  fallar correcto. Trae `--autotest`.
+  fallar correcto. Del lado del NIF la caja es la de **todas sus piezas
+  juntas**: el conversor escala el modelo entero, y con la caja de cada pieza
+  el hacha de Filo Celeste (dos piezas por material) apareaba 0 vértices y
+  reprobaba en falso. Trae `--autotest`.
 - **`scripts/salud_malla.py`** — mide si la malla se **rompió** al decimarla, y
   lo hace sobre el **archivo** (`.nif` o `.obj`), sin Blender. Con dos
   argumentos aplica **dos** REGLAS: el número de aristas de borde no puede
@@ -358,9 +361,17 @@ pieza que mañana pierda una atadura.
   —ratio tri/vert, no-manifold, winding— se informa como OBSERVACIÓN y no
   reprueba: no está medido sobre el corpus con la densidad que hace falta para
   bloquear. Piezas sí pasó a regla porque es **estructural** (soldar junta,
-  colapsar fusiona, fusionar no parte) y no necesita medición para sostenerse;
-  si el exportador reparte el mesh en shapes por material, las piezas crecen
-  sin rasgado y ahí la guarda es la cantidad de shapes: se informa, no reprueba.
+  colapsar fusiona, fusionar no parte) y no necesita medición para sostenerse.
+
+  Un NIF que el exportador repartió en shapes por material se mide con sus
+  piezas **soldadas entre sí** —el informe igual da cada una—: pieza por pieza,
+  la costura entre dos cuenta como borde en las dos (en el hacha de Filo
+  Celeste, 956 aristas de borde contra 8 del origen, con la malla sana).
+  Solo se sueldan las piezas de un mismo **marco**: soldar coordenadas locales
+  de marcos distintos funde vértices que en el mundo están separados, y en el
+  corpus vanilla eso pasa en 548 archivos. Lo que está en marcos distintos se
+  mide aparte, y ahí la guarda de la regla de piezas es la cantidad de marcos:
+  se informa, no reprueba.
 - **`scripts/hornear.py`** (Blender) — hornea la malla alta que guarda
   `preparar_parte.py --guardar-alto` sobre la baja ya desplegada: normal, AO,
   albedo, rugosidad y metalicidad, al doble de resolución y reducidos. Antes
