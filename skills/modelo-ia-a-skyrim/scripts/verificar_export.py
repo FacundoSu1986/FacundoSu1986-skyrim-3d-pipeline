@@ -69,8 +69,11 @@ LO QUE **NO** COMPRUEBA, DECLARADO
 
 1. **La tabla de strings.** Se comparan los nombres de nodo y de pieza, que es
    de donde sale casi toda; el resto (rutas, nombres de controller) no.
-2. **UV y capa de color por pieza.** No estan medidos aca. Viven en la
-   geometria, que este script no lee.
+2. **Los VALORES de UV y de color por pieza.** Que cada pieza LLEVE los
+   mismos atributos de vertice que el vanilla (UV, normal, tangente, colores,
+   skin) si lo compara la REGLA `formato`, del descriptor de vertice. Los
+   valores viven en la geometria, que este script no lee; la V la controla
+   verificar_uv.py contra el OBJ de origen.
 3. **Un bloque colgado de DOS padres.** El recorrido se queda con el primero
    que lo visita y no avisa. Medido sobre 3.000 archivos del corpus: **0**
    tienen un bloque referenciado por dos padres, asi que no es un bug vivo --

@@ -42,6 +42,7 @@ La skill [`modelo-ia-a-skyrim`](skills/modelo-ia-a-skyrim):
 | [`references/pedir-a-la-ia-3d.md`](skills/modelo-ia-a-skyrim/references/pedir-a-la-ia-3d.md) | Cómo escribir el pedido al generador: plantillas, negative prompts, cómo expresar proporciones |
 | [`references/limites-skyrim.md`](skills/modelo-ia-a-skyrim/references/limites-skyrim.md) | Límites del motor: presupuestos de polígonos medidos, formatos de textura, estructura del NIF, rig y particiones |
 | [`references/trampas.md`](skills/modelo-ia-a-skyrim/references/trampas.md) | 40 fallos que no tiran error, con índice por síntoma |
+| [`references/verificar-el-archivo.md`](skills/modelo-ia-a-skyrim/references/verificar-el-archivo.md) | Qué cubre cada control del NIF reimportado y qué no, con la evidencia |
 | [`references/hd-texturas.md`](skills/modelo-ia-a-skyrim/references/hd-texturas.md) | La capa HD: hornear la malla alta de la IA sobre la baja de juego, en orden y con controles |
 | [`references/acabado-y-validacion.md`](skills/modelo-ia-a-skyrim/references/acabado-y-validacion.md) | Conservar el atlas hasta el NIF y evaluar detalle real frente a resolución; lecciones del centurión V20/V21 |
 | [`references/pbr-community-shaders.md`](skills/modelo-ia-a-skyrim/references/pbr-community-shaders.md) | El True PBR de Community Shaders `[PROVIDER]`: flags del NIF, ranuras y el `_rmaos`, desde su código fuente |
