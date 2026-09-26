@@ -25,6 +25,9 @@ todavía con un asset real de un generador ni dentro del juego.
     salud_malla.py antes despues
     Todo lo que AGREGA CARAS o DEFORMA va aca, antes de las UV: Solidify si
     la medicion dijo cascara, afinar (trampa 34, a la alta tambien).
+4a. Solo un asset NUEVO: al_marco.py -- plan.json baja.blend b.blend alta.blend a.blend
+    lleva las dos al espacio del nodo de anclaje con la misma matriz
+    (trampa 34), aca, antes de las UV. Un replacer no: se monta en 5.
 4b. desplegar_uv.py -- baja.blend
     UV de la baja, en Blender (trampa 32): todas las piezas en un solo
     atlas, con la densidad de texel igualada, en una capa UV_Bake activa y

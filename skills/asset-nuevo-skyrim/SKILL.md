@@ -89,7 +89,11 @@ Pasos numerados, cada uno reejecutable solo y con su reporte JSON
 0. **Medir el vanilla equivalente** — extraerlo del BSA, volcar su NIF, anotar
    su envoltorio, su material de colisión, sus flags de alfa, su presupuesto de
    texturas. Y **medir el nodo de anclaje en el esqueleto**.
-1. **Modelar** en el espacio local del nodo, con el giro ya compensado.
+1. **Modelar** en el espacio local del nodo, con el giro ya compensado. Si
+   el modelo viene de una IA, no se modela: se lleva ahí con `al_marco.py`
+   de `modelo-ia-a-skyrim` y un plan JSON cuyos números salen de medir los
+   vanilla de la clase (dónde cae el agarre, hacia dónde va el eje largo,
+   hasta dónde llega el dorso).
 2. **UV** + 3. **texturas** + 4. **materiales** (grupos de nodos de PyNifly, no
    Principled).
 5. **Exportar el NIF** con `Prn`, `BSXFlags`, `BSInvMarker`, colisión y **tensor

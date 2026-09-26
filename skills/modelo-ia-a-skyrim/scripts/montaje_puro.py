@@ -10,6 +10,9 @@ vive aca, con autotest:
                     ella) al segmento entre dos huesos del donante
   ajuste_caja       lleva la caja de la parte a la caja de la pieza vanilla
   espejo_x          la parte izquierda hecha derecha
+  matriz_al_marco   un asset NUEVO al espacio de su nodo de anclaje
+                    (al_marco.py): rotacion_por_ejes, sin espejo posible,
+                    y validar_marco, que exige fijar cada eje una vez
   pesos_por_vecino  los pesos de cada vertice nuevo, copiados del vertice
                     vanilla mas cercano
   controles_pesos   lo que el archivo tiene que cumplir despues
@@ -288,6 +291,189 @@ def espejo_x():
     m = identidad()
     m[0][0] = -1.0
     return m
+
+
+# ---------------------------------------------------------------------------
+# al marco: un asset NUEVO en el espacio de su nodo de anclaje (al_marco.py)
+# ---------------------------------------------------------------------------
+
+EJES = {"+X": (1.0, 0.0, 0.0), "-X": (-1.0, 0.0, 0.0),
+        "+Y": (0.0, 1.0, 0.0), "-Y": (0.0, -1.0, 0.0),
+        "+Z": (0.0, 0.0, 1.0), "-Z": (0.0, 0.0, -1.0)}
+_CLAVES_MARCO = {"ejes", "largo", "escala", "ancla", "topes"}
+# Dos direcciones del marco a menos de 0,5 grados de perpendiculares son
+# redondeo (cos/sin escritos con 4 decimales); mas que eso, un error del plan.
+TOL_PERPENDICULAR = math.sin(math.radians(0.5))
+
+
+def _es_numero(x):
+    return (isinstance(x, (int, float)) and not isinstance(x, bool)
+            and math.isfinite(x))
+
+
+def _direccion_marco(v, donde):
+    if isinstance(v, str):
+        if v not in EJES:
+            raise MontajeError("%s: %r no es un eje (+X, -Y...) ni un vector"
+                               % (donde, v))
+        return EJES[v]
+    if not _es_punto(v):
+        raise MontajeError("%s: %r no es un eje ni un vector de 3 numeros"
+                           % (donde, v))
+    return _unitario(v)
+
+
+def rotacion_por_ejes(ejes):
+    """3x3 PROPIA que lleva dos ejes del modelo a dos direcciones del marco.
+
+    `ejes` = {"+Z": "+Y", "+X": [1, 0, 0]}: la clave es un eje del modelo; el
+    valor, un eje o un vector del marco. El tercero sale del producto cruz de
+    los otros dos, en los dos lados: la rotacion es propia por construccion, y
+    un espejo --que daria vuelta runas y texto, y las caras-- no se puede
+    escribir. Las dos direcciones del marco tienen que ser perpendiculares:
+    hasta 0,5 grados se toma como redondeo y se corrige; mas, es un error.
+    """
+    if not isinstance(ejes, dict) or len(ejes) != 2:
+        raise MontajeError("ejes: exactamente dos; el tercero sale solo, y "
+                           "sin espejo")
+    (am, ad), (bm, bd) = ejes.items()
+    for m in (am, bm):
+        if m not in EJES:
+            raise MontajeError("ejes: %r no es un eje del modelo (+X, -Y...)"
+                               % (m,))
+    a_m, b_m = EJES[am], EJES[bm]
+    if abs(_punto(a_m, b_m)) > 0.5:
+        raise MontajeError("ejes: %s y %s son el mismo eje del modelo"
+                           % (am, bm))
+    a_d = _direccion_marco(ad, "ejes[%s]" % am)
+    b_d = _direccion_marco(bd, "ejes[%s]" % bm)
+    d = _punto(a_d, b_d)
+    if abs(d) > TOL_PERPENDICULAR:
+        raise MontajeError(
+            "ejes: las direcciones del marco para %s y %s forman %.1f grados, "
+            "no 90" % (am, bm, math.degrees(math.acos(max(-1.0, min(1.0, d))))))
+    b_d = _unitario(tuple(b_d[i] - d * a_d[i] for i in range(3)))
+    c_m, c_d = _cruz(a_m, b_m), _cruz(a_d, b_d)
+    # R = D M^T: las columnas de M y de D son las bases del modelo y del marco
+    return [[a_d[i] * a_m[j] + b_d[i] * b_m[j] + c_d[i] * c_m[j]
+             for j in range(3)] for i in range(3)]
+
+
+def validar_marco(plan):
+    """Problemas del plan de al_marco.py (lista vacia = sirve), todos juntos.
+
+    Cada eje del marco (X, Y, Z) se fija UNA vez: con `ancla.marco` (null en
+    el eje que no fija) o con un tope. Sin fijar o fijado dos veces es un
+    problema: la posicion no puede quedar a la suerte ni en conflicto.
+    """
+    if not isinstance(plan, dict):
+        return ["el plan no es un objeto JSON"]
+    p = ["clave desconocida en el plan: %r" % k
+         for k in sorted(set(plan) - _CLAVES_MARCO)]
+    try:
+        rotacion_por_ejes(plan.get("ejes"))
+    except MontajeError as e:
+        p.append(str(e))
+    if ("largo" in plan) == ("escala" in plan):
+        p.append("largo o escala: uno de los dos, no %s"
+                 % ("los dos" if "largo" in plan else "ninguno"))
+    if "largo" in plan:
+        lg = plan["largo"]
+        if not (isinstance(lg, dict) and set(lg) == {"eje", "valor"}
+                and lg.get("eje") in EJES and _es_numero(lg.get("valor"))
+                and lg["valor"] > 0):
+            p.append('largo: {"eje": "+Z", "valor": 55.8}: lo que mide el '
+                     'modelo en ese eje suyo pasa a medir eso')
+    if "escala" in plan and not (_es_numero(plan["escala"])
+                                 and plan["escala"] > 0):
+        p.append("escala: un numero mayor que 0")
+    fija = {}
+    ancla = plan.get("ancla")
+    if ancla is not None:
+        if not (isinstance(ancla, dict) and set(ancla) == {"modelo", "marco"}):
+            p.append('ancla: {"modelo": [x, y, z] o "centro", "marco": '
+                     '[x, y, z]}, con null en el eje que no fija')
+        else:
+            if not (ancla["modelo"] == "centro" or _es_punto(ancla["modelo"])):
+                p.append('ancla.modelo: [x, y, z] o "centro"')
+            mc = ancla["marco"]
+            if not (isinstance(mc, (list, tuple)) and len(mc) == 3
+                    and all(c is None or _es_numero(c) for c in mc)):
+                p.append("ancla.marco: tres numeros, o null en el eje que no "
+                         "fija")
+            else:
+                for i, c in enumerate(mc):
+                    if c is not None:
+                        fija.setdefault("XYZ"[i], []).append("ancla")
+    topes = plan.get("topes", {})
+    if not isinstance(topes, dict):
+        p.append('topes: {"+Z": 2.2}: el extremo del modelo en ese sentido del '
+                 'marco')
+    else:
+        for eje, v in topes.items():
+            if eje not in EJES or not _es_numero(v):
+                p.append("topes: %r: %r no es un eje con un numero" % (eje, v))
+                continue
+            fija.setdefault(eje[1], []).append("tope %s" % eje)
+    for e in "XYZ":
+        quien = fija.get(e, [])
+        if not quien:
+            p.append("el eje %s del marco queda sin fijar: va en ancla.marco o "
+                     "en topes" % e)
+        elif len(quien) > 1:
+            p.append("el eje %s del marco se fija dos veces (%s)"
+                     % (e, " y ".join(quien)))
+    return p
+
+
+def matriz_al_marco(plan, puntos):
+    """(M, informe): la 4x4 que lleva `puntos` --los vertices de la BAJA, en
+    el espacio del modelo-- al marco del nodo, segun el plan.
+
+    La escala y los topes salen de la baja, que es la malla del juego; la
+    MISMA M va despues a la alta (trampa 34: si no, el horneado sale corrido).
+    Los topes miran los VERTICES girados, no la caja girada: con un eje que no
+    cae sobre X, Y o Z, la caja girada se pasa del modelo.
+    """
+    problemas = validar_marco(plan)
+    if problemas:
+        raise MontajeError("; ".join(problemas))
+    if not puntos:
+        raise MontajeError("no hay vertices")
+    r = rotacion_por_ejes(plan["ejes"])
+    if "largo" in plan:
+        i = "XYZ".index(plan["largo"]["eje"][1])
+        ext = max(q[i] for q in puntos) - min(q[i] for q in puntos)
+        if ext < 1e-9:
+            raise MontajeError("el modelo no mide nada en %s"
+                               % plan["largo"]["eje"])
+        s = plan["largo"]["valor"] / ext
+    else:
+        s = float(plan["escala"])
+    rs = [[r[i][j] * s for j in range(3)] for i in range(3)]
+    girados = [_mat3_vec(rs, q) for q in puntos]
+    t = [0.0, 0.0, 0.0]
+    ancla = plan.get("ancla")
+    if ancla:
+        if ancla["modelo"] == "centro":
+            lo, hi = caja(puntos)
+            q = tuple((lo[i] + hi[i]) / 2 for i in range(3))
+        else:
+            q = tuple(ancla["modelo"])
+        qg = _mat3_vec(rs, q)
+        for i, c in enumerate(ancla["marco"]):
+            if c is not None:
+                t[i] = c - qg[i]
+    for eje, v in (plan.get("topes") or {}).items():
+        i = "XYZ".index(eje[1])
+        extremo = (max(g[i] for g in girados) if eje[0] == "+"
+                   else min(g[i] for g in girados))
+        t[i] = v - extremo
+    m = componer(traslacion(t), de_3x3(rs))
+    lo, hi = caja(aplicar(m, puntos))
+    return m, {"escala": s, "determinante": determinante(m),
+               "rotacion": r, "traslacion": t,
+               "caja": [list(lo), list(hi)]}
 
 
 # ---------------------------------------------------------------------------
@@ -598,6 +784,96 @@ def autotest():
                   "huesos:", "no se usa en modo caja", "modo:"):
         exigir(any(trozo in x for x in problemas),
                "plan: no se vio %r en %s" % (trozo, problemas))
+
+    # --- al marco: un asset nuevo en el espacio del nodo -------------------
+    # Un hacha: mango (Z del modelo) a +Y del marco, hoja (+X) a +X, pomo en
+    # el origen, largo 10. Cuatro puntos conocidos, y a donde tienen que ir.
+    hacha = {"ejes": {"+Z": "+Y", "+X": "+X"},
+             "largo": {"eje": "+Z", "valor": 10.0},
+             "ancla": {"modelo": [0, 0, 0], "marco": [0, 0, 0]}}
+    pts = [(0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
+    m, inf = matriz_al_marco(hacha, pts)
+    fin = aplicar(m, pts)
+    esperado = [(0, 0, 0), (0, 10, 0), (10, 0, 0), (0, 0, -10)]
+    exigir(all(_cerca(f, e) for f, e in zip(fin, esperado)),
+           "al marco, hacha: %r en vez de %r" % (fin, esperado))
+    # El cuarto punto es el que delata un espejo: +Y del modelo va a -Z del
+    # marco (Z x X = +Y en el modelo; Y x X = -Z en el marco).
+    exigir(inf["determinante"] > 0 and abs(inf["escala"] - 10.0) < 1e-12,
+           "al marco, hacha: determinante %r, escala %r"
+           % (inf["determinante"], inf["escala"]))
+
+    # Un escudo como el ovalado: el alto del modelo (+Z) a un eje del plano
+    # XY a 66 grados, el dorso (+Y) a +Z, centro en (0, -7) y el punto mas
+    # alto del dorso en Z = 2,2.
+    ang = math.radians(66.0)
+    u = (math.cos(ang), math.sin(ang), 0.0)
+    escudo = {"ejes": {"+Z": list(u), "+Y": "+Z"},
+              "largo": {"eje": "+Z", "valor": 67.39},
+              "ancla": {"modelo": "centro", "marco": [0.0, -7.0, None]},
+              "topes": {"+Z": 2.2}}
+    ovalo = [(0.2 * math.cos(k * 0.3), 0.05 * math.sin(k * 0.7),
+              0.5 * math.sin(k * 0.3)) for k in range(40)]
+    m, inf = matriz_al_marco(escudo, ovalo)
+    fin = aplicar(m, ovalo)
+    lo, hi = caja(fin)
+    largo_u = (max(_punto(f, u) for f in fin) - min(_punto(f, u) for f in fin))
+    lo_m, hi_m = caja(ovalo)
+    centro = aplicar(m, [tuple((lo_m[i] + hi_m[i]) / 2 for i in range(3))])[0]
+    exigir(abs(hi[2] - 2.2) < 1e-9 and abs(largo_u - 67.39) < 1e-6
+           and _cerca(centro[:2], (0.0, -7.0)) and inf["determinante"] > 0,
+           "al marco, escudo: tope %.6f, largo %.6f, centro %r, det %r"
+           % (hi[2], largo_u, centro, inf["determinante"]))
+    # +X del modelo termina en n x u, el `x` del 02_al_marco.py del escudo.
+    x_esc = _mat3_vec(inf["rotacion"], (1.0, 0.0, 0.0))
+    exigir(_cerca(x_esc, _cruz((0.0, 0.0, 1.0), u)),
+           "al marco, escudo: el ancho del modelo fue a %r" % (x_esc,))
+
+    # Ninguna combinacion de ejes da un espejo: las 6x4 del modelo por las
+    # 6x4 del marco, todas propias.
+    impropias = []
+    for am in EJES:
+        for bm in EJES:
+            if abs(_punto(EJES[am], EJES[bm])) > 0.5:
+                continue
+            for ad in EJES:
+                for bd in EJES:
+                    if abs(_punto(EJES[ad], EJES[bd])) > 0.5:
+                        continue
+                    r = rotacion_por_ejes({am: ad, bm: bd})
+                    if determinante(de_3x3(r)) < 0.999999:
+                        impropias.append((am, ad, bm, bd))
+    exigir(impropias == [], "al marco: rotaciones impropias %r" % impropias[:3])
+
+    for nombre, ejes, trozo in (
+            ("tres ejes", {"+Z": "+Y", "+X": "+X", "+Y": "-Z"}, "exactamente dos"),
+            ("el mismo eje", {"+Z": "+Y", "-Z": "+X"}, "mismo eje"),
+            ("no perpendiculares", {"+Z": "+Y", "+X": [1, 1, 0]}, "grados"),
+            ("eje inventado", {"+W": "+Y", "+X": "+X"}, "no es un eje")):
+        try:
+            rotacion_por_ejes(ejes)
+            exigir(False, "al marco: %s no reprobo" % nombre)
+        except MontajeError as e:
+            exigir(trozo in str(e), "al marco, %s: %s" % (nombre, e))
+    # 0,3 grados de redondeo se aceptan, y se corrigen a perpendicular
+    casi = [math.cos(math.radians(0.3)), math.sin(math.radians(0.3)), 0.0]
+    r = rotacion_por_ejes({"+Z": "+Y", "+X": casi})
+    exigir(abs(determinante(de_3x3(r)) - 1.0) < 1e-9
+           and _cerca(_mat3_vec(r, (0.0, 0.0, 1.0)), (0.0, 1.0, 0.0)),
+           "al marco: el redondeo de 0,3 grados no se corrigio")
+
+    malo = {"ejes": {"+Z": "+Y", "+X": "+X"}, "largo": {"eje": "+Z", "valor": 1},
+            "escala": 2, "ancla": {"modelo": "centro", "marco": [0, None, None]},
+            "topes": {"+X": 1.0}, "escla": 1}
+    problemas = validar_marco(malo)
+    for trozo in ("'escla'", "no los dos", "eje X del marco se fija dos veces",
+                  "eje Y del marco queda sin fijar",
+                  "eje Z del marco queda sin fijar"):
+        exigir(any(trozo in x for x in problemas),
+               "al marco, plan: no se vio %r en %s" % (trozo, problemas))
+    exigir(validar_marco(hacha) == [] and validar_marco(escudo) == [],
+           "al marco: los planes buenos tienen problemas: %r %r"
+           % (validar_marco(hacha), validar_marco(escudo)))
 
     if not hechas[0]:
         print("autotest: NO se comprobo NADA")

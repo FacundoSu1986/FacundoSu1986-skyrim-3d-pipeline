@@ -102,6 +102,10 @@ vanilla, no cómo se ve una pieza nueva al animarse.
    fuente del bake. El bake (`scripts/hornear.py`) va justo después de
    desplegar las UV (`scripts/desplegar_uv.py`) y **antes** de montar, y lo que agregue caras (Solidify)
    va antes de las UV: orden completo en `references/hd-texturas.md`.
+   **Si es un asset nuevo** (un arma, un escudo) y no un replacer, no hay
+   pieza vanilla que reemplazar: antes de las UV, `scripts/al_marco.py`
+   lleva la baja y la alta al espacio del nodo de anclaje con la misma
+   matriz, y los pasos 5 y 6 no se usan (ver `asset-nuevo-skyrim`).
 5. **Montar** — cada parte en el lugar de una pieza del NIF vanilla, que hace
    de **donante**: `scripts/montar.py` (Blender) con un plan JSON. Una pieza
    larga se alinea con el segmento entre dos huesos y se estira solo a lo
@@ -394,6 +398,13 @@ pieza que mañana pierda una atadura.
   de exportación en Object Mode después del bake: elimina por nombres, vuelve
   a buscar las capas y exige las mismas coordenadas. No modifica materiales
   ni valida el NIF. Prueba real optativa con `BLENDER_EXE`, ver trampa 40.
+- **`scripts/al_marco.py`** (Blender) — lo que reemplaza a montar en un asset
+  nuevo: lleva la baja y la alta, con la misma matriz, al espacio del nodo
+  de anclaje según un plan JSON (dos ejes del modelo y adónde van, el largo,
+  un ancla y topes). La rotación es propia por construcción: un espejo no
+  se puede escribir. Rechaza escala negativa (trampa 38), modificadores sin
+  aplicar y escribir sobre la entrada, y remide lo pedido antes de guardar.
+  La matemática, con sus mutantes, en el autotest de `montaje_puro.py`.
 - **`scripts/montar.py`** (Blender) — los pasos 5 y 6: monta las partes de la
   IA en el lugar de las piezas de un NIF vanilla, les copia los pesos del
   vértice vanilla más cercano, exporta y compara contra el donante. El plan
