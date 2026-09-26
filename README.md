@@ -120,8 +120,8 @@ python build_skill.py
 **Como scripts sueltos.** Los que leen archivos (NIF, DDS, plugins) no
 necesitan nada más que Python 3. La compresión DXT y el bake HD necesitan
 numpy (`requirements.txt`); para correr la suite, `requirements-dev.txt`, que
-agrega Pillow como oráculo de los tests, y ruff y mypy para el lint y los
-tipos: es lo que instala el CI. Los que
+agrega Pillow y PyYAML como oráculos de los tests, y ruff y mypy para el lint
+y los tipos: es lo que instala el CI. Los que
 marcan "Blender" en la tabla corren dentro de Blender, que trae su propio
 numpy:
 
