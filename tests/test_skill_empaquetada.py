@@ -5,7 +5,8 @@ POR QUE. El .skill que arma build_skill.py lleva solo la carpeta de la skill:
 ni census/, ni tests/, ni la otra skill. Un script que importe algo de afuera
 anda en el repo --donde todo esta a mano-- y revienta instalado. Eso se
 comprobaba a mano (verificar_plugin corrido desde la .skill extraida); aca
-queda automatico, y en CI porque el workflow corre `unittest discover`.
+queda automatico, y en CI porque el workflow corre la suite entera
+(tests/correr_suite.py).
 
 QUE HACE, sin listas escritas a mano:
   * empaqueta cada carpeta de skills/ que tenga SKILL.md, en un temporal;
