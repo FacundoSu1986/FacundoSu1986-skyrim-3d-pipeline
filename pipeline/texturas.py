@@ -95,7 +95,7 @@ import struct
 import sys
 import zlib
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from .errors import ArtifactValidationError, TexturaError
 from .manifest import JobManifest
@@ -295,7 +295,7 @@ def leer_png(ruta: Path) -> Textura:
             idat += cuerpo
         elif tipo == b"IEND":
             break
-    if ancho is None:
+    if ancho is None or alto is None:
         raise TexturaError(f"{ruta}: PNG sin IHDR")
     if profundidad != 8:
         raise TexturaError(
@@ -647,11 +647,13 @@ def clasificar(nombre: str) -> Rol:
     if tallo.count("-") == 1:
         tallo_sin, _conv = _quitar_extras(tallo)
         izq, der = tallo_sin.split("-")
+        a: Rol | None
+        b: Rol | None
         try:
             a, b = _clasificar_tallo(izq), _clasificar_tallo(der)
         except TexturaError:
             a = b = None
-        if (a is not None and a.clase == b.clase == "fuente"
+        if (a is not None and b is not None and a.clase == b.clase == "fuente"
                 and {a.rol, b.rol} == {"rugosidad", "metalico"}
                 and a.base.lower() == b.base.lower()):
             return Rol("fuente", "empaquetada", "%s-%s" % (a.sufijo, b.sufijo),
@@ -1288,7 +1290,7 @@ def _procesar_base(base: str, grupo: dict, mani: JobManifest,
                                  % (x["rol"], "de Community Shaders" if cs
                                     else "de Skyrim")}
                      for x in ignoradas] + observaciones
-    motivos = []
+    motivos: list[str] = []
 
     def escribir(slot, nombre_salida, tex, origen, dims_origen, ajuste):
         declarada = ruta_declarada(categoria, mani.job_id, nombre_salida)
@@ -1392,6 +1394,10 @@ def _procesar_base(base: str, grupo: dict, mani: JobManifest,
         salidas.append(entrada)
 
     if cs:
+        if rug is None:
+            # No pasa: cs_pbr sin rugosidad reprueba al principio. Esta aca
+            # para que no dependa de que ese chequeo siga en su lugar.
+            raise TexturaError(f"{base}: sombreado cs_pbr sin fuente de rugosidad")
         ancho2, alto2, que = ajustar_tamano(rug[0].ancho, rug[0].alto,
                                             mani.max_lado_textura)
         tex = rmaos_desde(rug, met, oclusion, ancho2, alto2)
@@ -1433,7 +1439,7 @@ def fase_process_texturas(mani: JobManifest, ws: JobWorkspace) -> dict:
     Lee las COPIAS de input/texturas/, no los originales: el hash del reporte
     y los bytes convertidos son los mismos.
     """
-    reporte = {
+    reporte: dict[str, Any] = {
         "ejecutada": True,
         "herramienta": "pipeline.texturas + census/escritor_dds.py + "
                        "census/compresor_dxt.py + fixtures/comparar.py + "

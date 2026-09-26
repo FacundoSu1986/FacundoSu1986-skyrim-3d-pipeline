@@ -53,7 +53,7 @@ import math
 import os
 import struct
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from parser_nif import Nif, Violacion   # noqa: E402
@@ -173,9 +173,10 @@ def _geometria_skin(nif, skin_idx, con_uv_shape):
             return {"error": "sanidad: pesos por vertice %d > 4" % num_w}
         ptr += 2 * num_b
         has_vmap, = struct.unpack_from("<?", d, ptr); ptr += 1
-        vmap = None
         if has_vmap:
-            vmap = struct.unpack_from("<%dH" % num_v, d, ptr)
+            # Se lee para que un bloque corto falle aca; el mapa no se usa: en
+            # SSE los indices ya son globales (ver abajo).
+            struct.unpack_from("<%dH" % num_v, d, ptr)
             ptr += 2 * num_v
         has_vw, = struct.unpack_from("<?", d, ptr); ptr += 1
         if has_vw and num_w > 0:

@@ -377,11 +377,11 @@ def autotest():
 
     # d. alfa constante -> alpha0 == alpha1 (la semantica de
     #    mascara_especular), y alfa variable -> alpha0 != alpha1
-    pix = bytearray(_degradado(16, 16))
+    con_alfa = bytearray(_degradado(16, 16))
     for i in range(16 * 4):                 # la primera fila de bloques...
         y, x = divmod(i, 16)
-        pix[(y * 16 + x) * 4 + 3] = 255     # ...alfa 255 constante
-    datos = comprimir(bytes(pix), 16, 16, "DXT5")
+        con_alfa[(y * 16 + x) * 4 + 3] = 255  # ...alfa 255 constante
+    datos = comprimir(bytes(con_alfa), 16, 16, "DXT5")
     bl = np.frombuffer(datos, np.uint8).reshape(-1, 16)
     ok(bool((bl[:4, 0] == 255).all() and (bl[:4, 1] == 255).all()),
        "DXT5: los 4 bloques de alfa 255 constante salen con a0 == a1 == 255")

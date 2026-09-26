@@ -277,10 +277,6 @@ def distancia(a, b):
 def cajas_de_shapes(nif):
     """[{nombre, caja}] de cada shape, en espacio de mundo."""
     fuera = []
-    porbloque = {}
-    for idx, (tipo, o, s) in enumerate(nif.bloques):
-        if tipo in parser_nif.TIPOS_SHAPE:
-            porbloque[idx] = True
     for sh in parser_uv.geometria(nif):
         if "error" in sh or not sh.get("pos"):
             fuera.append({"nombre": sh.get("nombre"),

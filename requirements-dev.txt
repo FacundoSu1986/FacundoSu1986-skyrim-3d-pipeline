@@ -10,3 +10,10 @@
 # compresor DXT, para comparar contra census/compresor_dxt.py). Ningun script
 # del repo lo importa: no es dependencia del repo.
 pillow
+
+# ruff y mypy: el lint y los tipos del CI (ruff.toml, mypy.ini). Fijados a
+# proposito: una version nueva trae reglas y chequeos nuevos, y el CI no se
+# tiene que poner rojo por una actualizacion que nadie pidio. Subirlos es un
+# cambio propio, con lo que salga arreglado en el mismo PR.
+ruff==0.16.9
+mypy==2.3.1

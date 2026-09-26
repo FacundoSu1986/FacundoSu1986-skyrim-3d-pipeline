@@ -120,13 +120,16 @@ python build_skill.py
 **Como scripts sueltos.** Los que leen archivos (NIF, DDS, plugins) no
 necesitan nada más que Python 3. La compresión DXT y el bake HD necesitan
 numpy (`requirements.txt`); para correr la suite, `requirements-dev.txt`, que
-agrega Pillow como oráculo de los tests y es lo que instala el CI. Los que
+agrega Pillow como oráculo de los tests, y ruff y mypy para el lint y los
+tipos: es lo que instala el CI. Los que
 marcan "Blender" en la tabla corren dentro de Blender, que trae su propio
 numpy:
 
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m unittest discover -s tests
+python -m ruff check .
+python -m mypy
 blender -b --python skills/modelo-ia-a-skyrim/scripts/medir_parte.py -- modelo.glb
 ```
 

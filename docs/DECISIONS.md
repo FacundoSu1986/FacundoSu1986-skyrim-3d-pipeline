@@ -500,3 +500,42 @@ se vio en el juego era distinto: EnvMap con `GLOW_MAP` y textura de brillo,
 una combinación que ninguna pieza vanilla tiene (el flag va solo con el tipo
 Glow: entrada 42 de `census/hallazgos.md`). El exportador no la reproduce
 porque copia recetas. Falta ver en el juego un NIF salido de esta vía.
+
+## Lint y tipos: E y F en todo el repo, mypy en `pipeline/` y `census/`
+
+La issue [#72](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/72)
+pedía ruff y mypy en el CI, de a poco. Lo que quedó, y por qué:
+
+- **ruff mira todos los `.py`**, también los scripts de Blender: no importa
+  nada, así que `bpy` no le hace falta, y un import sin usar en `hornear.py`
+  es tan fácil de atrapar como en `census/`.
+- **Tres reglas de E quedan afuera**, porque son estilo y no atrapan errores
+  (`ruff.toml`): el largo de línea (69 casos), dos sentencias unidas con `;`
+  (126, casi todas en los parsers binarios, que leen y avanzan el puntero en
+  la misma línea; dos de esos archivos son copias que tienen que seguir
+  idénticas) y los nombres `l`, `I`, `O` (17).
+- **mypy revisa el cuerpo de las funciones sin anotaciones**
+  (`check_untyped_defs`). Sin eso, `census/` pasaba con cero errores sin
+  haber mirado una sola función: casi ninguna tiene anotaciones.
+- **Lo que no se forzó**: diez módulos de `census/` con 43 contenedores vacíos
+  sin anotar (`Counter()`, `defaultdict(list)`) quedan eximidos solo de
+  anotarlos. La lista está enumerada en `mypy.ini`: un módulo nuevo no entra
+  solo.
+- **Las versiones, fijadas** en `requirements-dev.txt`: una versión nueva
+  trae reglas nuevas, y subirla es un cambio propio.
+
+Lo que la primera pasada encontró: un bug (en `agregados.py`, sin shapes
+medidas, `mejor[0]` sobre `None` era un `TypeError`; tiene su test); código
+muerto en `parser_colision.py`, que además hacía chocar dos tipos de `idx`;
+el nombre de un `except ... as e` reusado para un error armado a mano en
+`runner.py` (no fallaba porque se reasignaba antes de leerse, pero Python
+borra ese nombre al salir del `except`); y 12 imports sin usar. El escape
+XXXX de los dos parsers de plugins guardaba el origen y el tamaño en dos
+variables que se asignan juntas; ahora son una tupla, y la invariante es de
+la estructura.
+
+Falsificado: ruff y mypy se ponen rojos con un import sin usar (en `census/` y
+en un script de Blender), un nombre sin definir, el bug de `agregados.py`
+devuelto a su lugar, un error de tipos en una función sin anotaciones, el
+`except` reusado otra vez y un módulo nuevo de `census/` con un `Counter()`
+sin anotar.

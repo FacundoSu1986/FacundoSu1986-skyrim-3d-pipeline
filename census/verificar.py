@@ -16,8 +16,7 @@ import sys
 from collections import Counter, defaultdict
 from multiprocessing import Pool, cpu_count
 
-from parser_nif import (Nif, TIPOS_SHAPE, HAVOK_MATERIALS, SKYRIM_LAYERS,
-                        MOTION_SYSTEMS, Violacion)
+from parser_nif import Nif, TIPOS_SHAPE, HAVOK_MATERIALS
 
 
 def _chequear(ruta):

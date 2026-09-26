@@ -112,17 +112,26 @@ se ve.
 
 `.github/workflows/ci.yml`, en Python 3.11 y 3.12:
 
-1. `pip install -r requirements-dev.txt`: numpy, y Pillow como oráculo.
+1. `pip install -r requirements-dev.txt`: numpy, Pillow como oráculo, y ruff
+   y mypy con la versión fijada.
 2. `compileall` sobre `census`, `skills`, `tests`, `pipeline` y `fixtures`:
    la sintaxis de todo, incluidos los scripts de Blender, que fuera de Blender
    no se pueden importar.
-3. `test_skill_empaquetada.py`: cada skill empaquetada y extraída lejos del
+3. `ruff check .` (`ruff.toml`): las reglas E y F sobre todos los `.py`,
+   también los de Blender, porque ruff no importa nada. Afuera, a propósito,
+   tres reglas de estilo: el largo de línea, las sentencias unidas con `;` de
+   los parsers binarios y los nombres `l`/`I`/`O`.
+4. `mypy` (`mypy.ini`): `pipeline/` y `census/`, incluido el cuerpo de las
+   funciones sin anotaciones. Diez módulos de `census/`, enumerados, no piden
+   anotar sus contenedores vacíos.
+5. `test_skill_empaquetada.py`: cada skill empaquetada y extraída lejos del
    repo tiene que importar y pasar sus autotests.
-4. La suite entera: `python -m unittest discover -s tests`.
+6. La suite entera: `python -m unittest discover -s tests`.
 
 Lo que el CI **no** cubre: la sección 2 (necesita el juego extraído), los
-scripts de Blender más allá de su sintaxis y de que terminen con
-`correr(main)` (`test_blender_sale_bien.py`), y el juego.
+scripts de Blender más allá de su sintaxis, del lint y de que terminen con
+`correr(main)` (`test_blender_sale_bien.py`), los tipos de los scripts de las
+skills, de `fixtures/` y de `tests/`, y el juego.
 
 ## 5. Lo que ningún control mide
 

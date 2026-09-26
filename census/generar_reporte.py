@@ -1,5 +1,6 @@
 import json
 from collections import Counter, defaultdict
+from typing import Any
 
 from agregados import mediana, p90
 
@@ -78,7 +79,7 @@ def compute_all():
 
     print("\n¿BSFadeNode es exclusivo de estáticos y NiNode de skinneados?:")
     for r in all_roots:
-        info = skin_by_raiz[r]
+        info: dict[str, Any] = skin_by_raiz[r]
         pct_skin = (info["tiene_skin"] / info["total"] * 100) if info["total"] else 0
         print(f"  {r:<20}: Total={info['total']:<6} | Skinneados={info['tiene_skin']:<6} ({pct_skin:.1f}%) | Estáticos={info['estatico']:<6} ({100-pct_skin:.1f}%)")
 
@@ -192,7 +193,7 @@ def compute_all():
     print("\n" + "="*80)
     print("f. HUESOS POR VÉRTICE POR CRIATURA (ACTORS)")
     print("="*80)
-    creatures = {}
+    creatures: dict[str, dict[str, Any]] = {}
     for e in ok_entries:
         rel = e["ruta_relativa"].replace("\\", "/")
         if not rel.startswith("actors/"):
@@ -234,7 +235,8 @@ def compute_all():
     print("\n" + "="*80)
     print("g. BODY_PART_ID QUE EXISTEN DE VERDAD Y SUS FLAGS")
     print("="*80)
-    bp_dict = defaultdict(lambda: {"count": 0, "flags": Counter(), "assets": set()})
+    bp_dict: defaultdict[Any, dict[str, Any]] = defaultdict(
+        lambda: {"count": 0, "flags": Counter(), "assets": set()})
     for e in ok_entries:
         for p in e.get("particiones", []):
             bpid = p.get("body_part_id")

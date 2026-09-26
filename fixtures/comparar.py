@@ -62,7 +62,7 @@ CAMPOS_IDENTIDAD = (
 )
 
 
-_DIR_CACHE = {}
+_DIR_CACHE: dict[str, dict[str, str]] = {}
 
 
 def limpiar_cache_dir():
