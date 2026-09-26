@@ -2,9 +2,13 @@
 """exportar_puro.py: lo del export de un asset nuevo que corre sin Blender.
 
 El autotest cubre el plan, la soldadura (la V invertida, las costuras, las
-aristas duras y el tope de 65.535 vertices), la caja, la inercia, los flags y
-las texturas. Cuatro mutantes lo ponen rojo: la V sin invertir, SKINNED sin
-apagar, copiar las texturas del donante y el radio sin tope.
+aristas duras, el color por vertice y el tope de 65.535 vertices), la caja,
+la inercia, los flags, las texturas, el modo de alfa y el alfa parejo. Lo
+ponen rojo diez mutantes: la V sin invertir, SKINNED sin apagar, copiar las
+texturas del donante, el radio sin tope, y seis del alfa --aceptar el alfa
+parejo en 1 o en 0, rechazar el parejo intermedio, no anotar el alfa
+ignorado, ignorar VERTEX_ALPHA y sacar el color de la clave de la
+soldadura--.
 """
 import unittest
 
