@@ -396,6 +396,31 @@ class ReglasDelMundoTests(unittest.TestCase):
         self.assertEqual(fallas, [])
         self.assertTrue(any("OFST" in n for n in notas), notas)
 
+    def test_un_ofst_que_no_mide_multiplo_de_4_no_se_lee(self):
+        """Los 94 OFST oficiales miden multiplo de 4. Con 1 a 3 bytes de
+        sobra, `len // 4` los tiraba y el OFST pasaba "todo adentro".
+        Lo encontro la revision de Codex en el PR #92."""
+        for sobra in (1, 2, 3):
+            with self.subTest(sobra=sobra):
+                crudo = bytearray(plugin_sintetico.construir_mundo(ofst=[24]))
+                i = crudo.index(b"OFST")
+                struct.pack_into("<H", crudo, i + 4, 4 + sobra)
+                crudo[i + 10:i + 10] = b"\xAA" * sobra
+                # el WRLD y el GRUP que lo contiene crecen lo mismo
+                w = crudo.rindex(b"WRLD", 0, i)
+                g = crudo.rindex(b"GRUP", 0, w)
+                for o in (w, g):
+                    struct.pack_into("<I", crudo, o + 4, struct.unpack_from(
+                        "<I", crudo, o + 4)[0] + sobra)
+                fd, ruta = tempfile.mkstemp(suffix=".esp")
+                os.write(fd, bytes(crudo))
+                os.close(fd)
+                self.addCleanup(os.unlink, ruta)
+                info = vp.leer(ruta)
+                self.assertIsNotNone(info["error"], "OFST +%d paso" % sobra)
+                self.assertIn("OFST", info["error"])
+                self.assertTrue(vp.juzgar(info)[0])
+
     def test_full_de_cuatro_bytes_sin_nul_reprueba(self):
         fallas, _ = self._juzgar(full=b"\x20\x4C\x01\x02")
         self.assertTrue(any("REGLA FULL" in f for f in fallas), fallas)

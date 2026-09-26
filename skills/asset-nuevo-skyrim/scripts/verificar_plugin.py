@@ -270,6 +270,17 @@ def leer(ruta, meshes=None):
             if full:
                 r["full"] = full[0]
             if tag == b"WRLD":
+                # Los 94 OFST oficiales miden multiplo de 4. Con 1-3 bytes
+                # de sobra, `len // 4` los tiraba y el OFST pasaba entero
+                # "adentro": no se lee lo que no se puede leer completo.
+                for t, b in subs:
+                    if t == "OFST" and len(b) % 4:
+                        return {"records": [], "n_masters": 0,
+                                "error": "WRLD %08X ilegible: OFST de %d "
+                                         "bytes, no es multiplo de 4 (los "
+                                         "%d oficiales lo son)"
+                                         % (r["form_id"], len(b),
+                                            N_WRLD_OFST)}
                 r["wrld"] = {
                     "rnam": sum(1 for t, _b in subs if t == "RNAM"),
                     "ofst": [x for t, b in subs if t == "OFST"
