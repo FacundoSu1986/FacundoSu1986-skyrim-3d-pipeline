@@ -404,3 +404,45 @@ paquete corra sin nada más del repo. La reseña externa propuso sacarlo a un
 skill que necesite `nif_nodos.py`. Ahí copiar desde `build_skill.py` empieza a
 pagar, y el test de equivalencia tendría que mirar lo que se empaqueta, no la
 fuente.
+
+## El NIF de un asset nuevo: la API de PyNifly y un donante de la clase
+
+Cada proyecto de asset nuevo escribió su propio export: siete versiones en el
+hacha de dos manos, y uno por proyecto en la de una mano, la espada, el arco,
+el escudo ovalado y el de vidrio. Tres llegaron por separado al mismo diseño,
+que es el que pasa a `asset-nuevo-skyrim/scripts/exportar_nif.py`:
+
+- **Un donante vanilla de la misma clase**, del que se copian `Prn`,
+  `BSXFlags`, `BSInvMarker`, los 63 campos del cuerpo rígido y el material de
+  la colisión. No se inventa la estructura: se copia.
+- **La receta de shader de cada pieza**, copiada de una pieza vanilla que se
+  vea como ella, sin los identificadores del archivo y con los bits que
+  dependen de la geometría de ESA pieza apagados. Escrita a mano se pierde
+  algo: el script de la espada escribía `flags2 0x8001` y la pieza que
+  copiaba tiene `0x8011`.
+- **La API de PyNifly, no su exportador**: es el camino de las dos armas que
+  se vieron en el juego, y evita lo que el exportador pierde sin avisar
+  (trampas 33 y 36 de `modelo-ia-a-skyrim`). Corre adentro de Blender, donde
+  el addon ya está: sin la copia suelta de `pyn/` que usaban los proyectos.
+- **Escribir, releer, y recién entonces reemplazar**, con dos lectores
+  (PyNifly y `nif_nodos.py`) y las REGLAS de `colision_caja.py`.
+
+Probado sobre el escudo ovalado v14 con el escudo enano de donante y la receta
+de Dawnbreaker para las gemas: `colision_caja` y `material_arma` pasan, y
+contra el v14 que se vio en el juego coinciden raíz, `BSXFlags`, `Prn`,
+colisión, material, masa y capa.
+
+**Lo que no hace todavía**: piezas transparentes con *blending* (piden
+`BSOrderedNode` y alfa por vértice), piezas skinneadas y colores de vértice.
+Una receta con *blending* se rechaza con el motivo.
+
+### El segundo archivo compartido (issue [#75](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/75), revisada)
+
+`exportar_nif.py` corre en Blender, así que `asset-nuevo-skyrim` necesita
+`correr_en_blender.py` (`test_blender_sale_bien.py` lo exige), que vivía en
+la otra skill. Es el segundo archivo compartido, el caso en que la decisión
+de #75 decía revisarla. Se revisó y **se sigue copiando**: son 26 líneas. Lo
+que cambia es el ancla. En vez de un test por archivo copiado,
+`LoCompartidoEntreSkillsTests` enumera todo nombre que esté en las dos
+carpetas de scripts, exige que sean el mismo archivo byte a byte, y congela
+la lista por igualdad: un tercer compartido obliga a decidir.

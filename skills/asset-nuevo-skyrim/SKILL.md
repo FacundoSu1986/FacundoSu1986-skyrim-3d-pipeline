@@ -1,7 +1,7 @@
 ---
 name: asset-nuevo-skyrim
 description: Crea un asset NUEVO y equipable para Skyrim SE — escudo, arma, pieza de armadura, clutter — desde el modelado en Blender hasta el plugin que lo registra. Usala cuando haya que hacer un item nuevo (no un replacer); cuando el item ya esté en el inventario pero no se equipe o sea invisible al equiparlo; cuando salga girado, flotando al costado del brazo o con el agarre lejos de la mano; cuando al soltarlo se hunda o salga volando; cuando haya que escribir, reparar o inspeccionar records ARMO/ARMA o WEAP de un .esp; cuando un arma pese 0 o haga 0 de daño con el valor bien, no se vea en primera persona o cuelgue envainada en el lugar equivocado; convertir un plugin a ESL, poner colisión Havok a un objeto suelto, o hacer un panel transparente estilo vidrio de Skyrim. También cuando el mod no aparezca con `help "..." 0`, o cuando haya que decidir qué campos llenar en el Creation Kit.
-compatibility: Blender 4.4 con PyNifly (io_scene_nifly) para modelar y exportar el NIF. Los scripts de la skill (plugin, ESL, colisión, nodos) son Python 3.11 o 3.12 sin nada fuera de la biblioteca estándar. Para copiar los valores del vanilla hacen falta Skyrim.esm y los NIF vanilla extraídos del juego, y el repo no los trae. Todo se midió sobre Skyrim SE.
+compatibility: Blender 4.4 con PyNifly (io_scene_nifly) para modelar y para exportar_nif.py, que escribe el NIF con la API del addon. Los demás scripts de la skill (plugin, ESL, colisión, nodos) son Python 3.11 o 3.12 sin nada fuera de la biblioteca estándar. Para copiar los valores del vanilla hacen falta Skyrim.esm y los NIF vanilla extraídos del juego, y el repo no los trae. Todo se midió sobre Skyrim SE.
 metadata:
   inputs: un modelo en Blender, propio o salido de modelo-ia-a-skyrim, o un plugin .esp/.esl a revisar o reparar
   outputs: un NIF colgado del nodo de anclaje correcto, con su colisión, y un plugin ESL con los records ARMO/ARMA o WEAP que lo registran
@@ -93,7 +93,10 @@ Pasos numerados, cada uno reejecutable solo y con su reporte JSON
 2. **UV** + 3. **texturas** + 4. **materiales** (grupos de nodos de PyNifly, no
    Principled).
 5. **Exportar el NIF** con `Prn`, `BSXFlags`, `BSInvMarker`, colisión y **tensor
-   de inercia a mano**.
+   de inercia a mano**. `scripts/exportar_nif.py` lo hace con un **donante**
+   vanilla de la misma clase: copia de él `Prn`, `BSXFlags`, el marcador, el
+   cuerpo de la colisión y, de la pieza vanilla que se nombre, la receta del
+   shader de cada pieza; calcula la caja, y relee el archivo antes de dejarlo.
 6. **Verificar reimportando el archivo escrito**, no la escena.
 7. **DDS** con texconv, BC7, mipmaps completos.
 8. **Parches binarios** que PyNifly no puede hacer (`BSOrderedNode`).
@@ -307,6 +310,25 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   de mod inexistente, y un `WEAP` real a `DATA` de 12, `DNAM` de 96 y un
   `WNAM` a la nada. `--falsificar-prn <carpeta Data> <carpeta meshes>` le pone
   a cada arma base real cada `Prn` equivocado: 324 armas, 1.944 roturas.
+- **`scripts/exportar_nif.py`** (Blender) — el paso 5 con un plan JSON: cada
+  pieza es un objeto del `.blend` y copia la receta de shader de una pieza
+  vanilla (el metal de un arma, el brillo de una pieza con Glow Shader: dos
+  piezas, porque ninguna vanilla combina mapa de entorno y de brillo). Del
+  donante copia `Prn`, `BSXFlags`, `BSInvMarker` y los 63 campos del cuerpo
+  rígido. Escribe con la API de PyNifly, no con su exportador (el camino de
+  las armas que se vieron en el juego), a un temporal que relee con PyNifly
+  y con `nif_nodos.py`, y pasa por las REGLAS de `colision_caja.py` antes de
+  reemplazar el definitivo. No escribe todavía piezas transparentes con
+  *blending* (piden `BSOrderedNode` y alfa por vértice): las rechaza.
+  `--falsificar` arma un donante sintético con PyNifly, sin archivos del juego.
+- **`scripts/exportar_puro.py`** — lo de ese export que no necesita Blender,
+  con `--autotest`: el plan, la soldadura con la V invertida y el tope de
+  65.535 vértices, la caja y la inercia, los flags que dependen de la
+  geometría de la pieza vanilla y qué texturas se copian de la receta
+  (solo el cubemap).
+- **`scripts/correr_en_blender.py`** — que un script de Blender que revienta no
+  salga con 0. Es el mismo archivo que el de `modelo-ia-a-skyrim`, byte a byte,
+  y un test lo exige.
 
 ## Cómo conviene trabajar
 

@@ -156,6 +156,39 @@ def _nif_con_repetidos(nombre="Dup"):
     return bytes(h) + b"".join(bloques)
 
 
+class LoCompartidoEntreSkillsTests(unittest.TestCase):
+    """Cada skill se empaqueta sola, asi que lo que las dos necesitan esta
+    COPIADO en las dos (docs/DECISIONS.md, issue #75 del repo). Este test
+    enumera todos los nombres que estan en las dos carpetas de scripts y exige
+    que sean el mismo archivo byte a byte. La lista va escrita a mano: un
+    archivo nuevo con el mismo nombre en las dos rompe el test hasta que
+    alguien decida si es una copia (y lo agrega aca) o un choque de nombres."""
+
+    COMPARTIDOS = {"correr_en_blender.py", "nif_nodos.py"}
+
+    @staticmethod
+    def _carpeta(skill):
+        return os.path.join(RAIZ, "skills", skill, "scripts")
+
+    def _nombres(self, skill):
+        return {f for f in os.listdir(self._carpeta(skill)) if f.endswith(".py")}
+
+    def test_los_compartidos_son_exactamente_estos(self):
+        comunes = (self._nombres("modelo-ia-a-skyrim")
+                   & self._nombres("asset-nuevo-skyrim"))
+        self.assertEqual(comunes, self.COMPARTIDOS)
+
+    def test_cada_compartido_es_el_mismo_archivo(self):
+        for f in sorted(self.COMPARTIDOS):
+            with self.subTest(archivo=f):
+                with open(os.path.join(self._carpeta("modelo-ia-a-skyrim"), f), "rb") as fh:
+                    a = fh.read()
+                with open(os.path.join(self._carpeta("asset-nuevo-skyrim"), f), "rb") as fh:
+                    b = fh.read()
+                self.assertEqual(a, b, "las dos copias de %s divergieron: copia "
+                                       "la de modelo-ia-a-skyrim sobre la otra" % f)
+
+
 class LasDosCopiasSonLaMismaTests(unittest.TestCase):
     """`nif_nodos.py` vive en las dos skills porque cada una se empaqueta
     sola. La copia que estaba fuera del repo ya habia divergido: usaba
