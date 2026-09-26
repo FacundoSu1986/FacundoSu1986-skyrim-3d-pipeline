@@ -24,7 +24,7 @@ _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # La guarda solo vale para los modulos que recorre: CARPETAS tiene que cubrir
 # TODO .py que el repo versiona. Es una lista escrita a mano y ya se quedo
 # corta dos veces; test_el_recorrido_cubre_todo_py_versionado la ata al indice.
-CARPETAS = ("census", "fixtures", "pipeline", "tests",
+CARPETAS = ("census", "examples", "fixtures", "pipeline", "tests",
             os.path.join("skills", "modelo-ia-a-skyrim", "scripts"),
             os.path.join("skills", "asset-nuevo-skyrim", "scripts"))
 IGNORAR = {"__pycache__", ".git"}
