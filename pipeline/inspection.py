@@ -25,7 +25,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .errors import ArtifactValidationError
 from .glb import ModeloGlb, parsear_glb
 
 _FORMATOS_INSPECCIONABLES = frozenset({"glb"})

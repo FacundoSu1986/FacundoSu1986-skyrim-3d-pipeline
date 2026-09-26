@@ -285,9 +285,9 @@ def autotest():
         print("     numpy no esta: se saltea (no cuenta como comprobado)")
     for formato in (("DXT1", "DXT5") if hay_numpy else ()):
         for w, h in ((4, 4), (256, 128), (64, 2)):
-            pix = bytes([200, 100, 50, 255] * (w * h))   # 565: no exacto
+            plano = bytes([200, 100, 50, 255] * (w * h))  # 565: no exacto
             ruta = escribir(os.path.join(tmp, "%s_%dx%d.dds" % (formato, w, h)),
-                            w, h, pix, formato=formato)
+                            w, h, plano, formato=formato)
             d = parser_dds.leer(ruta)
             with open(ruta, "rb") as fh:
                 cab = fh.read(128)
@@ -297,7 +297,7 @@ def autotest():
             caps, = struct.unpack_from("<I", cab, 108)
             bpb = 8 if formato == "DXT1" else 16
             _, vuelta = leer_pixeles(ruta)
-            dif = max(abs(a - b) for a, b in zip(vuelta, pix))
+            dif = max(abs(a - b) for a, b in zip(vuelta, plano))
             ok = (d["formato"] == formato and d["tamano_cuadra"]
                   and d["mip_mas_chico"] == [1, 1]
                   and flags == 0xA1007 and pf == DDPF_FOURCC

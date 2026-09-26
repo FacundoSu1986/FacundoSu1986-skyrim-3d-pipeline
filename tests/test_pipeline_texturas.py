@@ -606,7 +606,6 @@ class GeometriaTests(unittest.TestCase):
         """Un DDS escrito con orden RGBA (raro, pero posible exportando de
         GIMP/Photoshop) se rechaza con las máscaras que trae en el header,
         en vez de asumir BGRA y devolver colores invertidos sin error."""
-        import tempfile, os
         cab = bytearray(128)
         cab[0:4] = b"DDS "
         import struct as st

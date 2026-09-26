@@ -22,8 +22,8 @@ from _paths import preparar_path
 
 preparar_path()
 
-import parser_dds
-from parser_dds import DdsInvalido, leer
+import parser_dds  # noqa: E402
+from parser_dds import DdsInvalido, leer  # noqa: E402
 
 HEADER = 128
 HEADER_DX10 = 148

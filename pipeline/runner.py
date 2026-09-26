@@ -45,7 +45,7 @@ import hashlib
 import json
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Mapping
@@ -304,14 +304,14 @@ class PipelineRunner:
             if fase is Phase.PUBLISH:
                 pendientes = fases_stub(reports)
                 if pendientes:
-                    e = _error_publicacion_con_stubs(pendientes)
+                    err = _error_publicacion_con_stubs(pendientes)
                     reports[fase.value] = {
                         "ejecutada": False,
-                        "error": f"{type(e).__name__}: {e}",
+                        "error": f"{type(err).__name__}: {err}",
                     }
                     estado = State.FAILED
-                    self._escribir_final(ws, estado, reports, str(e))
-                    return RunResult(estado=estado, reports=reports, error=str(e))
+                    self._escribir_final(ws, estado, reports, str(err))
+                    return RunResult(estado=estado, reports=reports, error=str(err))
             try:
                 reporte = self.fases[fase](self.manifest, ws)
             except Exception as e:
@@ -330,11 +330,11 @@ class PipelineRunner:
             # fases_sin_conectar lo liste.
             if (fase is Phase.PUBLISH and isinstance(reporte, dict)
                     and reporte.get(CLAVE_STUB) is True):
-                e = _error_publicacion_con_stubs([fase.value])
-                reporte["error"] = f"{type(e).__name__}: {e}"
+                err = _error_publicacion_con_stubs([fase.value])
+                reporte["error"] = f"{type(err).__name__}: {err}"
                 estado = State.FAILED
-                self._escribir_final(ws, estado, reports, str(e))
-                return RunResult(estado=estado, reports=reports, error=str(e))
+                self._escribir_final(ws, estado, reports, str(err))
+                return RunResult(estado=estado, reports=reports, error=str(err))
             estado = _FASE_A_ESTADO[fase]
         self._escribir_final(ws, estado, reports, None)
         return RunResult(estado=estado, reports=reports)

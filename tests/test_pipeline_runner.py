@@ -14,15 +14,12 @@ falso (paquete vacío -> no publicar) prueba que la guarda puede fallar.
 """
 import hashlib
 import json
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from pipeline.errors import PublishError
 from pipeline.manifest import JobManifest
 from pipeline.runner import ORDEN_FASES, Phase, PipelineRunner, State
-from pipeline.staging import JobWorkspace
 from glb_sintetico import construir
 
 

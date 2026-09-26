@@ -148,8 +148,7 @@ class Plugin(object):
         fuera = []
         p = offset_record + CABECERA_RECORD
         fin = p + tam
-        pendiente = None
-        origen_xxxx = None
+        pendiente = None        # (donde empieza el XXXX, el tamano que promete)
         while p + 6 <= fin:
             crudo = self.d[p:p + 4]
             tipo = crudo.decode("latin-1")
@@ -159,12 +158,11 @@ class Plugin(object):
                 if n != 4 or p + 4 > fin:
                     raise PluginInvalido(
                         "XXXX mal formado en %d" % (p - 6))
-                pendiente, = struct.unpack_from("<I", self.d, p)
-                origen_xxxx = p - 6
+                pendiente = (p - 6, struct.unpack_from("<I", self.d, p)[0])
                 p += 4
                 continue
             if pendiente is not None:
-                n = pendiente
+                n = pendiente[1]
                 pendiente = None
             fuera.append((tipo, p, n))
             p += n
@@ -172,8 +170,7 @@ class Plugin(object):
             # El XXXX promete el subrecord que describe. Sin el, el record esta
             # truncado y un `p == fin` limpio lo daria por bueno.
             raise PluginInvalido(
-                "XXXX en %d sin el subrecord que describe (%d bytes)"
-                % (origen_xxxx, pendiente))
+                "XXXX en %d sin el subrecord que describe (%d bytes)" % pendiente)
         if p != fin:
             raise PluginInvalido(
                 "subrecords de %d: recorrido %d != fin %d" % (offset_record, p, fin))
