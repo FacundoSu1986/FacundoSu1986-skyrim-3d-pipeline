@@ -447,6 +447,57 @@ background). UVPackmaster son USD 55 por un número que **ya está medido a favo
 (59 % de atlas desperdiciado). Si el objetivo es calidad de lo que se ve en el
 juego, la pista de UV tiene mejor relación señal/precio que la de geometría.
 
+## Contraste con la tercera opinión (guía de compras, 2026-09-26)
+
+Un tercer documento propone una guía de addons pagos por etapa —MESHmachine,
+Hard Ops, RetopoFlow 4, Quad Remesher, Zen UV, UVPackmaster, TexTools, Marmoset
+Toolbag— con un orden de compra. Es un documento competente como guía de
+compras, pero **casi todo lo que dice del flujo ya está en el repo, con
+números medidos**, y su recomendación principal no encaja con la entrada de
+esta skill. Lo verificable:
+
+| Afirmación | Veredicto |
+|---|---|
+| **PyNifly corre solo en Windows** | **Confirmado, y es el aporte real de ese documento.** Lo dice su README. El `compatibility` de `SKILL.md` no lo decía: quedó escrito ahora. Sin eso, alguien en Linux o macOS instala la skill y lo descubre al final |
+| El addon de NifTools no sirve para Blender 4.4 | **Confirmado**: su última release (v0.1.1, 2023) dice "compatible con Blender 2.8–3.6, NOT compatible con Blender 4.0" |
+| "Work with quads, triangulation is handled on export" y "4 weight groups per vertex" (wiki de PyNifly) | **Correcto y ya cubierto**: `montaje_puro.py` tiene la REGLA `max4`, y la triangulación explícita está en `limites-skyrim.md` y en el gate nuevo de este PR |
+| No confundir el cambio de referencia PNG→DDS que hace PyNifly con crear el DDS | **Correcto y ya cubierto**: `pipeline/texturas.py` escribe el DDS de verdad, con mipmaps, y `comparar.py` lo verifica |
+| "No medir la calidad visual solo con el validador NIF" | **Correcto y ya está en el repo**, casi con las mismas palabras: `SKILL.md` dice que un asset puede pasar todos los chequeos y ser feo |
+| El orden topología → seams → unwrap → densidad → packing → bake | **Correcto y ya está** en `hd-texturas.md`, con los gates que este documento no menciona |
+| **MESHmachine primero** para hard-surface | **No encaja con esta skill.** MESHmachine es una caja de herramientas de chaflanes y empalmes para mallas **modeladas a mano con topología limpia**. La entrada de acá es una escultura de 2 M de triángulos de un generador: no se le puede hacer un chaflán a eso, ni el addon arregla un canto ondulado (eso lo hace `enderezar.py`, gratis) |
+| **RetopoFlow segundo**, "control de loops" | **Como herramienta humana, sí; como paso del pipeline, no.** Es manual, de viewport, y su propio código se abstiene de inicializarse en `bpy.app.background` (lo verificó la segunda opinión). La misma disciplina que descartó a Smart Remesh por headless lo descarta acá |
+| TexTools (gratuito, GPL) | **Aporte menor y válido**: entra a la lista de opciones gratis de UV/bake, con la advertencia de probarlo en Blender 4.4 |
+| Quad Remesher (Exoside, pago, con prueba) | **Aporte al cuadro de remalladores**: es el patrón contra el que se comparan los gratis (AutoRemesher, QRemeshify, QuadriFlow). Tiene trial, así que es evaluable sin comprar |
+| Marmoset Toolbag (USD 399 / desde 18,99 al mes) para bake | **No compite con lo que hay**: el bake del repo tiene gates medidos y conoce la convención de Skyrim; el de Marmoset no, y encima su documentación de *tangent handedness* toca el mismo problema que el gate de triangulación de este PR. Es una compra de volumen, no de esta etapa |
+| Los precios | **Sin auditar.** El único que verifiqué antes es UVPackmaster 4 (USD 55, single user). Que estén en dólares de septiembre de 2026 no los hace parte de este análisis |
+
+**Lo que el documento no dice, y es lo que decide acá:**
+
+1. **Ignora el eje headless**, que es el que descartó a Smart Remesh y el que
+   ordena toda esta skill. RetopoFlow y MESHmachine son herramientas de manos,
+   y el repo se construyó alrededor de pasos que se reejecutan solos.
+2. **No conoce los números del repo.** No menciona el atlas al 41 % (trampa 17),
+   que es la compra con mejor relación señal/precio de toda la lista, ni los
+   presupuestos medidos del censo.
+3. **No sabe que el defecto ya está atacado.** La guía es anterior a este PR: el
+   canto ondulado —lo que el usuario reportó— se arregla con `enderezar.py`,
+   gratis, sin comprar nada.
+
+### El hueco que la guía sí nombra, y que este repo no cubre
+
+Hay una etapa que la guía pone primero y el repo **no tiene**: el **acabado
+hard-surface** —chaflanes, empalmes, transiciones entre piezas. En todo el repo
+la palabra "Bevel" aparece una sola vez, y como peligro (trampa 32: un bevel
+después del unwrap superpone las UV). Si algún día se modelan las piezas a mano
+en vez de generarlas, esa etapa es real y hace falta vocabulario para ella: qué
+es un chaflán bien puesto y qué se rompe al hornearlo.
+
+Pero **no es la etapa de este flujo**, y decirlo importa para no gastar:
+sobre una malla de escultura de IA, un chaflán no se modela, se **reconstruye**
+—que es exactamente lo que hace el pase planar (`--planar`) y el enderezado de
+este PR, con lo que ya trae Blender—. La compra se justifica el día que haya
+geometría con topología limpia y controlada sobre la que trabajar, no antes.
+
 ## Lo que este documento no afirma
 
 - Que el addon funcione, ni en background, ni en tu plataforma, ni con tus
