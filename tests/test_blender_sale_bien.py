@@ -6,6 +6,8 @@ Antes de este test, los cinco scripts de Blender del repo terminaban con un
 `main()` suelto: `preparar_parte.py` con un .glb inexistente salia con 0.
 Todos terminan ahora con `correr(main)` (scripts/correr_en_blender.py), y este
 test RECORRE los scripts: uno nuevo que importe bpy sin eso rompe la suite.
+Tambien el que solo carga un addon con `addon_utils` (donante_sintetico.py):
+corre en Blender igual, y revienta igual.
 
 Un error de SINTAXIS tambien sale con 0 y ningun envoltorio lo ataja, porque
 revienta antes de ejecutar nada: eso lo cubre el compileall del workflow.
@@ -21,7 +23,7 @@ preparar_path()
 
 import correr_en_blender  # noqa: E402
 
-USA_BPY = re.compile(r"^\s*(import bpy|from bpy)", re.M)
+USA_BPY = re.compile(r"^\s*(import bpy|from bpy|import addon_utils)", re.M)
 MAIN_SUELTO = re.compile(r"^main\(\)\s*$", re.M)
 
 

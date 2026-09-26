@@ -116,7 +116,8 @@ se ve.
    `test_compresor_dxt.py` y de `test_frontmatter_skills.py`; y ruff y mypy
    con la versión fijada. Si falta numpy, Pillow o PyYAML, un test falla en
    vez de saltearse.
-2. `compileall` sobre `census`, `skills`, `tests`, `pipeline` y `fixtures`:
+2. `compileall` sobre `census`, `skills`, `tests`, `pipeline`, `fixtures` y
+   `examples`:
    la sintaxis de todo, incluidos los scripts de Blender, que fuera de Blender
    no se pueden importar.
 3. `ruff check .` (`ruff.toml`): las reglas E y F sobre todos los `.py`,
@@ -128,12 +129,17 @@ se ve.
    anotar sus contenedores vacíos.
 5. `test_skill_empaquetada.py`: cada skill empaquetada y extraída lejos del
    repo tiene que importar y pasar sus autotests.
-6. La suite entera: `python -m unittest discover -s tests`.
+6. La suite entera: `python -m unittest discover -s tests`. Del ejemplo
+   `examples/escudo-minimo/`, la parte de Python: la pieza de IA, los dos
+   planes contra los validadores de las skills, y que sin Blender sale con 3
+   ("incompleto") y no con 0.
 
 Lo que el CI **no** cubre: la sección 2 (necesita el juego extraído), los
 scripts de Blender más allá de su sintaxis, del lint y de que terminen con
 `correr(main)` (`test_blender_sale_bien.py`), los tipos de los scripts de las
-skills, de `fixtures/` y de `tests/`, y el juego.
+skills, de `fixtures/` y de `tests/`, la mitad del ejemplo que necesita
+Blender y PyNifly (`test_ejemplo_escudo_minimo.py` la corre con
+`BLENDER_EXE`), y el juego.
 
 ## 5. Lo que ningún control mide
 

@@ -539,3 +539,34 @@ en un script de Blender), un nombre sin definir, el bug de `agregados.py`
 devuelto a su lugar, un error de tipos en una función sin anotaciones, el
 `except` reusado otra vez y un módulo nuevo de `census/` con un `Counter()`
 sin anotar.
+
+## Un ejemplo de punta a punta sin el juego (`examples/escudo-minimo/`)
+
+La issue [#70](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/70)
+pedía un caso que un tercero pudiera correr sin Skyrim, de cero a un NIF
+validado. Lo que quedó, y por qué:
+
+- **Python solo no llega a un NIF.** Medir, preparar y llevar al marco corren
+  en Blender, y escribir el NIF necesita PyNifly. Se buscó otra salida y no la
+  hay: `tests/nif_sintetico.py` escribe los offsets que lee el parser del
+  repo, no un NIF completo (su colisión ni siquiera tiene
+  `bhkCollisionObject`), y un escritor de NIF en Python puro es un proyecto
+  aparte. El ejemplo necesita Blender y PyNifly; **el juego, en ningún paso**.
+- **El donante sintético salió de la falsificación** de `exportar_nif.py` a
+  `donante_sintetico.py`, que se importa y también se corre: el ejemplo y la
+  falsificación usan el mismo, y quien use la skill puede probar el export
+  sin el juego. Al sacarlo se le corrigió el radio de la caja (0,0143, contra
+  el min(semieje, 0,1) = 0,01429 de la REGLA de `colision_caja.py`): el
+  donante incumplía una regla que el export sí cumple.
+- **Cada paso es un script de las skills.** Lo único propio del ejemplo es la
+  pieza (un GLB escrito por código, con los defectos típicos de una IA) y el
+  orquestador, `correr.py`.
+- **Un ejemplo a medias no es un éxito.** Sin Blender o sin PyNifly,
+  `correr.py` corre lo que puede, dice qué falta y sale con 3.
+- **El paso 6 verifica con otros lectores y con los planes**: `nif_nodos.py`,
+  `colision_caja.py` y los parsers de `census/`, contra los números de
+  `plan_marco.json` y `plan_nif.json`, no contra lo que dijo el export. Está
+  falsificado: cada comprobación, alimentada con una expectativa cambiada,
+  falla.
+- **En CI corre la mitad de Python**; la cadena entera, con `BLENDER_EXE`
+  (`tests/test_ejemplo_escudo_minimo.py`).

@@ -1,0 +1,6 @@
+{
+ "ejes": {"+Y": "+Z", "+Z": [-0.9114, 0.4115, 0.0]},
+ "largo": {"eje": "+Z", "valor": 56.0},
+ "ancla": {"modelo": "centro", "marco": [-14.8, 0.0, null]},
+ "topes": {"+Z": 2.2}
+}

@@ -27,7 +27,7 @@ import unittest
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Donde vive el texto del repo. Enumerado, no excluido.
-CARPETAS = ("census", "docs", "fixtures", "pipeline", "skills", "tests")
+CARPETAS = ("census", "docs", "examples", "fixtures", "pipeline", "skills", "tests")
 SUELTOS_EN_RAIZ = ("README.md", "build_skill.py")
 EXTENSIONES = (".md", ".py")
 
