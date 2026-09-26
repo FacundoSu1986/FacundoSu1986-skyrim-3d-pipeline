@@ -64,6 +64,44 @@ REGLA 4 -- el Prn del NIF de cada WEAP corresponde a su tipo de animacion
     El NIF se busca en meshes/ al lado del plugin, sin distinguir mayusculas;
     si no esta, se dice y no se juzga.
 
+REGLA 5 -- una referencia colocada (REFR, ACHR, PGRE, PMIS, PHZD, PARW, PBAR,
+    PBEA, PCON, PFLA) en un GRUP de tipo 8 (Cell Persistent Children) lleva
+    la bandera 0x400 (Persistent); en uno de tipo 9 (Temporary Children) no;
+    y en ningun otro grupo hay referencias. Medido el 2026-09-25 sobre los 10
+    plugins oficiales: 879.753 referencias, las 59.240 de grupos 8 con 0x400
+    (24.838 del mundo + 34.402 de interiores), ninguna de las 820.513 de
+    grupos 9 (483.178 interiores + 337.335 exteriores), cero en otro grupo.
+    Las celdas exteriores no tienen grupo 8: las referencias persistentes del
+    mundo viven en la celda persistente (la CELL directamente bajo el World
+    Children, p. ej. 0001A270 de WhiterunWorld).
+    El REFR de RetreteVIP v1.1 estaba en ese grupo 8 con banderas 0 -- la
+    unica referencia de la instalacion con esa combinacion -- y el objeto no
+    aparecio en el juego.
+
+REGLA 6 -- cada entrada no nula del OFST de un WRLD cae dentro del archivo.
+    OFST es una tabla de offsets de las celdas del mundo en ESE archivo. Los
+    94 WRLD de los 10 plugins la llevan, overrides incluidos, asi que llevarla
+    no es el defecto: 76.250 entradas y 0 fuera de su archivo. El WRLD del
+    v1.1, copiado crudo de Skyrim.esm, traia 113 entradas y las 113 se salian
+    de un archivo de 11.289 bytes: apuntaban a Skyrim.esm. Un OFST que cae
+    adentro sale como OBSERVACION: xEdit lo quita por defecto ("Remove OFST
+    Data", whatsnew.md de SSEEdit 4.1.5f).
+    OBSERVACION, no regla: un override de WRLD con RNAM (referencias grandes).
+    10 de los 45 overrides oficiales de WRLD lo llevan. Pero copiado de un
+    master pisa el de los DLC: el v1.1 traia las 40 RNAM de WhiterunWorld de
+    Skyrim.esm y los overrides que ganan (Dawnguard, HearthFires, Fish) no
+    tienen ninguna.
+
+REGLA 7 -- en un plugin NO localizado (bandera 0x80 del TES4 apagada), cada
+    FULL es texto: termina en un NUL y no tiene otro antes. En uno localizado
+    FULL es un ID de 4 bytes a los .STRINGS: las 34.956 FULL de los 10
+    plugins (localizados los 10) miden 4. Copiado crudo a un plugin no
+    localizado, el juego lee el ID como texto: la FULL de WhiterunWorld es el
+    ID 0x4C20, bytes 20 4C 00 00, que se lee " L". Lo que la regla NO ve: 4.775
+    de esos 34.956 IDs (13,7 %) tienen sus bytes con forma de texto de 3
+    caracteres; por eso una FULL de 4 bytes en un override de un plugin no
+    localizado deja ademas una OBSERVACION.
+
 Y un requisito previo que no es regla sino lectura: el recorrido tiene que
 embaldosar el archivo. Si no cierra, no hay nada que juzgar, y eso es una falla.
 
@@ -97,6 +135,27 @@ PRN_POR_TIPO = {1: "WeaponSword", 2: "WeaponDagger", 3: "WeaponAxe",
                 7: "WeaponBow", 9: "WeaponBow"}
 TIPO_BASTON = 8
 N_PRN = 306
+
+# REGLA 5: referencias colocadas y su grupo. Medido el 2026-09-25, 10 plugins.
+REFERENCIAS = ("REFR", "ACHR", "PGRE", "PMIS", "PHZD", "PARW", "PBAR",
+               "PBEA", "PCON", "PFLA")
+PERSISTENTE = 0x400
+GRUPO_PERSISTENTE = 8
+GRUPO_TEMPORAL = 9
+N_REF = 879753
+N_REF_G8 = 59240
+N_REF_G9 = 820513
+
+# REGLA 6 y su observacion
+N_WRLD_OFST = 94          # WRLD oficiales, todos con OFST
+N_OFST_ENTRADAS = 76250   # entradas no nulas, 0 fuera de su archivo
+N_WRLD_OVERRIDE = 45
+N_OVERRIDE_RNAM = 10
+
+# REGLA 7
+LOCALIZADO = 0x80
+N_FULL_LOC = 34956        # FULL de los 10 plugins, todas de 4 bytes
+N_FULL_PARECE_TEXTO = 4775
 
 
 def subrecords(d, off):
@@ -186,16 +245,48 @@ def leer(ruta, meshes=None):
     if len(d) < 24 or d[:4] != b"TES4":
         return {"records": [], "n_masters": 0,
                 "error": "no empieza con un TES4: no es un plugin"}
-    recs, cerro = esl.recorrer_records(d)
+    recs, cerro = esl.recorrer_con_grupos(d)
     if not cerro:
         return {"records": [], "n_masters": 0,
                 "error": "el recorrido no embaldosa el archivo: esta truncado "
                          "o un tamano declarado miente"}
     records = []
-    for tag, o in recs:
+    for tag, o, grupo in recs:
         r = {"tipo": tag.decode("ascii", "replace"),
              "form_id": struct.unpack_from("<I", d, o + 12)[0],
-             "version": struct.unpack_from("<H", d, o + OFFSET_VERSION)[0]}
+             "version": struct.unpack_from("<H", d, o + OFFSET_VERSION)[0],
+             "banderas": struct.unpack_from("<I", d, o + 8)[0],
+             "grupo": grupo}
+        if tag != b"TES4" and (tag == b"WRLD" or b"FULL" in d[
+                o + 24:o + 24 + struct.unpack_from("<I", d, o + 4)[0]]
+                or r["banderas"] & COMPRIMIDO):
+            try:
+                subs = subrecords(d, o)
+            except (ValueError, zlib.error, struct.error) as e:
+                return {"records": [], "n_masters": 0,
+                        "error": "%s %08X ilegible: %s"
+                                 % (r["tipo"], r["form_id"], e)}
+            full = [b for t, b in subs if t == "FULL"]
+            if full:
+                r["full"] = full[0]
+            if tag == b"WRLD":
+                # Los 94 OFST oficiales miden multiplo de 4. Con 1-3 bytes
+                # de sobra, `len // 4` los tiraba y el OFST pasaba entero
+                # "adentro": no se lee lo que no se puede leer completo.
+                for t, b in subs:
+                    if t == "OFST" and len(b) % 4:
+                        return {"records": [], "n_masters": 0,
+                                "error": "WRLD %08X ilegible: OFST de %d "
+                                         "bytes, no es multiplo de 4 (los "
+                                         "%d oficiales lo son)"
+                                         % (r["form_id"], len(b),
+                                            N_WRLD_OFST)}
+                r["wrld"] = {
+                    "rnam": sum(1 for t, _b in subs if t == "RNAM"),
+                    "ofst": [x for t, b in subs if t == "OFST"
+                             for x in struct.unpack_from(
+                                 "<%dI" % (len(b) // 4), b) if x]
+                    if any(t == "OFST" for t, _b in subs) else None}
         if tag == b"WEAP":
             try:
                 r["weap"] = _datos_weap(d, o)
@@ -206,7 +297,9 @@ def leer(ruta, meshes=None):
                 os.path.abspath(ruta)), "meshes"), r["weap"])
         records.append(r)
     return {"records": records, "n_masters": len(esl.masters(d)),
-            "error": None}
+            "error": None, "tam": len(d),
+            "localizado": bool(struct.unpack_from("<I", d, 8)[0]
+                               & LOCALIZADO)}
 
 
 def _cortar(fallas, total, que):
@@ -248,6 +341,9 @@ def juzgar(info):
     fallas += _cortar(detalle, len(fuera), "índice de mod > masters")
 
     fallas += _reglas_weap(info, notas)
+    fallas += regla_referencias(info["records"], notas)
+    fallas += _reglas_wrld(info, notas)
+    fallas += _regla_full(info, notas)
 
     propios = sum(1 for r in info["records"]
                   if r["tipo"] != "TES4" and (r["form_id"] >> 24) == n)
@@ -302,6 +398,110 @@ def _reglas_weap(info, notas):
     if armas:
         notas.append("OBS %d WEAP comprobada(s)" % len(armas))
     return fallas
+
+
+def regla_referencias(records, notas):
+    """REGLA 5. Solo mira los records que `leer` marco con su grupo y sus
+    banderas: un dict armado a mano sin esas claves no se juzga, y la nota
+    dice cuantas se comprobaron para que cero no pase por exito."""
+    refs = [r for r in records
+            if r["tipo"] in REFERENCIAS and "grupo" in r and "banderas" in r]
+    malas = []
+    for r in refs:
+        persistente = bool(r["banderas"] & PERSISTENTE)
+        g = r["grupo"]
+        if g == GRUPO_PERSISTENTE and not persistente:
+            que = ("esta en un grupo 8 (Persistent Children) sin la bandera "
+                   "0x400 (banderas 0x%08X). Las %d referencias oficiales de "
+                   "grupos 8 la tienen, sin excepcion; asi salio el REFR de "
+                   "RetreteVIP v1.1, que no aparecio en el juego. Con "
+                   "census/escritor_plugin.py: record(..., banderas=0x400)"
+                   % (r["banderas"], N_REF_G8))
+        elif g == GRUPO_TEMPORAL and persistente:
+            que = ("esta en un grupo 9 (Temporary Children) con la bandera "
+                   "0x400. Ninguna de las %d referencias oficiales de grupos "
+                   "9 la tiene: o va sin la bandera, o va en el grupo 8 de "
+                   "la celda persistente" % N_REF_G9)
+        elif g not in (GRUPO_PERSISTENTE, GRUPO_TEMPORAL):
+            que = ("esta en un grupo de tipo %s. Las %d referencias "
+                   "oficiales estan en grupos 8 o 9" % (g, N_REF))
+        else:
+            continue
+        malas.append("REGLA referencia persistente: %s %08X %s."
+                     % (r["tipo"], r["form_id"], que))
+    if refs:
+        notas.append("OBS %d referencia(s) colocada(s) comprobada(s)"
+                     % len(refs))
+    return _cortar(malas[:LIMITE_DETALLE], len(malas),
+                   "referencia en el grupo equivocado")
+
+
+def _reglas_wrld(info, notas):
+    """REGLA 6 y la observacion de RNAM. `tam` es el largo del archivo."""
+    fallas = []
+    n = info["n_masters"]
+    for r in info["records"]:
+        w = r.get("wrld")
+        if not w:
+            continue
+        cual = "WRLD %08X" % r["form_id"]
+        ofst = w["ofst"]
+        if ofst is not None and "tam" in info:
+            fuera = [x for x in ofst if x >= info["tam"]]
+            if fuera:
+                fallas.append(
+                    "REGLA WRLD OFST: %s lleva un OFST con %d de %d entradas "
+                    "fuera del archivo (%d bytes; la mayor, %d): es la tabla "
+                    "de offsets de OTRO archivo, copiada cruda. En los %d WRLD "
+                    "oficiales, 0 de %d entradas caen fuera del suyo. Borra el "
+                    "OFST (xEdit lo hace por defecto)."
+                    % (cual, len(fuera), len(ofst), info["tam"], max(fuera),
+                       N_WRLD_OFST, N_OFST_ENTRADAS))
+            else:
+                notas.append("OBS %s lleva OFST (%d entradas, todas dentro "
+                             "del archivo). xEdit lo quita por defecto."
+                             % (cual, len(ofst)))
+        if w["rnam"] and (r["form_id"] >> 24) < n:
+            notas.append(
+                "OBS %s es un override con %d RNAM (referencias grandes). %d "
+                "de los %d overrides oficiales de WRLD llevan RNAM; si los "
+                "copiaste del master, pisan los de los DLC (el v1.1 traia "
+                "las 40 de Skyrim.esm y los overrides que ganan no tienen "
+                "ninguna)." % (cual, w["rnam"], N_OVERRIDE_RNAM,
+                               N_WRLD_OVERRIDE))
+    return fallas
+
+
+def es_texto(b):
+    """Un zstring: termina en NUL y no tiene otro antes."""
+    return len(b) > 0 and b.find(b"\x00") == len(b) - 1
+
+
+def _regla_full(info, notas):
+    """REGLA 7. Solo en un plugin que `leer` marco como NO localizado."""
+    if info.get("localizado") is not False:
+        return []
+    malas = []
+    for r in info["records"]:
+        b = r.get("full")
+        if b is None:
+            continue
+        cual = "%s %08X" % (r["tipo"], r["form_id"])
+        if not es_texto(b):
+            malas.append(
+                "REGLA FULL: %s tiene FULL %s (%d bytes) y el plugin no es "
+                "localizado (bandera 0x80 del TES4 apagada): no es texto. "
+                "Es un ID de .STRINGS copiado de un master localizado -- las "
+                "%d FULL oficiales miden 4 -- y el juego lo lee como texto "
+                "(la de WhiterunWorld sale \" L\"). Escribi el nombre."
+                % (cual, b.hex(" ").upper(), len(b), N_FULL_LOC))
+        elif len(b) == 4 and (r["form_id"] >> 24) < info["n_masters"]:
+            notas.append(
+                "OBS %s es un override con FULL de 4 bytes (%r): puede ser un "
+                "ID de .STRINGS con forma de texto, como %d de los %d IDs "
+                "oficiales." % (cual, b[:-1].decode("cp1252", "replace"),
+                                N_FULL_PARECE_TEXTO, N_FULL_LOC))
+    return _cortar(malas[:LIMITE_DETALLE], len(malas), "FULL que no es texto")
 
 
 def _regla_prn(cual, w, notas):
@@ -484,6 +684,72 @@ def autotest():
         caso("baston con %s" % prn, con_prn(TIPO_BASTON, prn), False, "REGLA")
     caso("NIF no encontrado", con_prn(6, None, nif=None), False, "REGLA")
 
+    # REGLA 5: cada tipo de referencia, en cada grupo, con y sin 0x400
+    def ref(tipo, grupo, banderas):
+        return {"records": [_rec(tipo="TES4", form_id=0),
+                            dict(_rec(tipo=tipo, form_id=0x01000801),
+                                 grupo=grupo, banderas=banderas)],
+                "n_masters": 1, "error": None}
+
+    for t in REFERENCIAS:
+        caso("%s en grupo 8 con 0x400" % t, ref(t, 8, 0x400), False, "REGLA")
+        caso("%s en grupo 8 con banderas 0 (el v1.1)" % t, ref(t, 8, 0),
+             True, "referencia persistente")
+        caso("%s en grupo 8 con otras banderas" % t, ref(t, 8, 0x800),
+             True, "referencia persistente")
+        caso("%s en grupo 9 sin 0x400" % t, ref(t, 9, 0), False, "REGLA")
+        caso("%s en grupo 9 con 0x400" % t, ref(t, 9, 0x400), True,
+             "referencia persistente")
+        for g in (None, 0, 1, 6, 10):
+            caso("%s en grupo %s" % (t, g), ref(t, g, 0x400), True,
+                 "referencia persistente")
+    caso("un STAT en grupo 8 no es referencia", ref("STAT", 8, 0), False,
+         "REGLA")
+
+    # REGLA 6: el OFST, contra el largo del archivo
+    def mundo(ofst=None, rnam=0, full=b"Carrera Blanca\x00", tam=11289,
+              localizado=False, grupo_ref=8, banderas_ref=0x400):
+        w = {"rnam": rnam, "ofst": ofst}
+        return {"records": [
+            _rec(tipo="TES4", form_id=0),
+            dict(_rec(tipo="WRLD", form_id=0x0001A26F), wrld=w, full=full,
+                 grupo=0, banderas=0),
+            dict(_rec(tipo="CELL", form_id=0x0001A270), grupo=1,
+                 banderas=0x400),
+            dict(_rec(tipo="REFR", form_id=0x01000801), grupo=grupo_ref,
+                 banderas=banderas_ref)],
+            "n_masters": 1, "error": None, "tam": tam,
+            "localizado": localizado}
+
+    caso("el v1.2: sin OFST, sin RNAM, FULL de texto, REFR con 0x400",
+         mundo(), False, "REGLA")
+    # Cada una de las tres razones, por separado: con "REGLA" a secas, una
+    # sola alcanzaba para que el caso pasara.
+    for marca in ("referencia persistente", "WRLD OFST", "REGLA FULL"):
+        caso("el v1.1 reprueba por %s" % marca,
+             mundo(ofst=[57966, 393059], rnam=40, full=b" L\x00\x00",
+                   banderas_ref=0), True, marca)
+    for ofst in ([11289], [1, 11289], [0xFFFFFFFF]):
+        caso("OFST %r en 11289 bytes" % ofst, mundo(ofst=ofst), True,
+             "WRLD OFST")
+    caso("OFST dentro del archivo", mundo(ofst=[24, 11288]), False, "REGLA")
+    caso("OFST vacio", mundo(ofst=[]), False, "REGLA")
+    caso("RNAM en un override es observacion", mundo(rnam=40), False,
+         "REGLA")
+
+    # REGLA 7: FULL en un plugin no localizado
+    for full in (b"\x20\x4C\x01\x02", b"ABCD", b" L\x00\x00",
+                 b"\x00\x00\x00\x00", b"", b"Carrera\x00Blanca\x00",
+                 b"sin nul"):
+        caso("FULL %r sin localizar" % full, mundo(full=full), True,
+             "REGLA FULL")
+        if len(full) == 4:
+            caso("FULL %r localizado" % full,
+                 mundo(full=full, localizado=True), False, "REGLA")
+    # b"\x00" es un nombre vacio, texto valido: no es un ID
+    for full in (b"Axe\x00", b"A\x00", b"\x00", b"Retrete VIP\x00"):
+        caso("FULL %r sin localizar" % full, mundo(full=full), False, "REGLA")
+
     print("autotest: %d casos, %d fallas" % (corridos[0], len(fallas)))
     for x in fallas:
         print("  FALLA %s" % x)
@@ -539,8 +805,15 @@ def falsificar(raiz):
                 fallas.append("%s / %s: no reprobo" % (nombre, que))
         print("   %-34s patron: %d records (%d WEAP), %d masters, %d roturas"
               % (nombre, len(recs), len(armas), n, len(mutaciones)))
+    u2, r2, f2 = _falsificar_mundo(raiz, nombres)
+    roturas += r2
+    fallas += f2
     print("falsificar: %d plugins, %d comprobaciones, %d fallas"
           % (usados, roturas, len(fallas)))
+    if u2 == 0:
+        print("FALLA: ninguna referencia real se pudo torcer -- no comprobar "
+              "nada no es exito")
+        return 1
     for x in fallas:
         print("  FALLA %s" % x)
     if usados == 0:
@@ -548,6 +821,86 @@ def falsificar(raiz):
               "exito")
         return 1
     return 1 if fallas else 0
+
+
+def _falsificar_mundo(raiz, nombres):
+    """REGLAS 5, 6 y 7 sobre TODOS los plugins, masters de 2011 incluidos:
+    se juzgan solas, como la REGLA 4 en falsificar_prn, porque la REGLA 1 no
+    vale para los masters. Primero se mide (tiene que dar cero excepciones
+    tal cual) y despues se tuerce: una referencia real del grupo 8 pierde la
+    bandera, una del grupo 9 la gana, un OFST real recibe una entrada fuera
+    del archivo, y una FULL real de un plugin localizado se juzga como si el
+    plugin no lo fuera -- que es lo que hizo el v1.1 al copiar el WRLD.
+    Devuelve (plugins con referencias torcidas, roturas, fallas)."""
+    usados, roturas, fallas = 0, 0, []
+    total = {"g8": 0, "g9": 0, "otro": 0, "excepciones": 0}
+    for nombre in nombres:
+        info = leer(os.path.join(raiz, nombre))
+        if info["error"]:
+            print("   %-34s ilegible: %s" % (nombre, info["error"]))
+            continue
+        recs = info["records"]
+        refs = [j for j, r in enumerate(recs) if r["tipo"] in REFERENCIAS]
+        g8 = [j for j in refs if recs[j]["grupo"] == GRUPO_PERSISTENTE]
+        g9 = [j for j in refs if recs[j]["grupo"] == GRUPO_TEMPORAL]
+        exc = len(regla_referencias(recs, []))
+        total["g8"] += len(g8)
+        total["g9"] += len(g9)
+        total["otro"] += len(refs) - len(g8) - len(g9)
+        total["excepciones"] += exc
+        mutaciones = []
+        if exc:
+            fallas.append("%s: %d referencias reprueban tal cual" % (nombre,
+                                                                     exc))
+        else:
+            if g8:
+                j = g8[len(g8) // 2]
+                mutaciones.append((
+                    "ref del grupo 8 sin 0x400", "referencia",
+                    recs[:j] + [dict(recs[j], banderas=recs[j]["banderas"]
+                                     & ~PERSISTENTE)] + recs[j + 1:]))
+            if g9:
+                j = g9[len(g9) // 2]
+                mutaciones.append((
+                    "ref del grupo 9 con 0x400", "referencia",
+                    recs[:j] + [dict(recs[j], banderas=recs[j]["banderas"]
+                                     | PERSISTENTE)] + recs[j + 1:]))
+            if mutaciones:
+                usados += 1
+        mundos = [j for j, r in enumerate(recs)
+                  if r.get("wrld") and r["wrld"]["ofst"]]
+        if mundos and not _reglas_wrld(info, []):
+            j = mundos[len(mundos) // 2]
+            w = recs[j]["wrld"]
+            mutaciones.append((
+                "OFST con una entrada fuera", "wrld",
+                recs[:j] + [dict(recs[j], wrld=dict(
+                    w, ofst=w["ofst"] + [info["tam"]]))] + recs[j + 1:]))
+        ids = [j for j, r in enumerate(recs)
+               if "full" in r and not es_texto(r["full"])]
+        if info["localizado"] and ids:
+            j = ids[len(ids) // 2]
+            mutaciones.append(("FULL de %s en un plugin no localizado"
+                               % recs[j]["tipo"], "full", recs))
+        for que, regla, torcidos in mutaciones:
+            roturas += 1
+            t = dict(info, records=torcidos)
+            if regla == "referencia":
+                f = regla_referencias(torcidos, [])
+            elif regla == "wrld":
+                f = _reglas_wrld(t, [])
+            else:
+                f = _regla_full(dict(t, localizado=False), [])
+            if not f:
+                fallas.append("%s / %s: no reprobo" % (nombre, que))
+        print("   %-34s %d refs (%d en grupo 8, %d en grupo 9), %d "
+              "excepciones, %d roturas de REGLAS 5-7"
+              % (nombre, len(refs), len(g8), len(g9), exc, len(mutaciones)))
+    print("   referencias: %d en grupo 8, %d en grupo 9, %d en otro grupo, "
+          "%d excepciones (medido el 2026-09-25: %d, %d, 0, 0)"
+          % (total["g8"], total["g9"], total["otro"], total["excepciones"],
+             N_REF_G8, N_REF_G9))
+    return usados, roturas, fallas
 
 
 def main(argv):

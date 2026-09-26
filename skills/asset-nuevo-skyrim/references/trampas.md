@@ -1,8 +1,8 @@
-# Trampas: veinticuatro fallos que no tiran error
+# Trampas: veinticinco fallos que no tiran error
 
 Casi todas se pagaron en `Escudo_Dwemer_SE_v01` (un escudo dwemer nuevo, con
 panel transparente, para Skyrim SE); la [4b](#4b), la [23](#23) y la [24](#24)
-salieron del hacha de Tencent. **Ninguna tira excepción.** El pipeline termina `ok`, el mod
+salieron del hacha de Tencent, y la [25](#25) del Retrete VIP. **Ninguna tira excepción.** El pipeline termina `ok`, el mod
 se instala, y el problema aparece mirando el archivo escrito o probando en el
 juego.
 
@@ -21,6 +21,8 @@ Empezá acá. La primera columna es lo que ve el jugador.
 | Se equipa y la armadura no sube | [3](#3) |
 | El arma pesa 0 y hace 0 de daño, y el valor sale bien | [23](#23) |
 | El arma envainada cuelga en otro lado (la cadera, la espalda) | [24](#24) |
+| El objeto colocado no aparece en el mundo | [25](#25) |
+| El mundo se llama " L" | [25](#25) |
 | Al soltarlo sale volando y se hunde en el piso | [4](#4) |
 | Sale girado un ángulo raro | [5](#5) |
 | Las correas / el agarre quedan lejos del brazo | [6](#6) |
@@ -107,6 +109,42 @@ ballestas. Los bastones no tienen regla. Tabla completa en
 
 → Copiá el `Prn` del NIF del donante. Y `scripts/verificar_plugin.py`, corrido
 sobre la carpeta del mod, compara el `Prn` del NIF con el tipo del plugin.
+
+### 25. El objeto colocado no aparece en el mundo {#25}
+
+La referencia está en el plugin, el plugin carga, y en el lugar no hay nada.
+Sin error, sin aviso en la consola. Le pasó al Retrete VIP v1.1 en el mercado
+de Carrera Blanca: su `REFR` iba en el grupo de hijos **persistentes** (GRUP
+de tipo 8) de la celda persistente de WhiterunWorld (`0001A270`), escrito con
+`census/escritor_plugin.py` `record(..., banderas=0)`. Le faltaba la bandera
+**`0x400` (Persistent)**.
+
+`[MEASURED]` Las 879.753 referencias colocadas de los 10 plugins oficiales
+(`REFR`, `ACHR`, `PGRE`, `PMIS`, `PHZD`, `PARW`, `PBAR`, `PBEA`, `PCON`,
+`PFLA`): las **59.240** de grupos 8 llevan `0x400` (24.838 del mundo + 34.402
+de interiores) y **ninguna** de las 820.513 de grupos 9 (483.178 interiores +
+337.335 exteriores). Cero excepciones, y ninguna referencia en otro tipo de
+grupo. La del v1.1 era la única de la instalación con esa combinación. Las
+celdas exteriores no tienen grupo 8: lo persistente del mundo vive en la celda
+persistente, la `CELL` directamente bajo el World Children.
+
+El mismo plugin copió el `WRLD` crudo de `Skyrim.esm`, y eso trae tres cosas
+más que tampoco avisan:
+
+- un **`OFST`** con offsets a *otro* archivo: las 113 entradas se salían de sus
+  11.289 bytes. Los 94 `WRLD` oficiales llevan `OFST` —hasta los overrides—,
+  pero sus 76.250 entradas caen **todas** dentro de su archivo. xEdit lo quita
+  por defecto (*Remove OFST Data*);
+- las **40 `RNAM`** (referencias grandes) de `Skyrim.esm`, que pisan las de los
+  overrides que ganan (Dawnguard, HearthFires, Fish no tienen ninguna). 10 de
+  los 45 overrides oficiales de `WRLD` llevan `RNAM`, así que no es regla;
+- la **`FULL` como ID localizado** de 4 bytes (`20 4C 00 00`) en un plugin no
+  localizado (bandera `0x80` del `TES4` apagada): el juego lo lee como texto y
+  el mundo se llama " L". Las 34.956 `FULL` oficiales son IDs de 4 bytes.
+
+→ En un grupo 8, `banderas=0x400`. No copies un `WRLD` crudo: sin `OFST`, sin
+las `RNAM` del master y con el nombre escrito. `scripts/verificar_plugin.py`
+reprueba las tres cosas (el `RNAM`, como observación).
 
 ## La colisión
 
