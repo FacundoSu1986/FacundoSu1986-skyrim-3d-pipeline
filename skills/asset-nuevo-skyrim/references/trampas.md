@@ -231,6 +231,16 @@ referencia bloques por índice, no por offset**, así que retipar y redimensiona
 un bloque es una operación local y segura. Verificalo reimportando: PyNifly sí
 sabe *leer* `BSOrderedNode`.
 
+**Pero para un vidrio no hace falta.** `[MEASURED]` En 2.148 NIF vanilla de
+armaduras y armas hay 262 piezas *Lighting* con *blending*: 234 cuelgan de la
+raíz, 28 de un `NiNode` y **ninguna** de un `BSOrderedNode`. El único de esas
+carpetas, el de `dlc01/armor/dwarven/1stpersondwarvenshieldcrystal.nif`, no
+tiene hijos (leído con `nif_nodos.py`). En el corpus entero aparece en 244 de
+22.394 NIF, casi todos efectos y gemas. El escudo ovalado lo usó y se vio bien
+en el juego: no molesta, pero no es lo que hace el vanilla, y
+`scripts/exportar_nif.py` cuelga las piezas transparentes de la raíz. Detalle
+en la entrada 44 de `census/hallazgos.md`.
+
 ### 13. El `target_game` por defecto es `SKYRIM` (LE), no `SKYRIMSE` {#13}
 
 Exportar con los valores por defecto da un NIF de la edición equivocada.

@@ -3,9 +3,11 @@ se saltea, y eso es "no se probo", no "paso".
 
 Lo puro (plan, soldadura, caja, inercia, flags, texturas) lo prueba
 test_exportar_puro.py en CI. Esto prueba lo que solo Blender y el addon
-pueden: la falsificacion arma con PyNifly un donante sintetico y exporta tres
-planes --el bueno sale con la receta copiada y conciliada, sus texturas y no
-las del donante; la receta transparente y el donante sin inercia reprueban--.
+pueden: la falsificacion arma con PyNifly un donante sintetico y exporta
+cuatro planes --el bueno, con metal, un vidrio con alfa por vertice y un panel
+con el alfa en la textura, sale con las recetas copiadas y conciliadas y el
+alfa como estaba en la escena; un vidrio sin capa VERTEX_ALPHA, uno con la
+capa pareja y un donante sin inercia reprueban--.
 """
 import os
 from pathlib import Path
@@ -31,7 +33,7 @@ class ExportarNifEnBlenderTests(unittest.TestCase):
     def test_falsificar(self):
         p = _exportar("--falsificar")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertIn("falsificar: 8 comprobaciones, 0 fallas", p.stdout)
+        self.assertIn("falsificar: 17 comprobaciones, 0 fallas", p.stdout)
 
     def test_argumento_que_no_sirve_sale_con_2(self):
         p = _exportar("no-existe.json", "no-existe.blend")

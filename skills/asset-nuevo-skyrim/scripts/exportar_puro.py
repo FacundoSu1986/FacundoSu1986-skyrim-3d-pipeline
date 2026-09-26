@@ -23,6 +23,11 @@ fuera de la biblioteca estandar--, con autotest:
                      dependen de la geometria de ESA pieza
   texturas_pieza     las del asset salen del plan; de la receta, solo el
                      cubemap (ranura EnvMap)
+  modo_alfa          como es transparente la receta: opaca, testing, o
+                     blending con el alfa en los colores de vertice o en la
+                     textura (con el censo que dice que no hace falta un
+                     BSOrderedNode)
+  validar_alfa_vertice  el alfa por vertice tiene que variar (trampa 16)
 
 EL ENFOQUE DONANTE, PARA UN ASSET NUEVO
 ---------------------------------------
@@ -150,21 +155,27 @@ def validar_plan(plan):
     return p
 
 
-def soldar(esquinas, dec_pos=4, dec_uv=5, dec_normal=3):
-    """(verts, uvs, normales, tris) desde las esquinas de los triangulos.
+def soldar(esquinas, dec_pos=4, dec_uv=5, dec_normal=3, dec_color=3):
+    """(verts, uvs, normales, tris, colores) desde las esquinas.
 
-    `esquinas`: [(pos, uv, normal)] de a tres por triangulo, como las da
-    Blender (uv con el origen abajo). Un vertice por combinacion distinta de
-    las tres cosas: pegar lo que la textura o la luz separan rompe la costura.
-    La V sale INVERTIDA: el NIF tiene el origen arriba (trampa 29)."""
+    `esquinas`: [(pos, uv, normal)] --o [(pos, uv, normal, rgba)] con color
+    por vertice-- de a tres por triangulo, como las da Blender (uv con el
+    origen abajo). Un vertice por combinacion distinta: pegar lo que la
+    textura, la luz o el alfa separan rompe la costura. La V sale INVERTIDA:
+    el NIF tiene el origen arriba (trampa 29). `colores` es None sin color."""
     if len(esquinas) % 3:
         raise ExportError("%d esquinas: no son triangulos" % len(esquinas))
-    indice, verts, uvs, normales, tris = {}, [], [], [], []
+    con_color = bool(esquinas) and len(esquinas[0]) == 4
+    if any((len(e) == 4) != con_color for e in esquinas):
+        raise ExportError("unas esquinas traen color y otras no")
+    indice, verts, uvs, normales, tris, colores = {}, [], [], [], [], []
     tri = []
-    for pos, uv, nor in esquinas:
+    for e in esquinas:
+        pos, uv, nor = e[0], e[1], e[2]
         clave = (tuple(round(c, dec_pos) for c in pos),
                  tuple(round(c, dec_uv) for c in uv),
-                 tuple(round(c, dec_normal) for c in nor))
+                 tuple(round(c, dec_normal) for c in nor),
+                 tuple(round(c, dec_color) for c in e[3]) if con_color else ())
         k = indice.get(clave)
         if k is None:
             k = len(verts)
@@ -177,11 +188,51 @@ def soldar(esquinas, dec_pos=4, dec_uv=5, dec_normal=3):
             verts.append(tuple(float(c) for c in pos))
             uvs.append((float(uv[0]), 1.0 - float(uv[1])))
             normales.append(tuple(float(c) for c in nor))
+            if con_color:
+                colores.append(tuple(float(c) for c in e[3]))
         tri.append(k)
         if len(tri) == 3:
             tris.append(tuple(tri))
             tri = []
-    return verts, uvs, normales, tris
+    return verts, uvs, normales, tris, (colores if con_color else None)
+
+
+# NiAlphaProperty.flags: bit 0 = blending, bit 9 = testing (trampa 14).
+ALFA_BLENDING = 0x1
+ALFA_TESTING = 0x200
+VARIACION_MINIMA = 0.01
+
+
+def modo_alfa(alfa, f1):
+    """Como es transparente la receta: "opaco" (sin NiAlphaProperty),
+    "testing" (recorta, no transparenta), "blending_vertice" (el alfa sale de
+    los colores de vertice: VERTEX_ALPHA) o "blending_textura" (sale del alfa
+    del difuso).
+
+    [MEASURED] armaduras y armas vanilla, 2.148 NIF: 262 piezas Lighting con
+    blending, 59 con VERTEX_ALPHA y alfa que varia, 203 con el alfa en la
+    textura; 234 cuelgan de la raiz, 28 de un NiNode, NINGUNA de un
+    BSOrderedNode (el unico de esas carpetas, en el escudo enano de cristal
+    de Dawnguard en primera persona, no tiene hijos)."""
+    if alfa is None:
+        return "opaco"
+    flags = alfa[0]
+    if not flags & ALFA_BLENDING:
+        return "testing" if flags & ALFA_TESTING else "opaco"
+    return "blending_vertice" if f1 & SF1_VERTEX_ALPHA else "blending_textura"
+
+
+def validar_alfa_vertice(alfas):
+    """(minimo, maximo) del alfa por vertice. Uniforme es un error: un panel
+    con el alfa parejo se ve opaco aunque la NiAlphaProperty este bien
+    (trampa 16), y sin la capa, el alfa vale 0 y la pieza es invisible."""
+    if not alfas:
+        raise ExportError("no hay alfa por vertice")
+    lo, hi = min(alfas), max(alfas)
+    if hi - lo <= VARIACION_MINIMA:
+        raise ExportError("el alfa por vertice es uniforme (%.3f): el panel se "
+                          "veria opaco (trampa 16)" % lo)
+    return lo, hi
 
 
 def caja_colision(puntos):
@@ -297,22 +348,46 @@ def autotest():
     n = (0.0, 0.0, 1.0)
     quad = [(a, (0, 0), n), (b, (1, 0), n), (c, (0, 1), n),
             (b, (1, 0), n), (d, (1, 1), n), (c, (0, 1), n)]
-    v, uv, nr, t = soldar(quad)
-    exigir(len(v) == 4 and len(t) == 2, "soldar: un quad son 4 vertices y 2 "
-           "triangulos, salio %d y %d" % (len(v), len(t)))
+    v, uv, nr, t, col = soldar(quad)
+    exigir(len(v) == 4 and len(t) == 2 and col is None,
+           "soldar: un quad son 4 vertices y 2 triangulos, sin color; salio "
+           "%d, %d y %r" % (len(v), len(t), col))
     exigir(uv[0] == (0.0, 1.0) and uv[2] == (0.0, 0.0),
            "soldar: la V no salio invertida: %r" % uv[:3])
     costura = list(quad)
     costura[3] = (b, (0.5, 0), n)          # misma posicion, otra UV: costura
-    v, _uv, _nr, t = soldar(costura)
+    v, _uv, _nr, t, _c = soldar(costura)
     exigir(len(v) == 5, "soldar: una costura de UV no se suelda, %d vertices" % len(v))
     duro = list(quad)
     # otra normal en un vertice COMPARTIDO (b esta en los dos triangulos):
     # arista dura, se parte en dos
     duro[3] = (b, (1, 0), (0.0, 1.0, 0.0))
-    v, _uv, _nr, _t = soldar(duro)
+    v, _uv, _nr, _t, _c = soldar(duro)
     exigir(len(v) == 5, "soldar: una arista dura no se suelda, %d vertices" % len(v))
     falla_con(soldar, (quad[:4],), "no son triangulos", "soldar con 4 esquinas")
+    # con color: el mismo vertice con otro alfa es otro vertice
+    blanco, medio = (1.0, 1.0, 1.0, 1.0), (1.0, 1.0, 1.0, 0.3)
+    con = [e + (blanco,) for e in quad]
+    v, _uv, _nr, _t, col = soldar(con)
+    exigir(len(v) == 4 and col == [blanco] * 4,
+           "soldar con color: %d vertices, colores %r" % (len(v), col))
+    con[3] = quad[3] + (medio,)            # b compartido, con otro alfa
+    v, _uv, _nr, _t, col = soldar(con)
+    exigir(len(v) == 5 and medio in col,
+           "soldar: otro alfa en un vertice compartido no se suelda: %d" % len(v))
+    falla_con(soldar, ([e + (blanco,) for e in quad[:3]] + quad[3:],),
+              "unas esquinas traen color", "soldar con color a medias")
+
+    # --- el modo de alfa, con los numeros de la trampa 14 ---
+    exigir([modo_alfa(None, 0), modo_alfa((4844, 128), 0),
+            modo_alfa((4333, 128), 0x82400381),
+            modo_alfa((4333, 128), 0x82400389)] ==
+           ["opaco", "testing", "blending_textura", "blending_vertice"],
+           "modo_alfa con 4844 (testing) y 4333 (blending)")
+    exigir(validar_alfa_vertice([0.3, 0.96, 0.5]) == (0.3, 0.96),
+           "validar_alfa_vertice con alfa que varia")
+    falla_con(validar_alfa_vertice, ([1.0, 1.0, 0.995],), "uniforme",
+              "alfa por vertice uniforme")
     muchos = []
     for k in range(MAX_VERTICES // 3 + 2):
         muchos += [((k, 0, 0), (0, 0), n), ((k, 1, 0), (0, 0), n),

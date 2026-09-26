@@ -103,7 +103,9 @@ Pasos numerados, cada uno reejecutable solo y con su reporte JSON
    shader de cada pieza; calcula la caja, y relee el archivo antes de dejarlo.
 6. **Verificar reimportando el archivo escrito**, no la escena.
 7. **DDS** con texconv, BC7, mipmaps completos.
-8. **Parches binarios** que PyNifly no puede hacer (`BSOrderedNode`).
+8. **Parches binarios** que PyNifly no puede hacer. El que se usaba para un
+   vidrio, `BSOrderedNode` (trampa 12), **no hace falta**: ninguna de las 262
+   piezas con *blending* de armaduras y armas vanilla cuelga de uno.
 9. **Plugin**: ARMO + ARMA, con las razas adicionales copiadas del vanilla.
 10. **Render de pose** — el asset ya colgado del nodo, con el hueso dibujado.
 11. **ESL**, si el mod es chico.
@@ -178,9 +180,11 @@ como mínimo:
 - raíz `BSFadeNode` con el nombre correcto, `Prn` presente y apuntando al nodo;
 - `BSXFlags` y marcador de inventario;
 - colisión presente, con su forma, su material, y **diagonal de inercia > 0**;
-- para paneles transparentes: `NiAlphaProperty` con flags de *blending*, bajo un
-  `BSOrderedNode`, y el alfa por vértice **variando** — una capa uniforme en 1,0
-  es un panel opaco aunque el `NiAlphaProperty` esté perfecto;
+- para paneles transparentes: `NiAlphaProperty` con flags de *blending* (4333, no
+  4844: trampa 14) y, si la receta toma el alfa de los colores de vértice, ese
+  alfa **variando** — una capa uniforme en 1,0 es un panel opaco aunque el
+  `NiAlphaProperty` esté perfecto. Un `BSOrderedNode`, no: el vanilla no lo usa
+  para eso (trampa 12);
 - **ausencia** de lo que no va: un escudo no tiene armadura ni particiones. Un
   chequeo que exige que algo NO esté atrapa el copiado por inercia desde un
   pipeline de criaturas.
@@ -322,8 +326,10 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   rígido. Escribe con la API de PyNifly, no con su exportador (el camino de
   las armas que se vieron en el juego), a un temporal que relee con PyNifly
   y con `nif_nodos.py`, y pasa por las REGLAS de `colision_caja.py` antes de
-  reemplazar el definitivo. No escribe todavía piezas transparentes con
-  *blending* (piden `BSOrderedNode` y alfa por vértice): las rechaza.
+  reemplazar el definitivo. Una pieza transparente copia la `NiAlphaProperty`
+  de su receta; si la receta toma el alfa de los colores de vértice, exige la
+  capa `VERTEX_ALPHA` y que varíe (trampa 16). No escribe `BSOrderedNode`:
+  medido, el vanilla no lo usa para transparencia.
   `--falsificar` arma un donante sintético con PyNifly, sin archivos del juego.
 - **`scripts/exportar_puro.py`** — lo de ese export que no necesita Blender,
   con `--autotest`: el plan, la soldadura con la V invertida y el tope de

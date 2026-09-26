@@ -434,7 +434,8 @@ colisión, material, masa y capa.
 
 **Lo que no hace todavía**: piezas transparentes con *blending* (piden
 `BSOrderedNode` y alfa por vértice), piezas skinneadas y colores de vértice.
-Una receta con *blending* se rechaza con el motivo.
+Una receta con *blending* se rechaza con el motivo. *(Después: el vidrio llegó,
+y sin `BSOrderedNode`; ver "Las piezas transparentes, sin BSOrderedNode".)*
 
 ### El segundo archivo compartido (issue [#75](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/75), revisada)
 
