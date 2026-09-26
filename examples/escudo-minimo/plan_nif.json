@@ -1,0 +1,18 @@
+{
+ "donante": "donante.nif",
+ "salida": "salida/meshes/ejemplo/escudominimo.nif",
+ "raiz": "EscudoMinimo",
+ "piezas": [
+  {
+   "objeto": "escudo",
+   "shape": "EscudoMinimo:0",
+   "receta": {"shape": "Donante:0"},
+   "texturas": {
+    "Diffuse": "textures\\ejemplo\\escudominimo.dds",
+    "Normal": "textures\\ejemplo\\escudominimo_n.dds",
+    "EnvMask": "textures\\ejemplo\\escudominimo_m.dds"
+   }
+  }
+ ],
+ "colision": {"objetos": ["escudo"]}
+}

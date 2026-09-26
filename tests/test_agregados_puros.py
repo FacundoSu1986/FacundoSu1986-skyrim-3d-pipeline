@@ -4,6 +4,8 @@
 Estas no tocan el corpus: operan sobre listas/números en memoria, así que se
 pueden validar con casos armados a mano.
 """
+import contextlib
+import io
 import unittest
 
 from _paths import preparar_path
@@ -39,6 +41,18 @@ class PctTests(unittest.TestCase):
 
     def test_pct_divisor_cero(self) -> None:
         self.assertEqual(ag.pct(1, 0), "-")
+
+
+class SeccionSinShapesTests(unittest.TestCase):
+    """mypy (issue #72 del repo) marco que sec_e indexaba `mejor` aunque
+    quedara en None: sin shapes medidas, un TypeError en vez del reporte."""
+
+    def test_sec_e_sin_shapes_lo_dice(self) -> None:
+        for filas in ([], [{"vertices_por_shape": [], "ruta_relativa": "a.nif"}]):
+            salida = io.StringIO()
+            with contextlib.redirect_stdout(salida):
+                ag.sec_e(filas)
+            self.assertIn("no hay shapes medidas", salida.getvalue())
 
 
 if __name__ == "__main__":

@@ -47,9 +47,8 @@ NO_CONTROLES = {
     "--extrusion", "--force", "--margen",
     "--frente-az", "--girar-180", "--guardar-alto", "--help", "--json",
     "--aplicar", "--marcadas", "--marcar", "--maximo", "--minimo",
-    "--muestras-ao",
-    "--planar", "--quitar", "--relativo-a", "--salida", "--soldadura",
-    "--tope", "--vistas",
+    "--muestras-ao", "--planar", "--prn", "--quitar", "--relativo-a",
+    "--salida", "--soldadura", "--tope", "--vistas",
 }
 # Flags de la línea de comandos de Blender, que la página escribe al lado de
 # un script (`blender -b --python hornear.py -- ...`) y no son del script.

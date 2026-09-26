@@ -40,6 +40,7 @@ import re
 import struct
 import sys
 from collections import Counter
+from typing import Any
 
 _RE_DDS = re.compile(rb"[ -~]{4,160}\.dds", re.IGNORECASE)
 
@@ -459,10 +460,11 @@ class Nif(object):
     def _parse_shader_property(self, shader_idx):
         """Devuelve dict: bloque, shader_tipo, shader_tipo_id, flags1, flags2,
         ranuras_textura_pobladas, rutas_textura, violaciones."""
-        vacio = {"bloque": None, "shader_tipo": None, "shader_tipo_id": None,
-                 "flags1": None, "flags2": None,
-                 "ranuras_textura_pobladas": [], "rutas_textura": [],
-                 "violaciones": []}
+        vacio: dict[str, Any] = {
+            "bloque": None, "shader_tipo": None, "shader_tipo_id": None,
+            "flags1": None, "flags2": None,
+            "ranuras_textura_pobladas": [], "rutas_textura": [],
+            "violaciones": []}
         if not self._ref_valida(shader_idx):
             return vacio
         tipo, o, s = self.bloques[shader_idx]
@@ -660,7 +662,7 @@ class Nif(object):
         motion system(+id), masa. Del primer bhkRigidBody(T) del archivo."""
         d = self.d
         tipos_bhk = sorted({t for t, _, _ in self.bloques if t.startswith("bhk")})
-        info = {
+        info: dict[str, Any] = {
             "tipos_bhk": tipos_bhk,
             "layer": None, "layer_id": None,
             "material_havok": None, "material_havok_id": None,

@@ -9,6 +9,7 @@ Definiciones:
 import json
 import sys
 from collections import Counter, defaultdict
+from typing import Any
 
 CENSO = "censo.jsonl"
 
@@ -156,7 +157,10 @@ def sec_e(filas):
             if mejor is None or v > mejor[0]:
                 mejor = (v, f["ruta_relativa"])
     print("  N shapes medidas:", n_shapes)
-    print("  maximo global:", mejor[0], "en", mejor[1])
+    if mejor is None:
+        print("  maximo global: no hay shapes medidas")
+    else:
+        print("  maximo global:", mejor[0], "en", mejor[1])
     print("  shapes por rango de 10k verts:")
     for k in sorted(dist):
         print("    [%2d0k,%2d0k): %d" % (k, k + 1, dist[k]))
@@ -167,8 +171,8 @@ def sec_e(filas):
 
 def sec_f(filas):
     print("== f. max huesos por vertice por criatura (actors/) ==")
-    porcr = defaultdict(lambda: {"n": 0, "max": Counter(), "verts": Counter(),
-                                 "skin": 0})
+    porcr: defaultdict[str, dict[str, Any]] = defaultdict(
+        lambda: {"n": 0, "max": Counter(), "verts": Counter(), "skin": 0})
     for f in filas:
         if not f["ruta_relativa"].startswith("actors/"):
             continue

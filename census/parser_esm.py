@@ -153,8 +153,7 @@ class Plugin(object):
         fuera = []
         p = 0
         n = len(datos)
-        pendiente = None
-        origen_xxxx = None
+        pendiente = None        # (donde empieza el XXXX, el tamano que promete)
         while p + SUB_CABECERA <= n:
             tipo = datos[p:p + 4]
             tam, = struct.unpack_from("<H", datos, p + 4)
@@ -162,12 +161,11 @@ class Plugin(object):
             if tipo == ESCAPE_TAMANO:
                 if tam != 4 or p + 4 > n:
                     raise PluginInvalido("XXXX mal formado en +%d" % (p - SUB_CABECERA))
-                pendiente, = struct.unpack_from("<I", datos, p)
-                origen_xxxx = p - SUB_CABECERA
+                pendiente = (p - SUB_CABECERA, struct.unpack_from("<I", datos, p)[0])
                 p += 4
                 continue
             if pendiente is not None:
-                tam = pendiente
+                tam = pendiente[1]
                 pendiente = None
             if p + tam > n:
                 raise PluginInvalido(
@@ -180,8 +178,7 @@ class Plugin(object):
             # truncado, y un `p == n` limpio aca abajo lo daria por bueno: la
             # pasada de subrecords del autotest lo reportaria como embaldosado.
             raise PluginInvalido(
-                "XXXX en +%d sin el subrecord que describe (%d bytes)"
-                % (origen_xxxx, pendiente))
+                "XXXX en +%d sin el subrecord que describe (%d bytes)" % pendiente)
         if p != n:
             raise PluginInvalido(
                 "los subrecords terminan en %d y no en %d (sobran %d)" % (p, n, n - p))

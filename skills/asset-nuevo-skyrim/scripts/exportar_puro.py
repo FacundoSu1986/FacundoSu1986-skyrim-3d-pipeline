@@ -43,7 +43,6 @@ metal dorado de la espada de vidrio, el brillo de una pieza con Glow Shader.
 Ninguna pieza vanilla combina mapa de entorno y mapa de brillo, asi que un
 asset con metal y partes que brillan son DOS piezas.
 """
-import math
 import sys
 
 try:

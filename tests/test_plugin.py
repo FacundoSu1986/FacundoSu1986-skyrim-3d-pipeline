@@ -86,6 +86,7 @@ class EscribirYReleerTests(unittest.TestCase):
             subs = p.subrecords(off)
             self.assertEqual(["EDID", "MODL", "DATA"], [s[0] for s in subs])
             so, sn = subs[2][1], subs[2][2]
+            self.assertEqual(8, sn)             # DATA de ARMO: valor u32 + peso f32
             valor, peso = struct.unpack_from("<If", p.d, so)
             self.assertEqual(450, valor)
             self.assertAlmostEqual(6.0, peso, places=5)

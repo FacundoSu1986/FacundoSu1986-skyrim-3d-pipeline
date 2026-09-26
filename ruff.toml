@@ -1,0 +1,26 @@
+# Lint de todo el repo (issue #72 del repo). Lo corre el CI:
+#
+#   python -m ruff check .
+#
+# Mira TODOS los .py, tambien los scripts de Blender: ruff no importa nada,
+# asi que `bpy` no hace falta. La version esta fijada en requirements-dev.txt.
+target-version = "py311"
+
+[lint]
+# E y F (pycodestyle y pyflakes): nombres sin definir, imports y variables sin
+# usar, imports fuera de lugar, comparaciones con None o True mal escritas,
+# `except:` pelado, sintaxis.
+select = ["E", "F"]
+# Tres reglas de E quedan afuera A PROPOSITO: son estilo, no atrapan errores.
+ignore = [
+    # Largo de linea. El repo no usa formateador, y cortar a mano 69 lineas
+    # no arregla nada.
+    "E501",
+    # Dos sentencias en una linea con `;`. Es el estilo de los parsers
+    # binarios, que leen y avanzan el puntero juntos
+    # (`n, = struct.unpack_from("<I", d, p); p += 4`): 126 lineas en seis
+    # archivos, dos de ellos copias que tienen que seguir identicas.
+    "E702",
+    # `l`, `I` u `O` como nombre: legibilidad, no errores (17 casos).
+    "E741",
+]

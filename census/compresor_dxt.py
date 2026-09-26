@@ -273,8 +273,8 @@ def descomprimir(datos, ancho, alto, formato):
     crudo = np.frombuffer(bytes(datos[:n * bpb]), np.uint8)
     if crudo.size != n * bpb:
         raise ValueError("faltan bytes: %d de %d" % (crudo.size, n * bpb))
-    crudo = crudo.reshape(n, bpb)
-    color = crudo[:, bpb - 8:]
+    bloques = crudo.reshape(n, bpb)        # un bloque por fila
+    color = bloques[:, bpb - 8:]
     c0 = color[:, 0:2].copy().view("<u2")[:, 0]
     c1 = color[:, 2:4].copy().view("<u2")[:, 0]
     idx = _desempaquetar(color[:, 4:8].copy().view("<u4")[:, 0]
@@ -285,7 +285,7 @@ def descomprimir(datos, ancho, alto, formato):
     if formato == "DXT1":
         alfa = np.where((~cuatro)[:, None] & (idx == 3), 0, 255)
     else:
-        a = crudo[:, :8]
+        a = bloques[:, :8]
         bits = np.zeros((n, 8), np.uint8)
         bits[:, :6] = a[:, 2:8]
         aidx = _desempaquetar(bits.view("<u8")[:, 0], 3)
@@ -377,11 +377,11 @@ def autotest():
 
     # d. alfa constante -> alpha0 == alpha1 (la semantica de
     #    mascara_especular), y alfa variable -> alpha0 != alpha1
-    pix = bytearray(_degradado(16, 16))
+    con_alfa = bytearray(_degradado(16, 16))
     for i in range(16 * 4):                 # la primera fila de bloques...
         y, x = divmod(i, 16)
-        pix[(y * 16 + x) * 4 + 3] = 255     # ...alfa 255 constante
-    datos = comprimir(bytes(pix), 16, 16, "DXT5")
+        con_alfa[(y * 16 + x) * 4 + 3] = 255  # ...alfa 255 constante
+    datos = comprimir(bytes(con_alfa), 16, 16, "DXT5")
     bl = np.frombuffer(datos, np.uint8).reshape(-1, 16)
     ok(bool((bl[:4, 0] == 255).all() and (bl[:4, 1] == 255).all()),
        "DXT5: los 4 bloques de alfa 255 constante salen con a0 == a1 == 255")

@@ -332,12 +332,20 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   en otro valor pasa con una nota, y un alfa pintado que la receta no usa
   también deja nota. No escribe `BSOrderedNode`: medido, el vanilla no lo usa
   para transparencia.
-  `--falsificar` arma un donante sintético con PyNifly, sin archivos del juego.
+  `--falsificar` arma un donante sintético (`donante_sintetico.py`), sin
+  archivos del juego.
 - **`scripts/exportar_puro.py`** — lo de ese export que no necesita Blender,
   con `--autotest`: el plan, la soldadura con la V invertida y el tope de
   65.535 vértices, la caja y la inercia, los flags que dependen de la
   geometría de la pieza vanilla y qué texturas se copian de la receta
   (solo el cubemap).
+- **`scripts/donante_sintetico.py`** (Blender) — un donante para
+  `exportar_nif.py` hecho con PyNifly, sin un byte del juego: tres recetas
+  (metal, vidrio con alfa por vértice, panel con el alfa en la textura),
+  `BSXFlags`, `Prn` (`--prn SHIELD` para un escudo), marcador de inventario y
+  colisión con inercia. Es para PROBAR el camino —lo usan `--falsificar` y el
+  ejemplo `examples/escudo-minimo/` del repo—, no para un asset: sus números
+  no salen de medir nada vanilla.
 - **`scripts/correr_en_blender.py`** — que un script de Blender que revienta no
   salga con 0. Es el mismo archivo que el de `modelo-ia-a-skyrim`, byte a byte,
   y un test lo exige.
