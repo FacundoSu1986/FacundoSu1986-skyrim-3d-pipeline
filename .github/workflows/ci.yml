@@ -26,12 +26,17 @@ jobs:
       # numpy en CI sus autotests salteaban y decian "OK".
       # Pillow: solo como ORACULO de compresor_dxt (su decodificador y su
       # compresor DXT, para comparar). No es dependencia del repo.
-      # tests/test_horneado_puro.py y tests/test_compresor_dxt.py fallan si
-      # falta alguno.
+      # PyYAML: solo como ORACULO de test_frontmatter_skills.py (el parser del
+      # validador de subida, para comparar con el lector del test). Tampoco es
+      # dependencia del repo. Sin PyYAML en CI esa comparacion se salteaba y
+      # la suite decia "OK".
+      # Si falta alguno, un test falla en vez de saltearse:
+      # tests/test_horneado_puro.py (numpy), tests/test_compresor_dxt.py (numpy
+      # y Pillow) y tests/test_frontmatter_skills.py (PyYAML).
       # ruff y mypy: el lint y los tipos de abajo, con la version fijada.
       # La lista vive en requirements-dev.txt (numpy via requirements.txt): el
       # CI instala ESE archivo para que lo declarado y lo probado no se separen.
-      - name: numpy, Pillow, ruff y mypy (requirements-dev.txt)
+      - name: numpy, Pillow, PyYAML, ruff y mypy (requirements-dev.txt)
         run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
 
       # Sintaxis de TODOS los scripts, incluidos los de Blender (medir_parte,

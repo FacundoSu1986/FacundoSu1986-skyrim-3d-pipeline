@@ -112,8 +112,10 @@ se ve.
 
 `.github/workflows/ci.yml`, en Python 3.11 y 3.12:
 
-1. `pip install -r requirements-dev.txt`: numpy, Pillow como oráculo, y ruff
-   y mypy con la versión fijada.
+1. `pip install -r requirements-dev.txt`: numpy; Pillow y PyYAML, oráculos de
+   `test_compresor_dxt.py` y de `test_frontmatter_skills.py`; y ruff y mypy
+   con la versión fijada. Si falta numpy, Pillow o PyYAML, un test falla en
+   vez de saltearse.
 2. `compileall` sobre `census`, `skills`, `tests`, `pipeline`, `fixtures` y
    `examples`:
    la sintaxis de todo, incluidos los scripts de Blender, que fuera de Blender

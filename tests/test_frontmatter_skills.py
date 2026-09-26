@@ -23,7 +23,10 @@ El repo no depende de PyYAML: el frontmatter se escribe en el subconjunto que
 lee `leer_frontmatter` --`clave: valor` en una linea y un nivel de anidado--,
 y lo que ese lector no entiende es un error, no una clave que se pierde en
 silencio (ElLectorNoCallaTests). Si PyYAML esta instalado, ademas se compara
-lo leido contra el YAML de verdad.
+lo leido contra el YAML de verdad: `yaml.safe_load`, el mismo parser con el que
+quick_validate.py lee el frontmatter. requirements-dev.txt lo instala como
+oraculo, y en CI que falte es un fallo, no un salteo: sin el, la suite decia
+"OK" sin haber hecho la comparacion.
 """
 import os
 import re
@@ -172,6 +175,10 @@ class FrontmatterDeLasSkillsTests(unittest.TestCase):
         try:
             import yaml
         except ImportError:
+            if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+                self.fail("CI sin PyYAML: la comparación contra YAML real "
+                          "se saltearía y la suite diría OK sin haberla "
+                          "hecho (requirements-dev.txt lo instala)")
             self.skipTest("PyYAML no está: la comparación contra YAML real "
                           "no se corrió (no cuenta como comprobada)")
         for nombre in sorted(FRONTMATTER_ESPERADO):
