@@ -273,8 +273,8 @@ def descomprimir(datos, ancho, alto, formato):
     crudo = np.frombuffer(bytes(datos[:n * bpb]), np.uint8)
     if crudo.size != n * bpb:
         raise ValueError("faltan bytes: %d de %d" % (crudo.size, n * bpb))
-    crudo = crudo.reshape(n, bpb)
-    color = crudo[:, bpb - 8:]
+    bloques = crudo.reshape(n, bpb)        # un bloque por fila
+    color = bloques[:, bpb - 8:]
     c0 = color[:, 0:2].copy().view("<u2")[:, 0]
     c1 = color[:, 2:4].copy().view("<u2")[:, 0]
     idx = _desempaquetar(color[:, 4:8].copy().view("<u4")[:, 0]
@@ -285,7 +285,7 @@ def descomprimir(datos, ancho, alto, formato):
     if formato == "DXT1":
         alfa = np.where((~cuatro)[:, None] & (idx == 3), 0, 255)
     else:
-        a = crudo[:, :8]
+        a = bloques[:, :8]
         bits = np.zeros((n, 8), np.uint8)
         bits[:, :6] = a[:, 2:8]
         aidx = _desempaquetar(bits.view("<u8")[:, 0], 3)
