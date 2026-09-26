@@ -86,6 +86,19 @@ def expr_barra(ruta, ondulacion=1.0, marcadas=False):
         % (LARGO + 1, ALTO, NUDO, ondulacion, marcadas, str(ruta)))
 
 
+def _editar(ruta, expr):
+    """Abre `ruta` en Blender, le corre `expr` y exige que salga bien.
+
+    Antes, curvar y marcar llamaban a Blender SIN el .blend: arrancaba con la
+    escena vacia, `bpy.data.objects['barra']` reventaba, nadie miraba el
+    codigo de salida y la barra quedaba sin curvar ni marcar. Los dos tests
+    fallaban con Blender por otra razon que la que dicen probar.
+    `--python-exit-code 1` para que una excepcion no salga con 0."""
+    p = _blender(str(ruta), "--python-exit-code", "1", "--python-expr", expr)
+    assert p.returncode == 0, p.stdout + p.stderr
+    return p
+
+
 def _barra(ruta, ondulacion=1.0, marcadas=False):
     """Escribe el .blend de una barra; devuelve las coordenadas originales.
 
@@ -253,7 +266,7 @@ class EnderezarEnBlenderTests(unittest.TestCase):
             ruta = Path(d) / "arco.blend"
             _barra(ruta, ondulacion=0.0)
             # Se curva la barra entera: es una curva de diseno, no ondulacion.
-            _blender("--python-expr", expr_curvar(ruta))
+            _editar(ruta, expr_curvar(ruta))
             curvada = _coordenadas(ruta)
             p = _enderezar(str(ruta), "--tope", "0.05", "--aplicar")
             self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
@@ -266,7 +279,7 @@ class EnderezarEnBlenderTests(unittest.TestCase):
             ruta = Path(d) / "marcada.blend"
             _barra(ruta, ondulacion=0.0, marcadas=False)
             # Una sola linea del canto superior, marcada a mano.
-            _blender("--python-expr", expr_marcar_un_canto(ruta))
+            _editar(ruta, expr_marcar_un_canto(ruta))
             p = _enderezar(str(ruta), "--marcadas", "--tope", "0.05")
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
             informe = _informe(p.stdout)
