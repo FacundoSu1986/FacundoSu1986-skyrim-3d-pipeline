@@ -27,7 +27,10 @@ fuera de la biblioteca estandar--, con autotest:
                      blending con el alfa en los colores de vertice o en la
                      textura (con el censo que dice que no hace falta un
                      BSOrderedNode)
-  validar_alfa_vertice  el alfa por vertice tiene que variar (trampa 16)
+  validar_alfa_vertice  el alfa por vertice no puede quedar parejo en 1 (se
+                     ve opaco: trampa 16) ni en 0 (invisible); parejo en
+                     otro valor pasa, con una nota
+  nota_alfa_ignorado la nota de un alfa pintado que la receta no usa
 
 EL ENFOQUE DONANTE, PARA UN ASSET NUEVO
 ---------------------------------------
@@ -223,16 +226,42 @@ def modo_alfa(alfa, f1):
 
 
 def validar_alfa_vertice(alfas):
-    """(minimo, maximo) del alfa por vertice. Uniforme es un error: un panel
-    con el alfa parejo se ve opaco aunque la NiAlphaProperty este bien
-    (trampa 16), y sin la capa, el alfa vale 0 y la pieza es invisible."""
+    """(minimo, maximo, notas) del alfa por vertice.
+
+    Parejo en 1 es el error de la trampa 16 --la capa quedo en blanco, o el
+    alfa se pinto en otra--: el panel se ve opaco aunque la NiAlphaProperty
+    este bien. Parejo en 0, la pieza es invisible. Parejo en un valor
+    intermedio es una transparencia pareja, y pasa con una nota: que las 59
+    piezas vanilla con VERTEX_ALPHA lo tengan variando (hallazgo 44) dice
+    como se pintaron, no que acepta el motor."""
     if not alfas:
         raise ExportError("no hay alfa por vertice")
     lo, hi = min(alfas), max(alfas)
-    if hi - lo <= VARIACION_MINIMA:
-        raise ExportError("el alfa por vertice es uniforme (%.3f): el panel se "
+    if hi - lo > VARIACION_MINIMA:
+        return lo, hi, []
+    if lo >= 1.0 - VARIACION_MINIMA:
+        raise ExportError("el alfa por vertice es uniforme en %.3f: el panel se "
                           "veria opaco (trampa 16)" % lo)
-    return lo, hi
+    if hi <= VARIACION_MINIMA:
+        raise ExportError("el alfa por vertice es uniforme en %.3f: la pieza "
+                          "seria invisible, como sin la capa (trampa 16)" % hi)
+    return lo, hi, ["el alfa por vertice es parejo en %.3f: una transparencia "
+                    "pareja. Las piezas vanilla con VERTEX_ALPHA lo tienen "
+                    "variando; si no es a proposito, falta pintarlo" % lo]
+
+
+def nota_alfa_ignorado(objeto, receta, modo, alfas):
+    """La nota de un alfa PINTADO --la capa VERTEX_ALPHA varia-- en un objeto
+    cuya receta no toma el alfa de los colores de vertice, o None. La receta
+    decide; sin la nota, ese alfa se perderia sin aviso."""
+    if modo == "blending_vertice" or not alfas:
+        return None
+    lo, hi = min(alfas), max(alfas)
+    if hi - lo <= VARIACION_MINIMA:
+        return None
+    return ("%s trae la capa VERTEX_ALPHA pintada (%.2f a %.2f) y su receta "
+            "%s (%s) no toma el alfa de los colores de vertice: ese alfa no "
+            "se exporta" % (objeto, lo, hi, receta, modo))
 
 
 def caja_colision(puntos):
@@ -384,10 +413,23 @@ def autotest():
             modo_alfa((4333, 128), 0x82400389)] ==
            ["opaco", "testing", "blending_textura", "blending_vertice"],
            "modo_alfa con 4844 (testing) y 4333 (blending)")
-    exigir(validar_alfa_vertice([0.3, 0.96, 0.5]) == (0.3, 0.96),
+    exigir(validar_alfa_vertice([0.3, 0.96, 0.5]) == (0.3, 0.96, []),
            "validar_alfa_vertice con alfa que varia")
-    falla_con(validar_alfa_vertice, ([1.0, 1.0, 0.995],), "uniforme",
-              "alfa por vertice uniforme")
+    falla_con(validar_alfa_vertice, ([1.0, 1.0, 0.995],), "opaco",
+              "alfa por vertice parejo en 1")
+    falla_con(validar_alfa_vertice, ([0.0, 0.004, 0.0],), "invisible",
+              "alfa por vertice parejo en 0")
+    try:
+        notas = validar_alfa_vertice([0.5, 0.5, 0.505])[2]
+    except ExportError:
+        notas = None
+    exigir(notas is not None and len(notas) == 1 and "parejo" in notas[0],
+           "alfa parejo en 0,5: tiene que pasar con una nota, salio %r" % (notas,))
+    exigir([nota_alfa_ignorado("P", "R", m, a) is not None for m, a in (
+        ("blending_textura", [0.3, 0.9]), ("opaco", [0.3, 0.9]),
+        ("blending_vertice", [0.3, 0.9]), ("blending_textura", [1.0, 1.0]),
+        ("opaco", []))] == [True, True, False, False, False],
+           "nota_alfa_ignorado: solo con alfa pintado y una receta que no lo usa")
     muchos = []
     for k in range(MAX_VERTICES // 3 + 2):
         muchos += [((k, 0, 0), (0, 0), n), ((k, 1, 0), (0, 0), n),

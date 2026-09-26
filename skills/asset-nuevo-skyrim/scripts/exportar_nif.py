@@ -65,14 +65,20 @@ vidrio--. Con blending, el alfa sale de uno de dos lados, segun la receta:
 
   * con VERTEX_ALPHA, de los colores de vertice: la capa `VERTEX_ALPHA` del
     objeto, con la convencion de PyNifly (el promedio de su RGB, en valores
-    lineales). Tiene que existir y VARIAR: sin la capa el alfa vale 0, y
-    pareja el panel se ve opaco (trampa 16). El RGB sale de la capa de color
-    activa --o la primera que no sea VERTEX_ALPHA--, y si no hay, blanco,
-    como en 58 de las 59 piezas vanilla con alfa por vertice (hallazgo 44).
-    (El exportador de PyNifly, sin capa base, deja el RGB en negro aunque su
-    comentario dice blanco: leido en su export_nif.py, 27.2.)
+    lineales). Tiene que existir --sin la capa el alfa vale 0 y la pieza es
+    invisible (trampa 16)-- y no quedar pareja en 1, que se ve opaca, ni en
+    0. Pareja en otro valor es una transparencia pareja: pasa, con una nota.
+    El RGB sale de la capa de color activa --o la primera que no sea
+    VERTEX_ALPHA--, y si no hay, blanco, como en 58 de las 59 piezas vanilla
+    con alfa por vertice (hallazgo 44). (El exportador de PyNifly, sin capa
+    base, deja el RGB en negro aunque su comentario dice blanco: leido en su
+    export_nif.py, 27.2.)
   * sin VERTEX_ALPHA, del alfa del difuso: ese DDS tiene que llevar alfa
     (DXT5 o sin comprimir), no DXT1. Queda en las notas.
+
+Si un objeto trae la capa VERTEX_ALPHA pintada y su receta no la usa, ese
+alfa no se exporta, y queda una nota. Las notas salen por consola y en el
+informe.
 
 Cuelgan de la raiz, sin BSOrderedNode: `[MEASURED]` en 2.148 NIF vanilla de
 armaduras y armas, 262 piezas Lighting con blending, y NINGUNA cuelga de un
@@ -85,13 +91,15 @@ LO QUE NO HACE, TODAVIA
   Piezas skinneadas (un arco anima la cuerda).
 
 --falsificar arma con PyNifly un donante sintetico y una escena en Blender, y
-exporta seis planes. El bueno, con tres piezas --metal con SKINNED y
-MODEL_SPACE_NORMALS prendidos en su receta, un vidrio con alfa por vertice y
-un panel con el alfa en la textura--, tiene que salir con las recetas
-copiadas y conciliadas, sus texturas y no las del donante, y el alfa por
-vertice como estaba en la escena. Los otros tienen que reprobar por su
-motivo: sin capa VERTEX_ALPHA, con la capa pareja, y un donante sin inercia.
-Sin archivos del juego.
+exporta cuatro planes. El bueno, con cuatro piezas --metal con SKINNED y
+MODEL_SPACE_NORMALS prendidos en su receta, un vidrio con alfa por vertice,
+otro con el alfa parejo en 0,5 y sin capa base, y un panel con el alfa en la
+textura y una capa VERTEX_ALPHA pintada que su receta no usa--, tiene que
+salir con las recetas copiadas y conciliadas, sus texturas y no las del
+donante, el alfa por vertice como estaba en la escena, y las tres notas: la
+del alfa parejo, la del DDS con alfa y la del alfa ignorado. Los otros tres
+tienen que reprobar por su motivo: sin capa VERTEX_ALPHA, con la capa pareja
+en 1, y un donante sin inercia. Sin archivos del juego.
 
 Exit 0 si el NIF quedo escrito y confirmado, 1 si reprueba o el plan no
 sirve, 2 si los argumentos no sirven.
@@ -152,6 +160,13 @@ def _color_de(capa, li, vi):
     """El RGBA lineal de una capa de color en la esquina `li` (vertice
     `vi`), sea la capa por esquina o por punto."""
     return tuple(capa.data[li if capa.domain == "CORNER" else vi].color)
+
+
+def alfas_pintados(obj):
+    """El alfa de cada elemento de la capa VERTEX_ALPHA del objeto (el
+    promedio de su RGB, como PyNifly), o [] si no la tiene."""
+    capa = obj.data.color_attributes.get(CAPA_ALFA) if obj.type == "MESH" else None
+    return [sum(d.color[:3]) / 3.0 for d in capa.data] if capa is not None else []
 
 
 def esquinas_de(obj, con_alfa=False):
@@ -311,9 +326,10 @@ def escribir(pynifly, nifdefs, plan, piezas, donante, recetas, tmp):
     for pz in plan["piezas"]:
         receta, alfa, modo = recetas[pz["shape"]]
         esquinas = piezas[pz["objeto"]]
-        alfa_rango = None
+        alfa_rango, notas_alfa = None, []
         if modo == "blending_vertice":
-            alfa_rango = ep.validar_alfa_vertice([e[3][3] for e in esquinas])
+            lo, hi, notas_alfa = ep.validar_alfa_vertice([e[3][3] for e in esquinas])
+            alfa_rango = (lo, hi)
         verts, uvs, normales, tris, colores = ep.soldar(esquinas)
         sh = nif.createShapeFromData(pz["shape"], verts, tris, uvs, normales,
                                      parent=nif.root)
@@ -322,6 +338,7 @@ def escribir(pynifly, nifdefs, plan, piezas, donante, recetas, tmp):
         rp = receta.shader._properties
         tipo = int(rp.Shader_Type)
         tx, notas = ep.texturas_pieza(dict(receta.textures), pz["texturas"], tipo)
+        notas += notas_alfa
         for ranura, ruta in tx.items():
             sh.set_texture(ranura, ruta)
         p = sh.shader._properties
@@ -488,18 +505,24 @@ def exportar(pynifly, nifdefs, plan, base, blend, force):
         recetas[pz["shape"]] = (sh, alfa, ep.modo_alfa(
             alfa, int(sh.shader._properties.Shader_Flags_1)))
     bpy.ops.wm.open_mainfile(filepath=blend)
-    piezas = {}
+    piezas, ignorados = {}, {}
     for pz in plan["piezas"]:
         obj = bpy.data.objects.get(pz["objeto"])
         if obj is None:
             raise Reprueba("el .blend no tiene el objeto %r" % pz["objeto"])
-        piezas[pz["objeto"]] = esquinas_de(
-            obj, con_alfa=recetas[pz["shape"]][2] == "blending_vertice")
+        modo = recetas[pz["shape"]][2]
+        piezas[pz["objeto"]] = esquinas_de(obj, con_alfa=modo == "blending_vertice")
+        nota = ep.nota_alfa_ignorado(obj.name, pz["receta"]["shape"], modo,
+                                     alfas_pintados(obj))
+        if nota:
+            ignorados[pz["shape"]] = nota
     os.makedirs(os.path.dirname(salida) or ".", exist_ok=True)
     tmp = salida + ".nuevo"
     if os.path.exists(tmp):
         os.unlink(tmp)
     escrito = escribir(pynifly, nifdefs, plan, piezas, donante, recetas, tmp)
+    for shape, nota in ignorados.items():
+        escrito["piezas"][shape]["notas"].append(nota)
     fallas = releer(pynifly, plan, tmp, escrito)
     if fallas:
         raise Reprueba("la relectura no confirma el archivo (queda %s): %s"
@@ -579,31 +602,37 @@ def _donante_sintetico(pynifly, nifdefs, ruta, inercia):
 
 
 def _escena(ruta):
-    """Tres objetos: Metal sin capas de color; Vidrio con VERTEX_ALPHA que
-    varia (0,30 a 0,96) y una capa base roja; Parejo con VERTEX_ALPHA en 1."""
+    """Cinco objetos. Metal, sin capas de color. Vidrio, con VERTEX_ALPHA que
+    varia (0,30 a 0,96) y una capa base (1; 0,5; 0,25). Parejo, con
+    VERTEX_ALPHA en 1. Tenue, con VERTEX_ALPHA parejo en 0,5 y sin capa base.
+    Panel, con VERTEX_ALPHA pintado, para una receta que no lo usa."""
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    for nombre, x in (("Metal", 0.0), ("Vidrio", 3.0), ("Parejo", 6.0), ("Panel", 9.0)):
+    for nombre, x in (("Metal", 0.0), ("Vidrio", 3.0), ("Parejo", 6.0),
+                      ("Panel", 9.0), ("Tenue", 12.0)):
         bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, 0, 0))
         o = bpy.context.object
         o.name = nombre
         o.data.transform(Matrix.Translation((x, 0.0, 0.0)) @
                          Matrix.Diagonal((2.0, 30.0, 0.5, 1.0)))
-    for nombre, alfas in (("Vidrio", None), ("Parejo", 1.0)):
+    for nombre, alfas, con_base in (("Vidrio", None, True), ("Parejo", 1.0, True),
+                                    ("Tenue", 0.5, False), ("Panel", None, False)):
         me = bpy.data.objects[nombre].data
-        base = me.color_attributes.new("Col", "FLOAT_COLOR", "CORNER")
+        base = (me.color_attributes.new("Col", "FLOAT_COLOR", "CORNER")
+                if con_base else None)
         capa = me.color_attributes.new(CAPA_ALFA, "FLOAT_COLOR", "CORNER")
         for i, d in enumerate(capa.data):
             a = alfas if alfas is not None else 0.30 + 0.66 * (i % 7) / 6.0
             d.color = (a, a, a, 1.0)
-            base.data[i].color = (1.0, 0.5, 0.25, 1.0)
+            if base is not None:
+                base.data[i].color = (1.0, 0.5, 0.25, 1.0)
         me.color_attributes.active_color = me.color_attributes[CAPA_ALFA]
     bpy.ops.wm.save_as_mainfile(filepath=ruta)
     return ruta
 
 
 def falsificar():
-    """Un donante sintetico y seis planes: el bueno tiene que salir bien, y
-    los otros tienen que reprobar por su motivo."""
+    """Un donante sintetico y cuatro planes: el bueno tiene que salir bien, y
+    los otros tres tienen que reprobar por su motivo."""
     pynifly, nifdefs = pynifly_del_addon()
     d = tempfile.mkdtemp(prefix="exportar_nif_")
     hechas, fallas = [0], []
@@ -632,10 +661,10 @@ def falsificar():
 
         salida, w = exportar(pynifly, nifdefs, plan(bueno_d, [
             pieza("Metal", "Donante:0"), pieza("Vidrio", "Donante:1"),
-            pieza("Panel", "Donante:2")]), d, blend, True)
+            pieza("Panel", "Donante:2"), pieza("Tenue", "Donante:1")]), d, blend, True)
         rel = {x.name: x for x in pynifly.NifFile(salida).shapes}
-        m, v, pn = rel.get("Prueba:Metal"), rel.get("Prueba:Vidrio"), rel.get("Prueba:Panel")
-        exigir(None not in (m, v, pn), "el bueno: faltan piezas: %s" % sorted(rel))
+        m, v, pn, tn = (rel.get("Prueba:" + x) for x in ("Metal", "Vidrio", "Panel", "Tenue"))
+        exigir(None not in (m, v, pn, tn), "el bueno: faltan piezas: %s" % sorted(rel))
         if m is not None:
             p = m.shader._properties
             tex = {k: x for k, x in dict(m.textures).items() if x}
@@ -676,6 +705,16 @@ def falsificar():
                    "panel: el alfa de textura no tiene que llevar colores")
             exigir(any("DXT1" in x for x in w["piezas"]["Prueba:Panel"]["notas"]),
                    "panel: falta la nota del DDS con alfa")
+            exigir(any("no se exporta" in x for x in w["piezas"]["Prueba:Panel"]["notas"]),
+                   "panel: falta la nota del alfa pintado que su receta no usa")
+        if tn is not None:
+            colores = list(tn.colors) if tn.properties.hasVertexColors else []
+            exigir(bool(colores) and all(abs(c[3] - 0.5) < 0.005 and min(c[:3]) > 0.99
+                                         for c in colores),
+                   "tenue: se esperaba el alfa parejo en 0,5 y el RGB blanco (sin "
+                   "capa base); salio %s" % (colores[:2],))
+            exigir(any("parejo" in x for x in w["piezas"]["Prueba:Tenue"]["notas"]),
+                   "tenue: falta la nota del alfa parejo")
         crudo = nif_nodos.leer(salida)
         exigir(nif_nodos.cadena_extra(crudo, "Prn") == "WeaponSword",
                "el bueno: el Prn no se copio")
@@ -688,9 +727,9 @@ def falsificar():
         for nombre, pl, trozo in (
                 ("un vidrio sin capa VERTEX_ALPHA",
                  plan(bueno_d, [pieza("Metal", "Donante:1")]), "no tiene la capa"),
-                ("un vidrio con la capa pareja",
+                ("un vidrio con la capa pareja en 1",
                  plan(bueno_d, [pieza("Metal", "Donante:0"),
-                                pieza("Parejo", "Donante:1")]), "uniforme"),
+                                pieza("Parejo", "Donante:1")]), "veria opaco"),
                 ("el donante sin inercia",
                  plan(sin_inercia, [pieza("Metal", "Donante:0")]), "REGLA inercia")):
             try:
@@ -741,6 +780,9 @@ def main():
     print("[nif] %s escrito y releido: %d piezas, caja %s, Prn %s -> informe %s"
           % (salida, len(escrito["piezas"]),
              [round(x, 4) for x in escrito["caja"]["semi"]], escrito["prn"], informe))
+    for shape, pz in escrito["piezas"].items():
+        for nota in pz["notas"]:
+            print("[nif] NOTA %s: %s" % (shape, nota))
 
 
 correr(main)

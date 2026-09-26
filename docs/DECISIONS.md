@@ -469,12 +469,20 @@ las dos en uso, y la receta dice cuál:
 - **De los colores de vértice** (59 piezas; la receta tiene `VERTEX_ALPHA`).
   El alfa sale de la capa `VERTEX_ALPHA` del objeto con la convención de
   PyNifly (el promedio de su RGB, en valores lineales), para que esta vía y
-  el addon lean igual la misma escena. La capa tiene que existir y
-  **variar**: sin ella el alfa vale 0 y la pieza es invisible; pareja, el
-  vidrio se ve opaco (trampa 16 de `asset-nuevo-skyrim`).
+  el addon lean igual la misma escena. La capa tiene que existir (sin ella
+  el alfa vale 0 y la pieza es invisible) y no quedar pareja en 1, que es el
+  vidrio opaco de la trampa 16 de `asset-nuevo-skyrim`, ni en 0.
 - **Del difuso** (203 piezas; sin `VERTEX_ALPHA`). En la escena no hay nada
   que leer: queda una nota de que ese DDS tiene que llevar alfa (DXT5 o sin
   comprimir, no DXT1).
+
+Pareja en un valor intermedio, en cambio, la capa pasa con una nota. Las 59
+piezas vanilla la tienen variando, pero eso dice cómo se pintaron, no qué
+acepta el motor: rechazar una transparencia pareja sería promover una
+observación a límite, el error caro que nombra `modelo-ia-a-skyrim` ("un
+bloqueo inventado cuesta más que un bug"). Por lo mismo, un objeto con la
+capa `VERTEX_ALPHA` pintada y una receta que no la usa se exporta, con una
+nota: la receta decide, y sin la nota ese alfa se perdería sin aviso.
 
 El RGB de los colores de vértice sale de la capa base y, si no hay, blanco.
 Blanco porque es lo del vanilla: en 58 de esas 59 piezas el RGB es blanco (la

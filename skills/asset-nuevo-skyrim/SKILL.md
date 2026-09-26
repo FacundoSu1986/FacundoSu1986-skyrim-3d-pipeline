@@ -182,9 +182,9 @@ como mínimo:
 - colisión presente, con su forma, su material, y **diagonal de inercia > 0**;
 - para paneles transparentes: `NiAlphaProperty` con flags de *blending* (4333, no
   4844: trampa 14) y, si la receta toma el alfa de los colores de vértice, ese
-  alfa **variando** — una capa uniforme en 1,0 es un panel opaco aunque el
-  `NiAlphaProperty` esté perfecto. Un `BSOrderedNode`, no: el vanilla no lo usa
-  para eso (trampa 12);
+  alfa **no parejo en 1** —una capa uniforme en 1,0 es un panel opaco aunque
+  el `NiAlphaProperty` esté perfecto— ni en 0, que es invisible. Un
+  `BSOrderedNode`, no: el vanilla no lo usa para eso (trampa 12);
 - **ausencia** de lo que no va: un escudo no tiene armadura ni particiones. Un
   chequeo que exige que algo NO esté atrapa el copiado por inercia desde un
   pipeline de criaturas.
@@ -328,8 +328,10 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   y con `nif_nodos.py`, y pasa por las REGLAS de `colision_caja.py` antes de
   reemplazar el definitivo. Una pieza transparente copia la `NiAlphaProperty`
   de su receta; si la receta toma el alfa de los colores de vértice, exige la
-  capa `VERTEX_ALPHA` y que varíe (trampa 16). No escribe `BSOrderedNode`:
-  medido, el vanilla no lo usa para transparencia.
+  capa `VERTEX_ALPHA` y que no quede pareja en 1 ni en 0 (trampa 16); pareja
+  en otro valor pasa con una nota, y un alfa pintado que la receta no usa
+  también deja nota. No escribe `BSOrderedNode`: medido, el vanilla no lo usa
+  para transparencia.
   `--falsificar` arma un donante sintético con PyNifly, sin archivos del juego.
 - **`scripts/exportar_puro.py`** — lo de ese export que no necesita Blender,
   con `--autotest`: el plan, la soldadura con la V invertida y el tope de

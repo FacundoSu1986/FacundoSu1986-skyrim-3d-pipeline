@@ -282,8 +282,12 @@ Y la vuelta de tuerca: **un nodo `Attribute` que apunta a una capa inexistente
 devuelve 0, no 1**. Así que las mallas **opacas** también necesitan su capa
 `VERTEX_ALPHA` en blanco, o se vuelven invisibles.
 
-El chequeo que atrapa esto es exigir que el alfa por vértice **varíe**: una capa
-uniforme en 1,0 es un panel opaco aunque el `NiAlphaProperty` esté perfecto.
+El chequeo que atrapa esto es exigir que el alfa por vértice **no quede parejo
+en 1**: una capa uniforme en 1,0 es un panel opaco aunque el `NiAlphaProperty`
+esté perfecto. Parejo en 0 es invisible. Parejo en un valor intermedio es otra
+cosa, una transparencia pareja: `exportar_nif.py` la deja pasar con una nota.
+Que las piezas vanilla con alfa por vértice lo tengan variando es una
+observación, no un límite del motor.
 
 ### 17. Asignar el colorspace después de escribir los píxeles vacía la imagen {#17}
 
