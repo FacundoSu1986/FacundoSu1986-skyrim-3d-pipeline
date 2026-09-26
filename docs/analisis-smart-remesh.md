@@ -316,7 +316,7 @@ problemas distintos** — y se distinguen mirando de cerca, sin instrumentos.
 |---|---|---|---|
 | El filo es una **línea recta** pero se ve redondeado, "derretido" | **Sombreado**: las normales se promedian sobre la arista | Marcar aristas duras en Blender (*Mark Sharp* / suavizado por ángulo) — **gratis** | **No.** Las UV no cambian; a lo sumo rehornear con las mismas UV |
 | El filo **zigzaguea**, el panel se ve combado | **Geometría**: el colapso redondeó la arista | Planar → QRemeshify → Smart Remesh Hardsurface (ver abajo) | **Sí.** Rehacer 4b y 4c |
-| El borde se ve **sucio o escalonado** | **Textura**: falta definición en esa zona; el atlas rinde al 41 % (trampa 17) | Atlas más grande, o mejor empaquetado (UVPackmaster) | No cambia la malla; se rehace el horneado |
+| El borde se ve **sucio o escalonado** | **Textura**: falta definición en esa zona; el atlas rinde al 41 % de cobertura (trampa 17) | Atlas más grande, o mejor empaquetado (UVPackmaster) | No cambia la malla; se rehace el horneado |
 
 La diferencia de costo entre la primera fila y la segunda es enorme, y por eso el
 orden de los chequeos importa: **marcar aristas duras no toca la geometría**, así
@@ -476,9 +476,10 @@ esta skill. Lo verificable:
 1. **Ignora el eje headless**, que es el que descartó a Smart Remesh y el que
    ordena toda esta skill. RetopoFlow y MESHmachine son herramientas de manos,
    y el repo se construyó alrededor de pasos que se reejecutan solos.
-2. **No conoce los números del repo.** No menciona el atlas al 41 % (trampa 17),
-   que es la compra con mejor relación señal/precio de toda la lista, ni los
-   presupuestos medidos del censo.
+2. **No conoce los números del repo.** No menciona que el atlas ya llega al
+   41 % de cobertura con dos arreglos gratis (trampa 17: margen `FRACTION` y la
+   selección por bmesh) — el número contra el que tendría que competir su
+   recomendación de empaquetado pago — ni los presupuestos medidos del censo.
 3. **No sabe que el defecto ya está atacado.** La guía es anterior a este PR: el
    canto ondulado —lo que el usuario reportó— se arregla con `enderezar.py`,
    gratis, sin comprar nada.
@@ -491,6 +492,11 @@ la palabra "Bevel" aparece una sola vez, y como peligro (trampa 32: un bevel
 después del unwrap superpone las UV). Si algún día se modelan las piezas a mano
 en vez de generarlas, esa etapa es real y hace falta vocabulario para ella: qué
 es un chaflán bien puesto y qué se rompe al hornearlo.
+
+La pregunta que sigue —si esa etapa se puede replicar con IA, o hacer una
+herramienta propia— está desarrollada aparte, en
+[`docs/analisis-replicar-addons.md`](analisis-replicar-addons.md), con los
+números de empaquetado de UV y las licencias.
 
 Pero **no es la etapa de este flujo**, y decirlo importa para no gastar:
 sobre una malla de escultura de IA, un chaflán no se modela, se **reconstruye**
