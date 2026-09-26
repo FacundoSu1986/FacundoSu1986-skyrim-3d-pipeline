@@ -39,6 +39,7 @@ La skill [`modelo-ia-a-skyrim`](skills/modelo-ia-a-skyrim):
 | Ruta | Qué es |
 |---|---|
 | [`SKILL.md`](skills/modelo-ia-a-skyrim/SKILL.md) | El flujo completo y la disciplina de verificación |
+| [`references/primer-mod.md`](skills/modelo-ia-a-skyrim/references/primer-mod.md) | **Para quien nunca hizo un mod**: qué instalar, cómo probar el taller con el ejemplo sin el juego, los dos caminos y la tabla "veo esto → corro aquello" |
 | [`references/pedir-a-la-ia-3d.md`](skills/modelo-ia-a-skyrim/references/pedir-a-la-ia-3d.md) | Cómo escribir el pedido al generador: plantillas, negative prompts, cómo expresar proporciones |
 | [`references/limites-skyrim.md`](skills/modelo-ia-a-skyrim/references/limites-skyrim.md) | Límites del motor: presupuestos de polígonos medidos, formatos de textura, estructura del NIF, rig y particiones |
 | [`references/trampas.md`](skills/modelo-ia-a-skyrim/references/trampas.md) | 40 fallos que no tiran error, con índice por síntoma |

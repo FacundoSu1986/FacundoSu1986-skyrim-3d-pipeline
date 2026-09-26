@@ -194,6 +194,11 @@ pieza que mañana pierda una atadura.
 
 ## Archivos de referencia
 
+- **`references/primer-mod.md`** — el camino para quien **nunca hizo un mod**:
+  qué instalar, cómo probar el taller con el ejemplo sin el juego, los dos
+  caminos (ítem nuevo o reemplazo) y la tabla "veo esto → corro aquello". Si el
+  usuario es nuevo, **empezá por acá**: enganchar por el flujo largo es la
+  manera más rápida de perderlo.
 - **`references/pedir-a-la-ia-3d.md`** — cómo escribir el pedido: plantillas por
   tipo de asset, negative prompts, qué formato descargar, cómo expresar
   proporciones. Leelo antes de escribir cualquier prompt para Tripo/Meshy.
