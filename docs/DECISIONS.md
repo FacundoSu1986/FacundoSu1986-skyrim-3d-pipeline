@@ -447,3 +447,48 @@ que cambia es el ancla. En vez de un test por archivo copiado,
 `LoCompartidoEntreSkillsTests` enumera todo nombre que esté en las dos
 carpetas de scripts, exige que sean el mismo archivo byte a byte, y congela
 la lista por igualdad: un tercer compartido obliga a decidir.
+
+## Las piezas transparentes, sin BSOrderedNode
+
+`exportar_nif.py` nació rechazando las recetas con *blending*: la trampa 12 de
+`asset-nuevo-skyrim` decía que una pieza transparente pide un
+`BSOrderedNode`, que PyNifly no escribe, y el escudo ovalado lo había
+resuelto con un parche binario. Antes de llevar ese parche al exportador se
+midió la población que la regla gobierna (entrada 44 de
+`census/hallazgos.md`): de las **262** piezas `BSLightingShaderProperty` con
+*blending* en los NIF vanilla de armaduras y armas, 234 cuelgan de la raíz,
+28 de un `NiNode` y **ninguna** de un `BSOrderedNode`. El único de esas
+carpetas, en el escudo de cristal enano de Dawnguard en primera persona, no
+tiene hijos. Para la clase de asset de esta skill la regla no se cumple: el
+vidrio cuelga de la raíz, sin parche. El parche del escudo ovalado no
+molestó, pero tampoco hacía falta.
+
+Lo que sí hay que decidir es de dónde sale el alfa. El censo da dos maneras,
+las dos en uso, y la receta dice cuál:
+
+- **De los colores de vértice** (59 piezas; la receta tiene `VERTEX_ALPHA`).
+  El alfa sale de la capa `VERTEX_ALPHA` del objeto con la convención de
+  PyNifly (el promedio de su RGB, en valores lineales), para que esta vía y
+  el addon lean igual la misma escena. La capa tiene que existir y
+  **variar**: sin ella el alfa vale 0 y la pieza es invisible; pareja, el
+  vidrio se ve opaco (trampa 16 de `asset-nuevo-skyrim`).
+- **Del difuso** (203 piezas; sin `VERTEX_ALPHA`). En la escena no hay nada
+  que leer: queda una nota de que ese DDS tiene que llevar alfa (DXT5 o sin
+  comprimir, no DXT1).
+
+El RGB de los colores de vértice sale de la capa base y, si no hay, blanco.
+Blanco porque es lo del vanilla: en 58 de esas 59 piezas el RGB es blanco (la
+otra es una flecha de Auriel). El exportador de PyNifly, sin capa base, lo
+deja en negro aunque su comentario dice "colors will be set to white"
+(`find_colormaps` y `extract_colors` de `nif/export_nif.py`, leídos en la
+versión instalada). Y como el color entra en la clave de la soldadura, dos
+esquinas del mismo vértice con distinto alfa quedan como dos vértices.
+
+Probado con el escudo ovalado entero: el vidrio, con la receta del lente del
+astrolabio dwemer (`dungeons/dwemer/animated/astrolabe/dweastrolabechamber01.nif`,
+`Deck:34`), sale con los flags de esa pieza (alfa 4333, `0x82400389`,
+`0x8021`) y el alfa pintado, de 0,30 a 0,96, intacto. El vidrio del v14 que
+se vio en el juego era distinto: EnvMap con `GLOW_MAP` y textura de brillo,
+una combinación que ninguna pieza vanilla tiene (el flag va solo con el tipo
+Glow: entrada 42 de `census/hallazgos.md`). El exportador no la reproduce
+porque copia recetas. Falta ver en el juego un NIF salido de esta vía.

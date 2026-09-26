@@ -67,7 +67,8 @@ vidrio--. Con blending, el alfa sale de uno de dos lados, segun la receta:
     objeto, con la convencion de PyNifly (el promedio de su RGB, en valores
     lineales). Tiene que existir y VARIAR: sin la capa el alfa vale 0, y
     pareja el panel se ve opaco (trampa 16). El RGB sale de la capa de color
-    activa --o la primera que no sea VERTEX_ALPHA--, y si no hay, blanco.
+    activa --o la primera que no sea VERTEX_ALPHA--, y si no hay, blanco,
+    como en 58 de las 59 piezas vanilla con alfa por vertice (hallazgo 44).
     (El exportador de PyNifly, sin capa base, deja el RGB en negro aunque su
     comentario dice blanco: leido en su export_nif.py, 27.2.)
   * sin VERTEX_ALPHA, del alfa del difuso: ese DDS tiene que llevar alfa
