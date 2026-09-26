@@ -78,6 +78,9 @@ La skill [`asset-nuevo-skyrim`](skills/asset-nuevo-skyrim):
 | [`scripts/colision_caja.py`](skills/asset-nuevo-skyrim/scripts/colision_caja.py) | Las cajas de colisión de un NIF, contra lo que hace el corpus vanilla |
 | [`scripts/esl.py`](skills/asset-nuevo-skyrim/scripts/esl.py) | Marca (o desmarca) un plugin como ESL, comprobando antes si puede |
 | [`scripts/nif_nodos.py`](skills/asset-nuevo-skyrim/scripts/nif_nodos.py) | La misma jerarquía de nodos (copia idéntica a la de la otra skill) |
+| [`scripts/exportar_nif.py`](skills/asset-nuevo-skyrim/scripts/exportar_nif.py) | El NIF de un asset nuevo con la estructura de un donante vanilla de la clase y la receta de shader de cada pieza; lo relee antes de dejarlo (Blender) |
+| [`scripts/exportar_puro.py`](skills/asset-nuevo-skyrim/scripts/exportar_puro.py) | Lo de ese export que no necesita Blender: plan, soldadura, caja, inercia, flags, texturas |
+| [`scripts/correr_en_blender.py`](skills/asset-nuevo-skyrim/scripts/correr_en_blender.py) | El mismo de `modelo-ia-a-skyrim`: un script de Blender que revienta no sale con 0 |
 | [`scripts/verificar_plugin.py`](skills/asset-nuevo-skyrim/scripts/verificar_plugin.py) | El plugin terminado: formVersion, índices, WEAP, Prn |
 
 Y aparte, en [`census/`](census), las herramientas que producen los números:
