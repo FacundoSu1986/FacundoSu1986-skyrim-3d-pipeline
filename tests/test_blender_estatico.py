@@ -26,7 +26,6 @@ import glob
 import importlib
 import os
 import re
-import sys
 import unittest
 
 from _paths import RAIZ, preparar_path

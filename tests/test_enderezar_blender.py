@@ -251,7 +251,7 @@ class EnderezarEnBlenderTests(unittest.TestCase):
         """Con una curvatura grande no califica nada: no guarda y sale con 1."""
         with tempfile.TemporaryDirectory() as d:
             ruta = Path(d) / "arco.blend"
-            antes = _barra(ruta, ondulacion=0.0)
+            _barra(ruta, ondulacion=0.0)
             # Se curva la barra entera: es una curva de diseno, no ondulacion.
             _blender("--python-expr", expr_curvar(ruta))
             curvada = _coordenadas(ruta)
