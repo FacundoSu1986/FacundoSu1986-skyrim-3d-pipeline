@@ -28,7 +28,7 @@ brazos invisibles, la criatura peleando de espaldas, texturas superpuestas, una
 articulación perdida que nadie nota hasta que camina.
 
 Por eso la parte más valiosa de este repo no es el pipeline: son las listas de
-**fallos silenciosos** —40 en `modelo-ia-a-skyrim` y 24 en
+**fallos silenciosos** —40 en `modelo-ia-a-skyrim` y 25 en
 `asset-nuevo-skyrim`— con su síntoma y su arreglo, y la disciplina de
 verificación que los atrapa.
 
@@ -74,7 +74,7 @@ La skill [`asset-nuevo-skyrim`](skills/asset-nuevo-skyrim):
 | [`references/nodo-de-anclaje.md`](skills/asset-nuevo-skyrim/references/nodo-de-anclaje.md) | El nodo del que cuelga el item y su giro |
 | [`references/plugin-armo-arma.md`](skills/asset-nuevo-skyrim/references/plugin-armo-arma.md) | Los registros ARMO/ARMA de una armadura o un escudo |
 | [`references/plugin-weap.md`](skills/asset-nuevo-skyrim/references/plugin-weap.md) | Los registros WEAP y STAT de un arma |
-| [`references/trampas.md`](skills/asset-nuevo-skyrim/references/trampas.md) | 24 fallos que no tiran error |
+| [`references/trampas.md`](skills/asset-nuevo-skyrim/references/trampas.md) | 25 fallos que no tiran error |
 | [`scripts/colision_caja.py`](skills/asset-nuevo-skyrim/scripts/colision_caja.py) | Las cajas de colisión de un NIF, contra lo que hace el corpus vanilla |
 | [`scripts/esl.py`](skills/asset-nuevo-skyrim/scripts/esl.py) | Marca (o desmarca) un plugin como ESL, comprobando antes si puede |
 | [`scripts/nif_nodos.py`](skills/asset-nuevo-skyrim/scripts/nif_nodos.py) | La misma jerarquía de nodos (copia idéntica a la de la otra skill) |

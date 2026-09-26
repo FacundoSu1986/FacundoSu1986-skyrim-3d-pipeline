@@ -23,6 +23,7 @@ segundo. Es la tercera vez en el proyecto que un subconjunto mal elegido inviert
 la respuesta (antes: `bhkRadius` y la máscara especular).
 """
 import os
+import struct
 import subprocess
 import sys
 import tempfile
@@ -343,6 +344,143 @@ class LectorDeSubrecordsTests(unittest.TestCase):
                         self.assertEqual(mio, censo, tipo)
                 finally:
                     os.unlink(ruta)
+
+
+class ReglasDelMundoTests(unittest.TestCase):
+    """REGLAS 5, 6 y 7 sobre BYTES, con la anidacion de grupos de un plugin
+    real: el tipo de grupo sale del recorrido, no de un dict escrito a mano.
+
+    Medido el 2026-09-25 sobre los 10 plugins oficiales: 59.240 referencias
+    en grupos 8, todas con 0x400; 820.513 en grupos 9, ninguna. El REFR de
+    RetreteVIP v1.1 (grupo 8, banderas 0) no aparecio en el juego."""
+
+    def _juzgar(self, **kw):
+        fd, ruta = tempfile.mkstemp(suffix=".esp")
+        os.write(fd, plugin_sintetico.construir_mundo(**kw))
+        os.close(fd)
+        self.addCleanup(os.unlink, ruta)
+        info = vp.leer(ruta)
+        self.assertIsNone(info["error"])
+        return vp.juzgar(info)
+
+    def test_el_v12_pasa(self):
+        fallas, notas = self._juzgar()
+        self.assertEqual(fallas, [])
+        self.assertTrue(any("1 referencia" in n for n in notas), notas)
+
+    def test_el_v11_reprueba_por_cada_una_de_sus_tres_razones(self):
+        fallas, notas = self._juzgar(banderas_ref=0, ofst=[57966, 393059],
+                                     rnam=40, full=b" L\x00\x00")
+        for marca in ("REGLA referencia persistente", "REGLA WRLD OFST",
+                      "REGLA FULL"):
+            with self.subTest(regla=marca):
+                self.assertTrue(any(marca in f for f in fallas), fallas)
+        self.assertTrue(any("40 RNAM" in n for n in notas), notas)
+
+    def test_refr_en_grupo_8_sin_la_bandera_reprueba_y_dice_cual(self):
+        fallas, _ = self._juzgar(banderas_ref=0)
+        self.assertEqual(len(fallas), 1, fallas)
+        self.assertIn("01000801", fallas[0])
+        self.assertIn("grupo 8", fallas[0])
+
+    def test_refr_en_grupo_9_con_la_bandera_reprueba(self):
+        fallas, _ = self._juzgar(grupo_ref=9, banderas_ref=0x400)
+        self.assertTrue(any("grupo 9" in f for f in fallas), fallas)
+
+    def test_refr_en_grupo_9_sin_la_bandera_pasa(self):
+        """El par de los dos de arriba."""
+        self.assertEqual(self._juzgar(grupo_ref=9, banderas_ref=0)[0], [])
+
+    def test_el_ofst_dentro_del_archivo_es_observacion(self):
+        fallas, notas = self._juzgar(ofst=[24])
+        self.assertEqual(fallas, [])
+        self.assertTrue(any("OFST" in n for n in notas), notas)
+
+    def test_full_de_cuatro_bytes_sin_nul_reprueba(self):
+        fallas, _ = self._juzgar(full=b"\x20\x4C\x01\x02")
+        self.assertTrue(any("REGLA FULL" in f for f in fallas), fallas)
+
+    def test_la_misma_full_en_un_plugin_localizado_pasa(self):
+        self.assertEqual(self._juzgar(full=b" L\x00\x00",
+                                      localizado=True)[0], [])
+
+    def test_la_regla_ve_la_full_de_un_record_comprimido(self):
+        """La FULL no se busca en los bytes crudos: comprimida no aparece."""
+        datos = plugin_sintetico.construir_mundo(full=b"\x20\x4C\x01\x02")
+        import zlib
+        crudo = bytearray(datos)
+        i = crudo.index(b"WRLD", crudo.index(b"WRLD") + 4)
+        tam = struct.unpack_from("<I", crudo, i + 4)[0]
+        cuerpo = bytes(crudo[i + 24:i + 24 + tam])
+        nuevo = struct.pack("<I", len(cuerpo)) + zlib.compress(cuerpo)
+        cab = bytearray(crudo[i:i + 24])
+        struct.pack_into("<II", cab, 4, len(nuevo),
+                         struct.unpack_from("<I", cab, 8)[0] | 0x00040000)
+        delta = len(nuevo) - tam
+        resto = crudo[:i] + cab + nuevo + crudo[i + 24 + tam:]
+        # el GRUP WRLD de nivel superior crece lo mismo que el record
+        g = resto.rindex(b"GRUP", 0, i)
+        struct.pack_into("<I", resto, g + 4,
+                         struct.unpack_from("<I", resto, g + 4)[0] + delta)
+        fd, ruta = tempfile.mkstemp(suffix=".esp")
+        os.write(fd, bytes(resto))
+        os.close(fd)
+        self.addCleanup(os.unlink, ruta)
+        info = vp.leer(ruta)
+        self.assertIsNone(info["error"], info["error"])
+        fallas, _ = vp.juzgar(info)
+        self.assertTrue(any("REGLA FULL" in f for f in fallas), fallas)
+
+
+class RecorridoConGruposTests(unittest.TestCase):
+    """esl.recorrer_con_grupos contra census/parser_esm.py, que valida la
+    anidacion: el tipo de grupo de cada record tiene que ser el del GRUP
+    que el censo ve como su padre."""
+
+    def test_coincide_con_parser_esm(self):
+        sys.path.insert(0, os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+        from census.parser_esm import Plugin
+        import esl
+        for g in (8, 9):
+            datos = plugin_sintetico.construir_mundo(grupo_ref=g)
+            fd, ruta = tempfile.mkstemp(suffix=".esp")
+            os.write(fd, datos)
+            os.close(fd)
+            try:
+                pila, censo = [], []
+                for tipo, off, tam, prof in Plugin(ruta).recorrer():
+                    del pila[prof:]
+                    if tipo == "GRUP":
+                        pila.append(struct.unpack_from("<i", datos,
+                                                       off + 12)[0])
+                    else:
+                        censo.append((tipo.encode(), off,
+                                      pila[-1] if pila else None))
+            finally:
+                os.unlink(ruta)
+            mio, cerro = esl.recorrer_con_grupos(datos)
+            self.assertTrue(cerro)
+            self.assertEqual(mio, censo)
+            self.assertIn((b"REFR", censo[-1][1], g), mio)
+
+    def test_recorrer_records_no_cambio(self):
+        import esl
+        datos = plugin_sintetico.construir_mundo()
+        con, _ = esl.recorrer_con_grupos(datos)
+        sin, cerro = esl.recorrer_records(datos)
+        self.assertTrue(cerro)
+        self.assertEqual(sin, [(t, o) for t, o, _g in con])
+
+    def test_un_record_que_cruza_el_borde_de_su_grupo_no_cierra(self):
+        """El recorrido plano embaldosa igual; el anidado no: el grupo 8
+        declara 8 bytes menos y el REFR queda mitad adentro."""
+        import esl
+        datos = bytearray(plugin_sintetico.construir_mundo())
+        i = datos.rindex(b"GRUP")
+        struct.pack_into("<I", datos, i + 4,
+                         struct.unpack_from("<I", datos, i + 4)[0] - 8)
+        self.assertFalse(esl.recorrer_con_grupos(bytes(datos))[1])
 
 
 class LineaDeComandosTests(unittest.TestCase):
