@@ -38,7 +38,7 @@ jobs:
       # preparar_parte): compileall no ejecuta los imports, así que valida su
       # sintaxis aunque `bpy` no exista en el runner.
       - name: Syntax check (compileall)
-        run: python -m compileall -q census skills tests pipeline fixtures
+        run: python -m compileall -q census skills tests pipeline fixtures examples
 
       # Lint: E y F (nombres sin definir, imports y variables sin usar,
       # sintaxis) sobre TODOS los .py, tambien los de Blender, porque ruff no

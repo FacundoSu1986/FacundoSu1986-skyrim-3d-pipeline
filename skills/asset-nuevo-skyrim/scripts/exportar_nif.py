@@ -117,6 +117,7 @@ AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, AQUI)
 from correr_en_blender import correr  # noqa: E402
 import colision_caja  # noqa: E402
+import donante_sintetico  # noqa: E402
 import exportar_puro as ep  # noqa: E402
 import nif_nodos  # noqa: E402
 
@@ -534,73 +535,6 @@ def exportar(pynifly, nifdefs, plan, base, blend, force):
 # --------------------------------------------------------------------------
 # la falsificacion
 # --------------------------------------------------------------------------
-_CAJA_V = [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
-           (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]
-_CAJA_T = [(0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4),
-           (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7)]
-
-
-def _donante_sintetico(pynifly, nifdefs, ruta, inercia):
-    """Un donante hecho con PyNifly: una receta de metal con SKINNED y
-    MODEL_SPACE_NORMALS prendidos (se tienen que apagar), una de vidrio con
-    alfa por vertice (4333 + VERTEX_ALPHA) y una de panel con el alfa en la
-    textura (4333 sin VERTEX_ALPHA)."""
-    uv = [(0.1 * i, 0.05 * i) for i in range(8)]
-    n = [(0.0, 0.0, 1.0)] * 8
-    nif = pynifly.NifFile()
-    nif.initialize("SKYRIMSE", ruta, root_type="BSFadeNode", root_name="Donante")
-
-    def pieza(nombre, f1, f2, texturas, alfa=None):
-        sh = nif.createShapeFromData(nombre, _CAJA_V, _CAJA_T, uv, n, parent=nif.root)
-        for r, v in texturas.items():
-            sh.set_texture(r, v)
-        p = sh.shader._properties
-        p.Shader_Type = 1
-        p.Shader_Flags_1, p.Shader_Flags_2 = f1, f2
-        p.Glossiness = 77.0
-        p.Env_Map_Scale = 0.55
-        sh.save_shader_attributes()
-        if alfa:
-            sh.has_alpha_property = True
-            sh.alpha_property.properties.flags = alfa
-            sh.alpha_property.properties.threshold = 128
-            sh.save_alpha_property()
-
-    pieza("Donante:0", 0x82400381 | ep.SF1_SKINNED | ep.SF1_MODEL_SPACE_NORMALS,
-          0x00008011, {"Diffuse": r"textures\donante\donante.dds",
-                       "Normal": r"textures\donante\donante_n.dds",
-                       "EnvMap": r"textures\cubemaps\prueba_e.dds",
-                       "EnvMask": r"textures\donante\donante_m.dds"})
-    pieza("Donante:1", 0x82400389, 0x00008021,
-          {"Diffuse": r"textures\donante\lente.dds",
-           "EnvMap": r"textures\cubemaps\hielo_e.dds"}, alfa=4333)
-    pieza("Donante:2", 0x82400381, 0x00008001,
-          {"Diffuse": r"textures\donante\panel.dds"}, alfa=4333)
-    pynifly.BSXFlags.New(nif, "BSX", flags=194, parent=nif.root)
-    pynifly.NiStringExtraData.New(nif, "Prn", string_value="WeaponSword",
-                                  parent=nif.root)
-    pynifly.BSInvMarker.New(nif, "INV", rotation=(4712, 0, 0), zoom=1.05,
-                            parent=nif.root)
-    cp = nifdefs.bhkBoxShapeProps()
-    cp.bhkMaterial = 1060167844
-    cp.bhkRadius = 0.0143
-    for i in range(3):
-        cp.bhkDimensions[i] = 1.0 / ep.HAVOK
-    blk = nif.add_block("", cp, None)
-    cuerpo = nifdefs.bhkRigidBodyProps()
-    cuerpo.bufType = nifdefs.PynBufferTypes.bhkRigidBodyTBufType
-    cuerpo.shapeID = blk.id
-    cuerpo.mass = 10.0
-    cuerpo.collisionFilter_layer = 5
-    cuerpo.motionSystem = 3
-    for k, v in zip((0, 5, 10), inercia):
-        cuerpo.inertiaMatrix[k] = v
-    co = nif.root.add_collision(None, flags=129)
-    co.add_body(cuerpo)
-    nif.save()
-    return ruta
-
-
 def _escena(ruta):
     """Cinco objetos. Metal, sin capas de color. Vidrio, con VERTEX_ALPHA que
     varia (0,30 a 0,96) y una capa base (1; 0,5; 0,25). Parejo, con
@@ -653,10 +587,11 @@ def falsificar():
                 "piezas": piezas, "colision": {"objetos": ["Metal"]}}
 
     try:
-        bueno_d = _donante_sintetico(pynifly, nifdefs, os.path.join(d, "donante.nif"),
-                                     (2.0, 0.4, 2.3))
-        sin_inercia = _donante_sintetico(pynifly, nifdefs,
-                                         os.path.join(d, "sin_inercia.nif"), (0, 0, 0))
+        bueno_d = donante_sintetico.escribir(pynifly, nifdefs,
+                                             os.path.join(d, "donante.nif"))
+        sin_inercia = donante_sintetico.escribir(pynifly, nifdefs,
+                                                 os.path.join(d, "sin_inercia.nif"),
+                                                 inercia=(0, 0, 0))
         blend = _escena(os.path.join(d, "asset.blend"))
 
         salida, w = exportar(pynifly, nifdefs, plan(bueno_d, [

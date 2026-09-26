@@ -33,6 +33,8 @@ verif_resumen.json
 reports/
 out/
 *.skill
+# lo que deja examples/escudo-minimo/correr.py (y cualquier otro ejemplo)
+examples/*/trabajo/
 
 # --- Binarios de terceros ---------------------------------------------------
 *.exe

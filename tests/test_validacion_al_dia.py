@@ -46,7 +46,7 @@ NO_CONTROLES = {
     "--angulo", "--capa", "--clase", "--continuar", "--distancia-ao",
     "--extrusion", "--force", "--margen",
     "--frente-az", "--girar-180", "--guardar-alto", "--help", "--json",
-    "--marcar", "--maximo", "--muestras-ao", "--quitar", "--relativo-a",
+    "--marcar", "--maximo", "--muestras-ao", "--prn", "--quitar", "--relativo-a",
     "--salida", "--soldadura", "--vistas",
 }
 # Flags de la línea de comandos de Blender, que la página escribe al lado de
