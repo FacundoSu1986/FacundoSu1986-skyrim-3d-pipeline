@@ -280,7 +280,31 @@ pieza que mañana pierda una atadura.
   proporciones arruina un ControlNet.
 - **`scripts/preparar_parte.py`** — soldar, decimar a un presupuesto y, si se lo
   pedís con `--girar-180`, orientar. No gira por defecto a propósito: una
-  rotación es destructiva y no debe dispararse por una heurística.
+  rotación es destructiva y no debe dispararse por una heurística. Con
+  `--planar <grados>` disuelve los paneles planos antes de colapsar: es el
+  modo Hardsurface de los addons de retopología, con lo que ya trae Blender, y
+  sirve para que el colapso no ondule los filos de una pieza de metal. **Ojo:
+  disolver no es enderezar** — junta caras, no mueve vértices. Para una línea
+  que zigzaguea hace falta `enderezar.py`.
+- **`scripts/enderezar.py`** — endereza las **líneas duras** que ondulan:
+  ajusta la cuerda de cada camino de crestas/bordes y proyecta los vértices
+  interiores sobre ella, con los extremos fijos. El tope (`--tope`, fracción
+  del alto) es lo que separa una línea ondulada de una curva de diseño: si un
+  camino se aparta más que el tope, **no se toca y se informa** — en una pieza
+  Dwemer conviven una barra mecánica y un arco decorativo, y confundirlas no
+  tira ningún error. Los caminos se parten en los **cruces**, que quedan como
+  extremos y por eso nunca se mueven; los ciclos cerrados se rechazan. Las
+  aristas salen de detectar crestas por `--angulo`, o de lo que marques como
+  *sharp* con `--marcadas` **—en una malla de IA esa es la vía confiable: la
+  superficie es densa y una cresta por umbral aparece y desaparece—**. Sin
+  `--aplicar` solo informa, con los percentiles para calibrar el tope; con
+  `--aplicar`, si ningún camino califica no guarda. Va después de
+  `preparar_parte.py` y antes de las UV. **El tope no está medido**, y el
+  efecto del movimiento sobre el horneado tampoco: ver su docstring.
+- **`scripts/enderezar_puro.py`** — lo del enderezado que no necesita Blender:
+  la desviación contra la cuerda, la proyección con extremos fijos, el rechazo
+  por tope, el agrupado de aristas en caminos que no comparten aristas (con los
+  cruces como extremos) y la calibración del tope, con `--autotest`.
 - **`scripts/proporciones_arma.py`** — mide largo, grosor, ancho y empuñadura
   de un arma **en coordenadas de mundo** y los compara contra el rango de su
   **clase** (medido sobre 197 armas vanilla en 9 clases). REGLA: caer dentro

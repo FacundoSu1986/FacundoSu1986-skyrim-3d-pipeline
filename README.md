@@ -51,6 +51,8 @@ La skill [`modelo-ia-a-skyrim`](skills/modelo-ia-a-skyrim):
 | [`scripts/medir_parte.py`](skills/modelo-ia-a-skyrim/scripts/medir_parte.py) | Mide un GLB/FBX/OBJ recién generado (Blender) |
 | [`scripts/preparar_parte.py`](skills/modelo-ia-a-skyrim/scripts/preparar_parte.py) | Soldar, decimar, orientar; guarda la malla alta para el bake (Blender) |
 | [`scripts/render_referencia.py`](skills/modelo-ia-a-skyrim/scripts/render_referencia.py) | Renders de referencia de un asset vanilla para ControlNet (Blender) |
+| [`scripts/enderezar.py`](skills/modelo-ia-a-skyrim/scripts/enderezar.py) | Endereza las líneas duras que ondulan, sin tocar las curvas de diseño; sin `--aplicar` solo informa (Blender) |
+| [`scripts/enderezar_puro.py`](skills/modelo-ia-a-skyrim/scripts/enderezar_puro.py) | Lo del enderezado que no necesita Blender: la cuerda, la proyección, las cadenas y el tope, con `--autotest` |
 | [`scripts/salud_malla.py`](skills/modelo-ia-a-skyrim/scripts/salud_malla.py) | Si la malla se rompió al decimarla: aristas de borde, sobre el archivo |
 | [`scripts/desplegar_uv.py`](skills/modelo-ia-a-skyrim/scripts/desplegar_uv.py) | Despliega las UV de la baja en un solo atlas para hornear, y no guarda si el empaquetado no se movió o las islas se pisan (Blender) |
 | [`scripts/hornear.py`](skills/modelo-ia-a-skyrim/scripts/hornear.py) | Hornea normal, AO, albedo, rugosidad y metal desde la malla alta (Blender) |
