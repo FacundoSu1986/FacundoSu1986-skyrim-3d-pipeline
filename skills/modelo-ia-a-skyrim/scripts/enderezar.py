@@ -119,7 +119,12 @@ def aristas_duras(bm, angulo, orden, marcadas=False):
     for e in bm.edges:
         par = (orden[e.verts[0]], orden[e.verts[1]])
         n = len(e.link_faces)
-        # `e.smooth` es el *sharp* de la interfaz: False = marcada.
+        # BMEdge no tiene `sharp`: el *sharp* de la interfaz
+        # (`MeshEdge.use_edge_sharp`) es `not e.smooth`. El mapeo esta
+        # verificado contra la API de BMesh y contra lo que hace
+        # `test_enderezar_blender.py`, que marca `use_edge_sharp` desde el
+        # Mesh: si estuviera al reves, `--marcadas` tomaria el conjunto
+        # complementario y seria dificil de ver.
         if marcadas:
             if not e.smooth:
                 crestas.append(par)
