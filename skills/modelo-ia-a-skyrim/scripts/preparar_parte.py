@@ -25,6 +25,21 @@ importa:
      cara, el pico o los dedos del pie. La heuristica de masa de
      medir_parte.py es una pista, no una prueba.
 
+Opcional, para piezas de PANELES (armas, props, metal): `--planar <grados>`
+funde en una sola cara lo que ya es el mismo panel y no mueve un vertice --es
+el modo Hardsurface de los addons de retopologia, con lo que ya trae Blender--.
+Va DESPUES de soldar y ANTES de colapsar, y el orden es el punto: un panel que
+ya es una sola cara no tiene interior que colapsar, asi que el error del
+colapso se queda en las zonas curvas en vez de repartirse por los planos y
+ondular los filos. Sin esto, el colapso redondea los cantos de una pieza de
+metal y la linea del filo zigzaguea.
+
+En una malla de IA los paneles NO son perfectamente planos: con un angulo
+generoso quedan caras combadas, que al triangularse se ven como sombras. Empeza
+por 5 y subi despacio. **El angulo no esta medido:** lo que decide es el render,
+no el conteo de caras. Si el resultado queda en n-gonos, el script triangula
+antes de guardar, para que el .blend sea lo que se exporta.
+
 Opcional, para la capa HD (references/hd-texturas.md): `--guardar-alto
 <alto.blend>` guarda TAMBIEN la malla soldada SIN decimar. Es la fuente del
 bake (`hornear.py`): el detalle que el decimado tira no se recupera
@@ -35,15 +50,19 @@ ANTES (afinar) hay que aplicarselo igual a la alta. Montar va despues del bake
 y no toca las UV.
 
 Uso:
-  blender -b --python preparar_parte.py -- <entrada> <salida.blend> <tris> [--girar-180] [--guardar-alto <alto.blend>] [--soldadura F] [--force]
+  blender -b --python preparar_parte.py -- <entrada> <salida.blend> <tris> [--planar <grados>] [--girar-180] [--guardar-alto <alto.blend>] [--soldadura F] [--force]
 
+  --planar G      fusiona los paneles planos en una sola cara antes de
+                  colapsar (grados de tolerancia; probar 5 y subir)
   --soldadura F   distancia de soldadura como fraccion del alto (0.00001 por
                   defecto: junta los duplicados de las costuras de UV)
 
 Ejemplo:
   blender -b --python preparar_parte.py -- cabeza.glb partes/cabeza.blend 8000
+  blender -b --python preparar_parte.py -- arma.glb partes/arma.blend 12000 --planar 5
 """
 
+import math
 import os
 import sys
 
@@ -156,6 +175,53 @@ def decimar(obj, presupuesto):
     return ratio
 
 
+def planar(obj, grados):
+    """Funde en una sola cara lo que ya es el mismo panel.
+
+    DISSOLVE --lo que la interfaz llama "Planar"-- no mueve vertices: borra los
+    que no cambian la forma. La superficie y los filos quedan donde estaban,
+    que es justo lo que el colapso no garantiza. Devuelve (caras antes, caras
+    despues).
+
+    OJO: disolver NO es enderezar. Si un filo zigzaguea porque sus vertices
+    estan desplazados, esto no lo arregla --para eso esta `enderezar.py`--.
+    Lo que hace es dejarle al colapsador menos interior donde repartir el
+    error, y por eso ayuda de forma indirecta.
+
+    NO se delimita por UV ni por costura: las UV se rehacen en 4b, y delimitar
+    ahi impide juntar el panel, que es el punto entero de este pase.
+    """
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    antes = len(obj.data.polygons)
+    mod = obj.modifiers.new("Planar", 'DECIMATE')
+    # 'DISSOLVE' es lo que la interfaz llama "Planar": el enum es
+    # COLLAPSE / UNSUBDIV / DISSOLVE. Escrito 'PLANAR' reventaba en la primera
+    # corrida (verificado contra la API de DecimateModifier, defaults
+    # documentados: delimit {'NORMAL'}).
+    mod.decimate_type = 'DISSOLVE'
+    mod.angle_limit = math.radians(grados)
+    mod.delimit = {'NORMAL'}
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    return antes, len(obj.data.polygons)
+
+
+def triangular(obj):
+    """Triangula explicito, antes de guardar.
+
+    Con --planar y sin colapso, el resultado puede quedar en n-gonos. El NIF
+    guarda solo triangulos: si se deja al exportador, el .blend deja de ser lo
+    que se carga (limites-skyrim.md).
+    """
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.triangulate(bm, faces=list(bm.faces))
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+
+
 def media_vuelta(obj):
     obj.data.transform(Matrix.Rotation(3.141592653589793, 4, 'Z'))
     obj.data.update()
@@ -175,6 +241,16 @@ def main():
             fraccion = float(args[i + 1])
         except (IndexError, ValueError):
             raise SystemExit("--soldadura necesita un numero: fraccion del alto")
+    planares = None
+    if "--planar" in args:
+        i = args.index("--planar")
+        try:
+            grados = float(args[i + 1])
+        except (IndexError, ValueError):
+            raise SystemExit("--planar necesita un numero: grados de tolerancia")
+        if not 0.0 < grados < 180.0:
+            raise SystemExit("--planar: los grados van entre 0 y 180")
+        planares = grados
     alto_destino = None
     if "--guardar-alto" in args:
         i = args.index("--guardar-alto")
@@ -213,7 +289,15 @@ def main():
     # objeto activo y no toca un datablock que no es suyo. Lleva los
     # materiales, que el bake de albedo necesita.
     alto_malla = obj.data.copy() if alto_destino else None
+    # El planar va DESPUES de copiar la alta: la alta es la fuente del bake y
+    # tiene que llegar densa. Aplicarlo a las dos le sacaria al bake el detalle
+    # que este pase justamente borra.
+    caras_planas = planar(obj, planares) if planares else None
     ratio = decimar(obj, presupuesto)
+    # Solo puede quedar en n-gonos si el planar alcanzo y no hubo colapso; con
+    # colapso, use_collapse_triangulate ya devolvio triangulos.
+    if caras_planas and any(len(p.vertices) > 3 for p in obj.data.polygons):
+        triangular(obj)
     despues = tris(obj)
     if girar:
         media_vuelta(obj)
@@ -246,6 +330,9 @@ def main():
     print("  proporcion  %s" % prop_txt)
     print("  soldadura %.6f del alto: %d aristas de borde, %d no-manifold"
           % (fraccion, borde, no_manifold))
+    if caras_planas:
+        print("  planar %.1f grados: %d caras -> %d caras, sin mover vertices"
+              % (planares, caras_planas[0], caras_planas[1]))
     print("  UV: %s" % [u.name for u in obj.data.uv_layers])
     print("[blend] %s" % destino)
 

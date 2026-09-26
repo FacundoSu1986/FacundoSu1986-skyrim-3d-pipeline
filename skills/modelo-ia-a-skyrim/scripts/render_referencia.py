@@ -40,6 +40,10 @@ mal las proporciones -- que es justo lo que se estaba tratando de fijar.
 Uso:
   blender -b --python render_referencia.py -- <archivo.nif> <carpeta_salida>
   blender -b --python render_referencia.py -- <archivo.nif> <salida> --vistas frente,perfil,dorso
+
+  --frente-az G   azimut de la vista "frente" en grados (90 por defecto). El
+                  script termina diciendo con que numero repetir si el frente
+                  salio de espaldas.
 """
 import math
 import os

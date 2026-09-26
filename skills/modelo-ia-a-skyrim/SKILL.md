@@ -1,7 +1,7 @@
 ---
 name: modelo-ia-a-skyrim
 description: Convierte modelos 3D generados por IA (Tripo, Meshy, Hunyuan3D, Rodin, Trellis) en assets funcionales de Skyrim SE con Blender y PyNifly — malla, rig, texturas DDS y NIF verificado. Usala siempre que aparezca un .glb/.fbx/.obj generado por IA que haya que meter en Skyrim, cuando haya que reemplazar una criatura, armadura o arma vanilla, cuando haya que escribir el prompt para pedirle el modelo a la IA 3D, o cuando se hable de presupuesto de polígonos, exportar NIF, convertir texturas a DDS, riggear a un esqueleto vanilla, o por qué un asset sale invisible, de espaldas, deformado u opaco al lado de los vanilla en el juego. También cuando alguien pregunte si un modelo generado por IA "sirve" para un juego.
-compatibility: Blender 4.4 con PyNifly (io_scene_nifly) para los scripts marcados Blender, que corren con el Python de Blender; Python 3.11 o 3.12 para el resto, con numpy para la compresión DXT y el bake HD. Los NIF, esqueletos y texturas vanilla hay que extraerlos de los BSA del juego, y el repo no los trae. Todo se midió sobre Skyrim SE.
+compatibility: Blender 4.4 con PyNifly (io_scene_nifly) para los scripts marcados Blender, que corren con el Python de Blender --y PyNifly solo corre en Windows, no en Linux ni macOS--; Python 3.11 o 3.12 para el resto, con numpy para la compresión DXT y el bake HD. Los NIF, esqueletos y texturas vanilla hay que extraerlos de los BSA del juego, y el repo no los trae. Todo se midió sobre Skyrim SE.
 metadata:
   inputs: un .glb/.fbx/.obj generado por IA, y el NIF y el esqueleto vanilla que hacen de donante o de referencia
   outputs: un NIF verificado contra el vanilla con verificar_export.py y sus DDS con mipmaps en la convención de Skyrim; opcional, la capa HD horneada
@@ -194,6 +194,11 @@ pieza que mañana pierda una atadura.
 
 ## Archivos de referencia
 
+- **`references/primer-mod.md`** — el camino para quien **nunca hizo un mod**:
+  qué instalar, cómo probar el taller con el ejemplo sin el juego, los dos
+  caminos (ítem nuevo o reemplazo) y la tabla "veo esto → corro aquello". Si el
+  usuario es nuevo, **empezá por acá**: enganchar por el flujo largo es la
+  manera más rápida de perderlo.
 - **`references/pedir-a-la-ia-3d.md`** — cómo escribir el pedido: plantillas por
   tipo de asset, negative prompts, qué formato descargar, cómo expresar
   proporciones. Leelo antes de escribir cualquier prompt para Tripo/Meshy.
@@ -280,7 +285,31 @@ pieza que mañana pierda una atadura.
   proporciones arruina un ControlNet.
 - **`scripts/preparar_parte.py`** — soldar, decimar a un presupuesto y, si se lo
   pedís con `--girar-180`, orientar. No gira por defecto a propósito: una
-  rotación es destructiva y no debe dispararse por una heurística.
+  rotación es destructiva y no debe dispararse por una heurística. Con
+  `--planar <grados>` disuelve los paneles planos antes de colapsar: es el
+  modo Hardsurface de los addons de retopología, con lo que ya trae Blender, y
+  sirve para que el colapso no ondule los filos de una pieza de metal. **Ojo:
+  disolver no es enderezar** — junta caras, no mueve vértices. Para una línea
+  que zigzaguea hace falta `enderezar.py`.
+- **`scripts/enderezar.py`** — endereza las **líneas duras** que ondulan:
+  ajusta la cuerda de cada camino de crestas/bordes y proyecta los vértices
+  interiores sobre ella, con los extremos fijos. El tope (`--tope`, fracción
+  del alto) es lo que separa una línea ondulada de una curva de diseño: si un
+  camino se aparta más que el tope, **no se toca y se informa** — en una pieza
+  Dwemer conviven una barra mecánica y un arco decorativo, y confundirlas no
+  tira ningún error. Los caminos se parten en los **cruces**, que quedan como
+  extremos y por eso nunca se mueven; los ciclos cerrados se rechazan. Las
+  aristas salen de detectar crestas por `--angulo`, o de lo que marques como
+  *sharp* con `--marcadas` **—en una malla de IA esa es la vía confiable: la
+  superficie es densa y una cresta por umbral aparece y desaparece—**. Sin
+  `--aplicar` solo informa, con los percentiles para calibrar el tope; con
+  `--aplicar`, si ningún camino califica no guarda. Va después de
+  `preparar_parte.py` y antes de las UV. **El tope no está medido**, y el
+  efecto del movimiento sobre el horneado tampoco: ver su docstring.
+- **`scripts/enderezar_puro.py`** — lo del enderezado que no necesita Blender:
+  la desviación contra la cuerda, la proyección con extremos fijos, el rechazo
+  por tope, el agrupado de aristas en caminos que no comparten aristas (con los
+  cruces como extremos) y la calibración del tope, con `--autotest`.
 - **`scripts/proporciones_arma.py`** — mide largo, grosor, ancho y empuñadura
   de un arma **en coordenadas de mundo** y los compara contra el rango de su
   **clase** (medido sobre 197 armas vanilla en 9 clases). REGLA: caer dentro
