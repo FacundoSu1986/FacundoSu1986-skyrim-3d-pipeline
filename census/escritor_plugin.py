@@ -71,6 +71,16 @@ def record(tipo, form_id, subrecords, banderas=0, version=44):
     El dataSize del encabezado NO se cuenta a si mismo ni al encabezado, que es
     lo contrario de como lo hace un GRUP. Las dos convenciones conviven en el
     mismo archivo y confundirlas desalinea todo lo que sigue.
+
+    `banderas=0` NO sirve para una referencia colocada (REFR, ACHR, PGRE,
+    PMIS, PHZD, PARW, PBAR, PBEA, PCON, PFLA) que va en un GRUP de tipo 8
+    (Cell Persistent Children): ahi lleva 0x400 (Persistent), y en uno de
+    tipo 9 (Temporary Children) no lo lleva. Medido el 2026-09-25 sobre los
+    10 plugins oficiales: 879.753 referencias, las 59.240 de grupos 8 con
+    0x400 y ninguna de las 820.513 de grupos 9, cero excepciones. El REFR de
+    RetreteVIP v1.1 salio de aca con banderas=0 dentro de un grupo 8 -- la
+    unica referencia de la instalacion con esa combinacion -- y el objeto no
+    aparecio en el juego.
     """
     if isinstance(tipo, str):
         tipo = tipo.encode("ascii")

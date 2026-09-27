@@ -168,3 +168,40 @@ def construir_weap(data_len=10, dnam_len=100, wnam="propio", comprimir=False,
     datos = _record(b"TES4", cab, 0) + cuerpo
     return datos, {"fid_weap": fid_weap, "fid_stat": fid_stat,
                    "wnam": destino}
+
+
+def construir_mundo(banderas_ref=0x400, grupo_ref=8, ofst=None, rnam=0,
+                    full=b"Carrera Blanca\x00", localizado=False):
+    """Un override de WhiterunWorld con su celda persistente y un REFR, con
+    la anidacion de grupos de un plugin real:
+
+        GRUP WRLD (0) > WRLD 0001A26F
+                      > GRUP World Children (1) > CELL 0001A270
+                        > GRUP Cell Children (6) > GRUP `grupo_ref` > REFR
+
+    Con los valores por defecto es el v1.2 de RetreteVIP. El v1.1 es
+    `banderas_ref=0, ofst=[57966, 393059], rnam=40, full=b" L\x00\x00"`.
+    `ofst` son las entradas del OFST (None: sin OFST)."""
+    wrld = _sub(b"EDID", _cstr("WhiterunWorld"))
+    if full is not None:
+        wrld += _sub(b"FULL", full)
+    for i in range(rnam):
+        wrld += _sub(b"RNAM", struct.pack("<hhI", 0, i, 0))
+    if ofst is not None:
+        wrld += _sub(b"OFST", struct.pack("<%dI" % len(ofst), *ofst))
+    celda = _record(b"CELL", _sub(b"DATA", struct.pack("<H", 2)),
+                    0x0001A270, flags=0x400)
+    ref = _record(b"REFR", _sub(b"NAME", struct.pack("<I", 0x01000800))
+                  + _sub(b"DATA", struct.pack("<6f", 0, 0, 0, 0, 0, 0)),
+                  0x01000801, flags=banderas_ref)
+    etiqueta_celda = struct.pack("<I", 0x0001A270)
+    hijos = _grupo(etiqueta_celda, ref, grupo_ref)
+    celda += _grupo(etiqueta_celda, hijos, 6)
+    mundo = _record(b"WRLD", wrld, 0x0001A26F)
+    mundo += _grupo(struct.pack("<I", 0x0001A26F), celda, 1)
+    stat = _record(b"STAT", _sub(b"EDID", _cstr("Retrete")), 0x01000800)
+    cuerpo = _grupo(b"STAT", stat) + _grupo(b"WRLD", mundo)
+    cab = _sub(b"HEDR", struct.pack("<fiI", 1.71, 8, 0x01000802))
+    cab += _sub(b"MAST", _cstr("Skyrim.esm"))
+    cab += _sub(b"DATA", struct.pack("<Q", 0))
+    return _record(b"TES4", cab, 0, flags=0x80 if localizado else 0) + cuerpo
