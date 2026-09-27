@@ -132,7 +132,7 @@ se ve.
 6. La suite entera, con `python tests/correr_suite.py`: lo mismo que
    `python -m unittest discover -s tests -v`, y además un ancla sobre lo que se
    saltea. En CI los tests salteados tienen que ser exactamente los de
-   `SALTEADOS_EN_CI`, cada uno con su motivo: hoy, los 13 que necesitan
+   `SALTEADOS_EN_CI`, cada uno con su motivo: hoy, los 17 que necesitan
    Blender. Un salteo nuevo, uno de la lista que deja de saltearse o un motivo
    distinto ponen el paso en rojo; un "OK (skipped=N)" ya no esconde una
    comparación apagada. Del ejemplo `examples/escudo-minimo/`, la parte de

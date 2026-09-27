@@ -37,8 +37,9 @@ BLENDER = "requiere BLENDER_EXE; no se valido la API de Blender"
 BLENDER_Y_PYNIFLY = "requiere BLENDER_EXE y PyNifly; no se valido"
 
 # id del test -> motivo del salteo. Escrita a mano, copiada del log del CI de
-# main (ubuntu, 3.11 y 3.12 dan los mismos 13): todos necesitan Blender, que el
-# runner de CI no tiene.
+# main (ubuntu, 3.11 y 3.12 dan los mismos 13), mas los 4 de
+# test_hornear_blender (PR #95): los 17 necesitan Blender, que el runner de CI
+# no tiene.
 SALTEADOS_EN_CI = {
     "test_al_marco_blender.AlMarcoEnBlenderTests.test_escudo_baja_y_alta_con_la_misma_matriz": BLENDER,
     "test_al_marco_blender.AlMarcoEnBlenderTests.test_falsificar": BLENDER,
@@ -51,6 +52,10 @@ SALTEADOS_EN_CI = {
     "test_ejemplo_escudo_minimo.ConBlenderTests.test_un_paso_que_falla_corta_la_cadena_con_1": BLENDER_Y_PYNIFLY,
     "test_exportar_nif_blender.ExportarNifEnBlenderTests.test_argumento_que_no_sirve_sale_con_2": BLENDER_Y_PYNIFLY,
     "test_exportar_nif_blender.ExportarNifEnBlenderTests.test_falsificar": BLENDER_Y_PYNIFLY,
+    "test_hornear_blender.HornearFuenteEnBlenderTests.test_al_doble_avisa_cuando_el_atlas_tira_resolucion": BLENDER,
+    "test_hornear_blender.HornearFuenteEnBlenderTests.test_alta_sin_textura_no_tiene_fuente": BLENDER,
+    "test_hornear_blender.HornearFuenteEnBlenderTests.test_sin_doble_con_el_destino_mas_fino_no_avisa": BLENDER,
+    "test_hornear_blender.HornearFuenteEnBlenderTests.test_sin_doble_hornea_a_res_y_avisa_el_aliasing": BLENDER,
     "test_uv_exportacion_blender.UVEnBlenderTests.test_conserva_atlas_en_mesh_real": BLENDER,
     "test_uv_exportacion_blender.UVEnBlenderTests.test_la_limpieza_vieja_falla": BLENDER,
 }
