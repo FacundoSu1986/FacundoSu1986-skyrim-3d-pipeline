@@ -140,12 +140,52 @@ atrapar.
 - **La verificación tiene que ser en espacio de mundo**, no por bytes. Un
   archivo puede tener los mismos bytes de vértice y estar en otro lado.
 
+## 6. En el juego: el mod de prueba de la issue #31
+
+Lo que la sección 3 y la 5 dejan abierto solo lo contesta el juego: ¿un
+estático que vuelve "rotado" se ve rotado, o es otra forma de escribir la misma
+transformación? ¿El material que leemos como `SKY_HAV_MAT_NONE` se perdió, o
+es nuestro lector el que no lo encuentra? Para mirarlo hay dos herramientas:
+
+```
+blender -b --python fixtures/ida_y_vuelta_pynifly.py -- <meshes> <salida> <lista.txt> <resultado.json>
+python fixtures/prueba_en_el_juego.py <Skyrim.esm> <meshes> <salida> <mod> <caso.nif> [...]
+```
+
+La primera repite esta medición sobre una lista y deja los NIF exportados. La
+segunda arma un ESL con **dos STAT por caso**, el original y el exportado, con
+todos los campos del STAT vanilla de ese NIF (se copian; cambian el EDID y el
+MODL) y los NIF bajo `meshes/prueba31/`, que no pisa nada. En el juego,
+`player.placeatme` de los dos sin moverse los deja uno encima del otro.
+
+**Reproducido** (2026-09-27, Blender 4.4.1, PyNifly 27.2.0): con los criterios
+de `README.md` salen 1.850 candidatos (esta medición dice 1.857; la diferencia
+no se investigó). Sobre 74 de ellos —los tres rotados que cita la sección 3 y
+los 71 con material `STONE`, `CERAMIC_MEDIUM` o `HEAVY_WOOD`— la malla se mueve
+en 4, la colisión en 15, y el material pasa a `NONE` en 24 de los 71.
+
+Los 8 casos del mod (N = 1 cada uno):
+
+| NIF | lo que midió el repo |
+|---|---|
+| `architecture/solitude/interiors/slgftraconmid01.nif` | caja [188,5 40,0 32,0] → [40,0 188,5 32,0]: giro de 90° |
+| `architecture/solitude/clutter/smdshelf01.nif` | caja [36,8 160,0 50,7] → [160,0 36,8 50,7]: giro de 90° |
+| `architecture/markarth/mrkriverbaseupper.nif` | caja [2069 1736 811] → [1206 1763 811]: giro de un ángulo cualquiera |
+| `dungeons/nordic/chambers/wordwallhighhrothgarrubble01.nif` | caja [478 406 503] → [283 372 206]: cambia de tamaño |
+| `architecture/highhrothgar/hhstepa.nif` | `STONE` → `NONE`, y la caja de la colisión cambia |
+| `clutter/deadanimals/dragonboneslegr01.nif` | `STONE` → `NONE`; malla igual |
+| `clutter/quest/da13vinefloorlg01.nif` | `HEAVY_WOOD` → `NONE`; malla igual |
+| `clutter/deadanimals/dragonbonesneck01.nif` | **control**: no cambia nada |
+
+**En el juego: sin ver todavía.** Lo que se mire va acá y en la issue #31, con
+su N.
+
 ## Lo que esto NO mide
 
 - **Mallas riggeadas.** Todo esto es sobre estáticos de un solo shape. Las
   trampas conocidas de PyNifly con esqueletos y huesos no se tocaron.
 - **Si el juego lo carga bien.** Un archivo puede diferir del vanilla y andar
-  perfecto. Lo único que cierra eso es verlo en el juego.
+  perfecto. Lo único que cierra eso es verlo en el juego (sección 6).
 - **De quién es la culpa.** Se midió `importar → exportar`, así que un defecto
   del importador y uno del exportador no se distinguen. Lo que sí queda
   probado es que el ciclo completo **no es idempotente**.
