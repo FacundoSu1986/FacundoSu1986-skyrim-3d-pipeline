@@ -164,6 +164,7 @@ arriba.
   rugosidad, el metal y la oclusión no tienen por qué parecerse: medido sobre
   los mapas horneados de `hd-texturas.md`, un error RMS de 3,5, 3,2 y 2,3
   niveles (de 255). Cuánto se nota, en el juego, no se midió. BC7, que
-  comprime mejor esos canales, el repo no lo escribe.
+  comprime mejor esos canales, el repo lo escribe con `compresion="bc7"`
+  (`census/compresor_bc7.py`, modos 5 y 6); con `"dxt"` sigue saliendo DXT1.
 - **Subsurface, capa, fuzz y glints.** Están documentados arriba desde el
   código, pero la fase no los arma.

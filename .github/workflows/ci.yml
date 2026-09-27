@@ -22,17 +22,19 @@ jobs:
 
       # numpy: el bake de la capa HD (hornear.py) corre en Blender, que trae
       # numpy, y usa las funciones de horneado_puro.py que lo necesitan
-      # (margen, relleno, reduccion); census/compresor_dxt.py tambien. Sin
-      # numpy en CI sus autotests salteaban y decian "OK".
-      # Pillow: solo como ORACULO de compresor_dxt (su decodificador y su
-      # compresor DXT, para comparar). No es dependencia del repo.
+      # (margen, relleno, reduccion); census/compresor_dxt.py y
+      # census/compresor_bc7.py tambien. Sin numpy en CI sus autotests
+      # salteaban y decian "OK".
+      # Pillow: solo como ORACULO de compresor_dxt y compresor_bc7 (sus
+      # decodificadores, para comparar). No es dependencia del repo.
       # PyYAML: solo como ORACULO de test_frontmatter_skills.py (el parser del
       # validador de subida, para comparar con el lector del test). Tampoco es
       # dependencia del repo. Sin PyYAML en CI esa comparacion se salteaba y
       # la suite decia "OK".
       # Si falta alguno, un test falla en vez de saltearse:
-      # tests/test_horneado_puro.py (numpy), tests/test_compresor_dxt.py (numpy
-      # y Pillow) y tests/test_frontmatter_skills.py (PyYAML).
+      # tests/test_horneado_puro.py (numpy), tests/test_compresor_dxt.py y
+      # tests/test_compresor_bc7.py (numpy y Pillow) y
+      # tests/test_frontmatter_skills.py (PyYAML).
       # ruff y mypy: el lint y los tipos de abajo, con la version fijada.
       # La lista vive en requirements-dev.txt (numpy via requirements.txt): el
       # CI instala ESE archivo para que lo declarado y lo probado no se separen.

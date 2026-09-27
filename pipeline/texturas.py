@@ -54,11 +54,19 @@ QUE NO HACE, Y POR QUE NO ES UN DESCUIDO
     escribe DDS sin comprimir de 32 bpp: del censo, 10.048 de 32.241 texturas
     vanilla (31,2 %) lo son y el juego las carga igual. Con `"dxt"` escribe
     el `_n` y todo mapa con alfa en DXT5 --los 12.075 `_n` del corpus son
-    DXT5-- y el resto en DXT1, con `census/compresor_dxt.py` (numpy). Cada
-    DXT escrito se RELEE y se informa el error por canal contra lo que se
-    quiso escribir (`error_compresion`), y la máscara especular se mide
-    sobre el DXT5, que es lo que llega al juego. BC7 no: el corpus no tiene
-    ninguno y `mascara_especular.py` no lo lee.
+    DXT5-- y el resto en DXT1, con `census/compresor_dxt.py` (numpy). Con
+    `"bc7"` escribe TODOS los mapas en BC7 --los modos 5 y 6 de
+    `census/compresor_bc7.py` (numpy), DXGI 99 sRGB en los slots de color y
+    98 lineal en los de datos, que es lo que recomienda
+    `references/limites-skyrim.md` aunque Bethesda no haya usado BC7 (0 de
+    32.241)--. Cada DDS comprimido se RELEE y se informa el error por canal
+    contra lo que se quiso escribir (`error_compresion`), y la máscara
+    especular se mide sobre lo que llega al juego: sobre el DXT5 sin
+    decodificar, o --en BC7-- sobre el alfa decodificado con `compresor_bc7`
+    (`medir_mascara`; la medición es la misma regla de bloques, y un alfa
+    constante vuelve constante exacto). `mascara_especular.py` como script
+    suelto sigue sin poder leer un archivo BC7: es un límite del script, y
+    el pipeline no depende de él para eso.
   * NO escribe el NIF ni toca las rutas de la malla. Deja `texture_set.json`
     en `reports/` con la ruta declarada de cada mapa, que es lo que una fase
     EXPORT_NIF necesita para llenar el `BSShaderTextureSet`.
@@ -75,9 +83,10 @@ VERIFICACION
 Cada DDS escrito se pasa por `fixtures/comparar.reglas_dds`, que son REGLAS
 con número del censo atrás (`dds_parsea`, `dds_tamano`,
 `dds_potencia_de_dos`, `normal_con_alfa`): si una falla, la fase falla. La
-máscara especular del `_n` se mide con `mascara_especular.py`; para el alcance
-de este manifest (static/clutter) eso INFORMA y no reprueba, porque la regla
-de saturación está medida solo sobre armas.
+máscara especular del `_n` se mide con `mascara_especular.py` --en BC7, con
+su alfa ya decodificado por `census/compresor_bc7.py` y `medir_pixeles`;
+para el alcance de este manifest (static/clutter) eso INFORMA y no reprueba,
+porque la regla de saturación está medida solo sobre armas.
 
 Las rutas declaradas se comprueban con `comparar.resolver_textura`, que
 resuelve las cuatro formas del corpus --incluida la del árbol de build de
@@ -922,7 +931,7 @@ def entorno_desde_metalico(tex_fuente: Textura, canal: str = "b"
 # ---------------------------------------------------------------------------
 
 def formato_dds(slot: str, tex: Textura, compresion: str) -> str:
-    """El formato de cada mapa: "RGBA" (sin comprimir), "DXT1" o "DXT5".
+    """El formato de cada mapa: "RGBA", "DXT1", "DXT5" o "BC7".
 
     Con "dxt": el `_n` siempre DXT5, porque su alfa es la máscara especular
     aunque venga en 255 (12.075 de 12.075 `_n` vanilla son DXT5; DXT1 no
@@ -930,9 +939,17 @@ def formato_dds(slot: str, tex: Textura, compresion: str) -> str:
     de alfa < 255 va en DXT5; el resto en DXT1, que pesa la mitad. En el
     corpus, `_d` es DXT1 en el 57 % y `_m` en el 36 %
     (census/hallazgos_texturas.md, hallazgo 7).
+
+    Con "bc7": TODOS los mapas van en BC7, sin mirar el contenido. BC7
+    tiene alfa en todos lados (los modos 5 y 6 lo codifican siempre), pesa
+    lo mismo que DXT5 (8 bpp) y da mejor definición; el alfa constante sale
+    exacto, que es lo que la máscara especular necesita (ver
+    census/compresor_bc7.py).
     """
     if compresion == "ninguna":
         return "RGBA"
+    if compresion == "bc7":
+        return "BC7"
     if slot == "normal":
         return "DXT5"
     opaco = tex.pixeles[3::4].count(255) == tex.ancho * tex.alto
@@ -941,7 +958,7 @@ def formato_dds(slot: str, tex: Textura, compresion: str) -> str:
 
 def escribir_dds(tex: Textura, ruta: Path, slot: str = "color",
                  formato: str = "RGBA") -> Path:
-    """DDS con la cadena completa de mipmaps, sin comprimir o DXT1/DXT5.
+    """DDS con la cadena completa de mipmaps: sin comprimir, DXT1/DXT5 o BC7.
 
     Delega en `census/escritor_dds.py`, que ya está verificado: su autotest
     compara el tamaño que predice `parser_dds` contra el real y RELEE los
@@ -952,6 +969,9 @@ def escribir_dds(tex: Textura, ruta: Path, slot: str = "color",
 
     Cada mipmap se arma con `redimensionar(..., slot)`: el color en luz lineal
     y el normal renormalizado en TODOS los niveles, no solo en el primero.
+    `srgb` para BC7 sale del slot (`SLOTS_SRGB`): 99 (UNORM_SRGB) en color,
+    glow, subsurface y backlight; 98 (lineal) en el resto. Los formatos que
+    no son BC7 lo ignoran.
     """
     def reducir_nivel(pix: bytes, ancho: int, alto: int) -> bytes:
         return redimensionar(Textura(ancho, alto, pix), max(1, ancho // 2),
@@ -961,15 +981,20 @@ def escribir_dds(tex: Textura, ruta: Path, slot: str = "color",
     return escritor_dds.escribir(str(ruta), tex.ancho, tex.alto,
                                  tex.pixeles, con_mipmaps=True,
                                  reducir_nivel=reducir_nivel,
-                                 formato=formato)
+                                 formato=formato,
+                                 srgb=slot in SLOTS_SRGB)
 
 
 def error_compresion(tex: Textura, ruta: Path) -> dict:
-    """Relee el nivel 0 de un DXT escrito y mide el error contra `tex`.
+    """Relee el nivel 0 de un DDS comprimido escrito (DXT o BC7) y mide el
+    error contra `tex`.
 
     RMS y máximo por canal, en niveles de 0 a 255. No reprueba: no hay un
     número del corpus que diga cuánto error es mucho. Informa, para que un
     mapa que el compresor destrozó se vea en el reporte y no en el juego.
+    La relectura usa el decodificador propio de cada formato
+    (`compresor_dxt` o `compresor_bc7`); el de BC7 está fijado byte a byte
+    contra Pillow en `tests/test_compresor_bc7.py`.
     """
     import numpy as np
     _d, vuelta = escritor_dds.leer_pixeles(str(ruta))
@@ -1002,9 +1027,30 @@ def medir_mascara(ruta: Path) -> dict:
     el resto, `juzgar(es_arma=False)` devuelve notas, porque 59 de 1.201
     objetos portables vanilla están saturados y son materiales mate. Acá se
     respeta ese alcance en vez de convertirlo en regla universal.
+
+    Con BC7 no hay cabecera que leer: el archivo se DECODIFICA con
+    `census/compresor_bc7.py` (numpy; su decodificador se fija byte a byte
+    contra Pillow en `tests/test_compresor_bc7.py`) y la medición corre
+    sobre esos píxeles con `mascara_especular.medir_pixeles`, LA MISMA regla
+    de bloques que sobre el DXT5 sin tocar. El reporte lo dice: es el alfa
+    decodificado del BC7, no una lectura directa. El script
+    `mascara_especular.py` como tal sigue rechazando un BC7 (su límite
+    declarado, sin numpy no puede decodificar); esta fase no depende de él
+    para eso.
     """
-    m = mascara_especular.medir(str(ruta))
+    d = parser_dds.leer(str(ruta))
+    if d["formato"] == "BC7":
+        _d, pixeles = escritor_dds.leer_pixeles(str(ruta))
+        m = mascara_especular.medir_pixeles(pixeles, d["ancho"], d["alto"],
+                                            formato="BC7")
+    else:
+        m = mascara_especular.medir(str(ruta))
     fallas, notas = mascara_especular.juzgar(m, es_arma=False)
+    if d["formato"] == "BC7" and not m.get("error"):
+        notas = notas + [
+            "OBS medida sobre el alfa decodificado del BC7 con "
+            "census/compresor_bc7.py: BC7 no deja alpha0==alpha1 que leer "
+            "en la cabecera, y el alfa constante vuelve constante exacto."]
     return {"medicion": m, "fallas": fallas, "notas": notas}
 
 
@@ -1441,13 +1487,20 @@ def fase_process_texturas(mani: JobManifest, ws: JobWorkspace) -> dict:
     """
     reporte: dict[str, Any] = {
         "ejecutada": True,
-        "herramienta": "pipeline.texturas + census/escritor_dds.py + "
-                       "census/compresor_dxt.py + fixtures/comparar.py + "
-                       "scripts/mascara_especular.py",
-        "formato_salida": ("DDS sin comprimir 32bpp con cadena de mipmaps"
-                           if mani.compresion == "ninguna" else
-                           "DDS DXT5 (_n y mapas con alfa) y DXT1 (el resto) "
-                           "con cadena de mipmaps"),
+        "herramienta": (
+            "pipeline.texturas + census/escritor_dds.py + "
+            + ("census/compresor_bc7.py + "
+               if mani.compresion == "bc7" else
+               "census/compresor_dxt.py + " if mani.compresion == "dxt"
+               else "")
+            + "fixtures/comparar.py + scripts/mascara_especular.py"),
+        "formato_salida": (
+            "DDS sin comprimir 32bpp con cadena de mipmaps"
+            if mani.compresion == "ninguna" else
+            "DDS BC7 modos 5 y 6 (DXGI 98/99 por slot) con cadena de "
+            "mipmaps" if mani.compresion == "bc7" else
+            "DDS DXT5 (_n y mapas con alfa) y DXT1 (el resto) "
+            "con cadena de mipmaps"),
         "compresion": mani.compresion,
         "max_lado_textura": mani.max_lado_textura,
         "entradas": [],

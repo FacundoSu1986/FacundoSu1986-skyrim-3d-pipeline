@@ -6,9 +6,10 @@
 # El CI instala exactamente este archivo (.github/workflows/ci.yml).
 -r requirements.txt
 
-# Pillow: solo ORACULO de tests/test_compresor_dxt.py (su decodificador y su
-# compresor DXT, para comparar contra census/compresor_dxt.py). Ningun script
-# del repo lo importa: no es dependencia del repo.
+# Pillow: solo ORACULO de tests/test_compresor_dxt.py y
+# tests/test_compresor_bc7.py (sus decodificadores, para comparar contra
+# census/compresor_dxt.py y census/compresor_bc7.py). Ningun script del repo
+# lo importa: no es dependencia del repo.
 pillow
 
 # PyYAML: solo ORACULO de tests/test_frontmatter_skills.py (yaml.safe_load, el

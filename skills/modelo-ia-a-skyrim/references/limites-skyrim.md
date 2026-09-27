@@ -264,7 +264,10 @@ distancia.
 | Difuso (color) | BC7 sRGB |
 | Normal, máscaras | BC7 lineal |
 
-Herramienta: `texconv.exe` (de DirectXTex).
+Herramienta: `texconv.exe` (de DirectXTex). El pipeline de este repo no
+necesita texconv: `compresion="bc7"` en el manifest escribe el DDS en BC7
+directo (`census/compresor_bc7.py`), DXGI 99 sRGB para difuso y 98 lineal
+para normales y máscaras.
 
 > **BC7 es lo que SE *admite*, no lo que Bethesda *usó*.** `[OBSERVED]` Censo
 > completo de las **32.241** texturas del juego base: DXT5 55,2 %, sin comprimir

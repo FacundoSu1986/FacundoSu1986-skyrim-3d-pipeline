@@ -570,3 +570,45 @@ validado. Lo que quedó, y por qué:
   falla.
 - **En CI corre la mitad de Python**; la cadena entera, con `BLENDER_EXE`
   (`tests/test_ejemplo_escudo_minimo.py`).
+
+## Compresión BC7 propia, modos 5 y 6, con Pillow de oráculo
+
+La rama de "mejor definición" quedó acotada a texturas: se descartó por
+ahora malla, subir resolución y las tres juntas. El cambio: `compresion="bc7"`
+en el manifest escribe TODOS los mapas en BC7, con un encoder propio
+`census/compresor_bc7.py` (numpy puro; binarios de terceros los prohíbe el
+`.gitignore`, y un encoder no hace falta: hace4 modos con tabla de
+particiones, no ocho).
+
+- **Modos 5 y 6, no los ocho.** Son los dos únicos modos de BC7 sin tabla de
+  particiones: un subconjunto, sin selector de índices. El modo 6 da RGBA
+  7.7.7.7.1 con p-bit por endpoint y 16 colores; el modo 5 da RGB 7.7.7 y
+  alfa de 8 bits exacto en planos separados. Se codifica el bloque en los dos
+  y gana el de menor error cuadrático (empate: modo 6). Los otros seis
+  quedan fuera por decisión, no por olvido: agregarlos es agregar la tabla de
+  particiones y con ella una pieza que tendría que falsificarse aparte.
+- **DXGI por slot.** 99 (BC7_UNORM_SRGB) en los slots de color
+  (`SLOTS_SRGB`), 98 (lineal) en los de datos, que es lo que recomienda
+  `references/limites-skyrim.md` para difuso vs normal y máscara.
+- **El alfa constante manda.** La máscara especular es alfa de bloque
+  constante: en el modo 6 se fuerzan los dos p-bits a `A & 1` y en el modo 5
+  el alfa ya es exacto, así que un bloque en blanco vuelve en blanco exacto.
+  Mismo criterio que el alfa de BC3 en `compresor_dxt.py`, y mismo costo
+  declarado: los componentes de color del endpoint quedan en esa paridad.
+- **Verificación.** El layout completo (orden de campos, pesos de 64os,
+  anclas con el MSB implícito, rotación, expansión `(v << 1) | (v >> 6)`) se
+  determinó bloque a bloque contra Pillow 12.3 y texture2ddecoder, y quedó
+  fijado con literales en `tests/test_compresor_bc7.py`: la salida del
+  encoder decodificada por Pillow tiene que ser byte a byte la del
+  decodificador propio. Calidad contra DXT5 en los mismos píxeles (autotest):
+  degradado gana en RGB (2,40 vs 2,80 de RMS medio), normal+mascara gana
+  entero (0,90 vs 1,25), y el ruido RGBA empata en RGB y pierde en alfa
+  (16,5 contra 8,7): el alfa ALEATORIO es el peor caso del modo 5 (4 paradas
+  contra las 8 de DXT5) y quedó declarado en el docstring en vez de
+  escondido.
+- **Lo que no cambió.** `mascara_especular.py` como script suelto sigue sin
+  leer BC7 (`ALFA_NO_MEDIBLE`, `test_mascara_especular.py` intacto): el
+  pipeline decodifica con `compresor_bc7.py` y mide con la nueva
+  `medir_pixeles`, la MISMA regla de bloques, y el reporte dice que la
+  medida es sobre el alfa decodificado. El `.censo` no se tocó: el corpus
+  sigue teniendo 0 BC7.

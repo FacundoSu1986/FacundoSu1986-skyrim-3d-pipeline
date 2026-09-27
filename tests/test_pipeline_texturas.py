@@ -1260,6 +1260,92 @@ class FaseDxtTests(EntornoTexturas):
         self.assertEqual(self._formatos(espacio)["cartel_rmaos.dds"], "DXT1")
 
 
+@unittest.skipIf(np is None, "compresion='bc7' necesita numpy")
+class FaseBc7Tests(EntornoTexturas):
+    """compresion="bc7": TODOS los mapas en BC7 (modos 5 y 6), DXGI 99 sRGB
+    en los slots de color y 98 lineal en los de datos, y la máscara mida
+    sobre el alfa decodificado del archivo escrito."""
+
+    COLOR = FaseTests.COLOR
+    NORMAL = FaseTests.NORMAL
+    ORM = FaseTests.ORM
+
+    def _texdir(self, espacio, job_id="job-tex"):
+        return (espacio.raiz / job_id / "package" / "textures"
+                / "static" / job_id)
+
+    def _formatos(self, espacio):
+        return {p.name: parser_dds.leer(str(p))["formato"]
+                for p in self._texdir(espacio).iterdir()}
+
+    def test_todos_los_mapas_salen_en_bc7(self):
+        self.escribir("cartel.png", png(64, 64, self.COLOR))
+        self.escribir("cartel_n.png", png(64, 64, self.NORMAL))
+        self.escribir("cartel_orm.png", png(64, 64, self.ORM))
+        rep, espacio = self.correr_fase(compresion="bc7")
+        self.assertEqual(self._formatos(espacio),
+                         {"cartel.dds": "BC7", "cartel_n.dds": "BC7",
+                          "cartel_m.dds": "BC7"})
+        for e in rep["texture_sets"][0]["texturas"]:
+            self.assertEqual(e["formato"], "BC7")
+            self.assertEqual(len(e["error_compresion"]["rms"]), 4)
+        self.assertEqual(rep["compresion"], "bc7")
+        self.assertIn("BC7", rep["formato_salida"])
+        self.assertIn("compresor_bc7", rep["herramienta"])
+
+    def test_el_dxgi_depende_del_slot(self):
+        """limites-skyrim.md: BC7 sRGB para difuso, lineal para normal y
+        máscara. El sRGB va en el header DX10 (99), no en una promesa."""
+        self.escribir("cartel.png", png(64, 64, self.COLOR))
+        self.escribir("cartel_n.png", png(64, 64, self.NORMAL))
+        self.escribir("cartel_orm.png", png(64, 64, self.ORM))
+        _rep, espacio = self.correr_fase(compresion="bc7")
+        dds = self._texdir(espacio)
+        self.assertTrue(parser_dds.leer(str(dds / "cartel.dds"))["srgb"])
+        self.assertFalse(parser_dds.leer(str(dds / "cartel_n.dds"))["srgb"])
+        self.assertFalse(parser_dds.leer(str(dds / "cartel_m.dds"))["srgb"])
+
+    def test_la_mascara_se_mide_sobre_el_bc7_decodificado(self):
+        """Rugosidad plana 200 -> alfa 55 constante. BC7 no deja
+        alpha0==alpha1 que leer: se decodifica el archivo y la medición da
+        lo mismo que sobre el sin comprimir, que es la garantía del modo
+        (alfa constante vuelve constante exacto)."""
+        self.escribir("cartel.png", png(64, 64, self.COLOR))
+        self.escribir("cartel_n.png", png(64, 64, self.NORMAL))
+        self.escribir("cartel_orm.png", png(64, 64, self.ORM))
+        crudo, _e1 = self.correr_fase(job_id="crudo")
+        bc7, _e2 = self.correr_fase(job_id="bc7", compresion="bc7")
+
+        def mascara(rep):
+            return next(e["mascara"] for e in rep["texture_sets"][0]["texturas"]
+                        if e["slot"] == "normal")
+        self.assertEqual(mascara(bc7)["media"], 55.0)
+        self.assertEqual(mascara(bc7)["blanco_pct"], 0.0)
+        self.assertEqual(mascara(crudo)["media"], mascara(bc7)["media"])
+        self.assertTrue(any("decodificado" in n for n in mascara(bc7)["notas"]),
+                        "el reporte no dice que midió sobre el alfa "
+                        "decodificado")
+
+    def test_un_color_plano_vuelve_con_error_cero(self):
+        """(10, 20, 30, 40) está en la retícula de ambos modos: si el
+        reporte relee el archivo y da error, o el decodificador o el
+        encoder mienten."""
+        self.escribir("liso.png", png(64, 64, rgba(64, 64,
+                                                   lambda x, y: (10, 20,
+                                                                 30, 40))))
+        rep, _espacio = self.correr_fase(compresion="bc7")
+        err = rep["texture_sets"][0]["texturas"][0]["error_compresion"]
+        self.assertEqual(err["maximo"], [0, 0, 0, 0])
+
+    def test_sin_pedirlo_sigue_sin_comprimir(self):
+        self.escribir("cartel.png", png(64, 64, self.COLOR))
+        rep, espacio = self.correr_fase()
+        self.assertEqual(set(self._formatos(espacio).values()),
+                         {"sin_comprimir_32bpp"})
+        self.assertNotIn("error_compresion",
+                         rep["texture_sets"][0]["texturas"][0])
+
+
 # ---------------------------------------------------------------------------
 # El runner, con la fase conectada de verdad
 # ---------------------------------------------------------------------------

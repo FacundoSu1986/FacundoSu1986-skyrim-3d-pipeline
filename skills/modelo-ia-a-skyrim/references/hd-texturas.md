@@ -214,14 +214,17 @@ Si no hay recortes (pelo, rejas), no hace falta alfa: DXT1. Con alfa, DXT5.
 - **DXT5 o BC7.** `limites-skyrim.md` recomienda BC7 lineal para normales de
   contenido nuevo en SE. El corpus vanilla usa DXT5 en el 100 % de sus 12.075
   `_n` y no tiene ningún BC7. Las dos opciones sirven.
-- **La máscara se mide sobre lo que se entrega.** `mascara_especular.py` lee
-  el alfa de un DXT5 y de un sin comprimir de 32 bpp, no el de un BC7: es un
-  límite de la herramienta, no del formato. La fase de texturas del pipeline
-  escribe DXT con `compresion="dxt"` (`census/compresor_dxt.py`): el `_n` en
-  DXT5, los mapas opacos en DXT1, y mide la máscara sobre el DXT5 escrito.
-  Medido sobre esta capa: la máscara da lo mismo antes y después de comprimir
-  (0 % de bloques en blanco; media 92,4 contra 92,6). Si elegís BC7, medila
-  antes, sobre el sin comprimir, y comprimí después.
+- **La máscara se mide sobre lo que se entrega.** `mascara_especular.py`
+  como script suelto lee el alfa de un DXT5 y de un sin comprimir de 32 bpp,
+  no el de un BC7: es un límite de la herramienta, no del formato. La fase de
+  texturas del pipeline escribe con `compresion="dxt"`
+  (`census/compresor_dxt.py`: `_n` en DXT5, opacos en DXT1) y mide la
+  máscara sobre el DXT5 escrito; con `compresion="bc7"`
+  (`census/compresor_bc7.py`) escribe todo en BC7 y la mide sobre el alfa
+  decodificado, con la MISMA regla de bloques --y un alfa constante vuelve
+  constante exacto, que es la garantía del encoder--. Medido sobre la capa
+  DXT: la máscara da lo mismo antes y después de comprimir (0 % de bloques
+  en blanco; media 92,4 contra 92,6).
 - Máscara gris, no blanca. En armas: `mascara_especular.py --arma` (como mucho
   10 % de bloques en blanco; las armas del corpus están por debajo del 6,9 %).
 - Mipmaps siempre. Potencia de 2 siempre: 0 excepciones en 32.241 texturas.
@@ -287,7 +290,9 @@ Por asset, en este orden:
    mismo mapeo: comparar también las coordenadas con la copia de exportación
    (trampa 40 y [acabado-y-validacion.md](acabado-y-validacion.md)).
 4. `mascara_especular.py [--arma]` sobre el `_n` que se entrega: DXT5 o sin
-   comprimir. Un BC7 no se puede medir; medí el sin comprimir antes.
+   comprimir. El script no lee un BC7 (su límite declarado): si el `_n` salió
+   en BC7, usá la medición del reporte de la fase --sí decodifica
+   `census/compresor_bc7.py`-- o medí el sin comprimir antes de comprimir.
 5. `verificar_export.py nuevo.nif vanilla.nif`, que también compara rutas de
    textura.
 6. Render con luz rasante y sin albedo: el relieve tiene que salir hacia
@@ -321,8 +326,14 @@ Blender y no corre en CI. Los puntos 6 y 7 son manuales.
   comparó contra un escudo vanilla en la misma escena y no se midió nada en el
   juego.
 - **Luz horneada.** No hay corrección automática del albedo, solo el aviso.
-- **BC7.** El repo comprime a DXT1/DXT5, no a BC7. El corpus corta los
-  mipmaps en 2×2 (el 96,4 %); el escritor baja hasta 1×1, como 109 vanilla.
+- **BC7.** Ya se puede pedir: `compresion="bc7"` en el manifest escribe
+  todos los mapas en BC7 (modos 5 y 6 de `census/compresor_bc7.py`,
+  decodificador fijado byte a byte contra Pillow), con DXGI 99 sRGB en los
+  slots de color y 98 lineal en los de datos, y la máscara se mide sobre el
+  alfa decodificado. Lo que sigue sin hacer: probarlo en el juego, y los
+  otros seis modos de BC7 quedan fuera por decisión (particiones). El
+  corpus corta los mipmaps en 2×2 (el 96,4 %); el escritor baja hasta 1×1,
+  como 109 vanilla.
 - **Atlas no cuadrados.** `hornear.py` solo hornea cuadrados. Vanilla también
   tiene rectangulares.
 - **Mods HD.** Falta relevar qué resoluciones usan los mods HD publicados.
