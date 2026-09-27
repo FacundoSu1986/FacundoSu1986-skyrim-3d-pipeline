@@ -22,8 +22,10 @@ cambian de layout con ella, y la primera version de este mod, que los
 escribia con 44, cerraba el juego en la pantalla de Bethesda (2026-09-27;
 las leyes en census/escritor_plugin.py, comprobar_layout). Por eso la REGLA 1
 de skills/asset-nuevo-skyrim/scripts/verificar_plugin.py, que pide 44 en todo,
-reprueba este ESL: es para records escritos con el layout de 44. El que dice
-si version y layout coinciden es SSEEdit ("Check for errors": 0). Un
+reprueba este ESL, a proposito: su docstring dice por que. La que compara
+version y layout es su REGLA 8, con las mismas leyes: el primer ESL la
+reprobaba en los 16 STAT y este la pasa. Del resto del record, el juez es
+SSEEdit ("Check for errors": 0). Un
 NIF que en el vanilla no es un STAT (un ACTI, un MISC, un MSTT) no entra: sale
 con 2 y dice cual. Si el NIF tiene varios STAT, se usa el primero y el reporte
 dice cuantos habia.

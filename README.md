@@ -85,7 +85,7 @@ La skill [`asset-nuevo-skyrim`](skills/asset-nuevo-skyrim):
 | [`scripts/exportar_puro.py`](skills/asset-nuevo-skyrim/scripts/exportar_puro.py) | Lo de ese export que no necesita Blender: plan, soldadura, caja, inercia, flags, texturas |
 | [`scripts/donante_sintetico.py`](skills/asset-nuevo-skyrim/scripts/donante_sintetico.py) | Un donante hecho con PyNifly, sin el juego, para probar `exportar_nif.py` (Blender) |
 | [`scripts/correr_en_blender.py`](skills/asset-nuevo-skyrim/scripts/correr_en_blender.py) | El mismo de `modelo-ia-a-skyrim`: un script de Blender que revienta no sale con 0 |
-| [`scripts/verificar_plugin.py`](skills/asset-nuevo-skyrim/scripts/verificar_plugin.py) | El plugin terminado: formVersion, índices, WEAP, Prn |
+| [`scripts/verificar_plugin.py`](skills/asset-nuevo-skyrim/scripts/verificar_plugin.py) | El plugin terminado: formVersion, índices, WEAP, Prn, referencias colocadas, OFST, FULL, y el layout de cada record según su versión |
 
 Y aparte, en [`census/`](census), las herramientas que producen los números:
 
@@ -98,7 +98,7 @@ Y aparte, en [`census/`](census), las herramientas que producen los números:
 | [`census/compresor_dxt.py`](census/compresor_dxt.py) | Comprime y decodifica DXT1/DXT5 (numpy); verificado contra Pillow y contra el corpus |
 | [`census/compresor_bc7.py`](census/compresor_bc7.py) | Comprime y decodifica BC7, modos 5 y 6 (numpy); verificado contra Pillow byte a byte |
 | [`census/hallazgos.md`](census/hallazgos.md) | 44 hallazgos medidos sobre las mallas, con consulta y N cada uno |
-| [`census/hallazgos_plugins.md`](census/hallazgos_plugins.md) | 18 hallazgos sobre los plugins |
+| [`census/hallazgos_plugins.md`](census/hallazgos_plugins.md) | 19 hallazgos sobre los plugins |
 | [`census/hallazgos_texturas.md`](census/hallazgos_texturas.md) | 10 hallazgos sobre las texturas |
 | [`census/hallazgos_uv.md`](census/hallazgos_uv.md) | 6 hallazgos sobre las UV |
 

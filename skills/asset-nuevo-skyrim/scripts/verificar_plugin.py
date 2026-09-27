@@ -34,6 +34,22 @@ REGLA 1 -- formVersion == 44 en cada record.
     TU plugin: pasarla sobre Skyrim.esm reprueba 1,1 millones de records que el
     juego carga perfectamente.
 
+    TAMBIEN REPRUEBA LA COPIA QUE LLEVA SU VERSION, a proposito (decidido el
+    2026-09-27). El mod de prueba de la issue #31 copia STAT 39 de Skyrim.esm
+    con su version: sus 16 records pasan la REGLA 8 y SSEEdit no les
+    encuentra errores, y esta regla los reprueba. No se los exime porque
+    pasar la REGLA 8 no prueba que un record se lea bien: solo ve MODT..DMDT
+    y el DNAM de un STAT. De los 1.097.858 records de version < 44 de los 10
+    plugins, 1.082.396 no tienen nada de eso. Y el caso real la pasa: el ESL
+    del hacha del 20/9 tiene el WEAP 00000800 en version 0 con un MODT
+    (2, 0, 0), el encabezado de la 44 sin texturas, que con 0 mide lo que un
+    triple; su DATA, el que el juego leyo mal, mide 10 bytes con los dos
+    layouts. Eximir lo que pasa la REGLA 8 reabria la trampa 23. Esta regla
+    es la de lo que escribe la skill, 44; la que atrapa la mezcla que cerro el
+    juego es la 8, y una nota dice cuando un record de antes de la 44 la
+    pasa. Para que una copia pase entera, se convierte a 44 como Bethesda
+    (trampa 26); si no, su juez es SSEEdit.
+
 REGLA 2 -- el indice de mod de cada FormID <= cantidad de masters.
     El byte alto del FormID dice de que plugin de la lista sale el record. Con
     N masters, el indice N es ESTE plugin y cada indice menor es un master (un
@@ -102,6 +118,31 @@ REGLA 7 -- en un plugin NO localizado (bandera 0x80 del TES4 apagada), cada
     caracteres; por eso una FULL de 4 bytes en un override de un plugin no
     localizado deja ademas una OBSERVACION.
 
+REGLA 8 -- MODT, MO2T..MO5T y DMDT (los hashes de las texturas del modelo) y
+    el DNAM de un STAT tienen el layout de la version de su record, que es
+    como los lee el motor:
+      - con version < 40 los hashes son triples de 12 bytes (hash, extension,
+        carpeta), asi que el largo es multiplo de 12: 11.526 de 11.526, todos
+        de la 39, la unica version < 40 que los lleva;
+      - con version >= 40 empiezan con tres u32 (2, n, m) y miden
+        12 + 12n + 4m: 23.815 de 23.815;
+      - el DNAM de un STAT mide 12 con version 44 (711 de 711) y 8 antes
+        (11.915 de 11.915, de la 18 a la 43).
+    Medido el 2026-09-27 en los 10 plugins, cero excepciones. Son las leyes
+    con que census/escritor_plugin.py (comprobar_layout) rechaza la mezcla al
+    escribir; aca van copiadas, y un test ata las dos copias.
+    El mod de prueba de la issue #31 copio todos los subrecords de 8 STAT 39
+    de Skyrim.esm y los escribio con 44. El motor leyo el primer hash del
+    MODT como encabezado y la extension "dds" como cantidad de texturas,
+    7.562.340, y el juego se cerraba en la pantalla de Bethesda. La REGLA 1
+    lo aprobaba: tenia 44. SSEEdit 4.1.5f marca lo mismo que esta regla:
+    "SubRecord has invalid format for the Form Version of this record".
+    Lo que la regla NO ve: la otra direccion, casi siempre. Un encabezado con
+    m multiplo de 3 mide multiplo de 12, y escrito con una version < 40 pasa
+    por triples: 23.563 de los 23.815, y el MODT del hacha del 20/9. Tampoco
+    ve ningun otro subrecord cuyo layout cambie con la version, como el DATA
+    de un WEAP. Por eso no reemplaza a la REGLA 1: ver la decision alli.
+
 Y un requisito previo que no es regla sino lectura: el recorrido tiene que
 embaldosar el archivo. Si no cierra, no hay nada que juzgar, y eso es una falla.
 
@@ -156,6 +197,23 @@ N_OVERRIDE_RNAM = 10
 LOCALIZADO = 0x80
 N_FULL_LOC = 34956        # FULL de los 10 plugins, todas de 4 bytes
 N_FULL_PARECE_TEXTO = 4775
+
+# REGLA 8: los subrecords cuyo layout cambia con la version del record. Las
+# leyes son las de census/escritor_plugin.py (comprobar_layout), que este
+# script no puede importar; un test ata las dos copias. Medido el 2026-09-27
+# en los 10 plugins, cero excepciones.
+TEXTURAS_DEL_MODELO = ("MODT", "MO2T", "MO3T", "MO4T", "MO5T", "DMDT")
+VERSION_MODT_CON_ENCABEZADO = 40
+VERSION_DNAM_STAT_DE_12 = 44
+N_MODT_TRIPLES = 11526       # version < 40 (en el corpus, solo 39): triples
+N_MODT_ENCABEZADO = 23815    # version >= 40: (2, n, m), 12 + 12n + 4m bytes
+N_MODT_M_MULTIPLO_3 = 23563  # de esos, m multiplo de 3: multiplo de 12
+N_DNAM_STAT_12 = 711         # STAT de version 44: DNAM de 12 bytes
+N_DNAM_STAT_8 = 11915        # STAT anteriores (de la 18 a la 43): de 8
+# Un record se abre si su cuerpo crudo nombra alguno de estos subrecords; un
+# WRLD, un STAT o uno comprimido, siempre.
+_SE_ABRE_POR = (b"FULL",) + tuple(t.encode("ascii")
+                                  for t in TEXTURAS_DEL_MODELO)
 
 
 def subrecords(d, off):
@@ -257,9 +315,10 @@ def leer(ruta, meshes=None):
              "version": struct.unpack_from("<H", d, o + OFFSET_VERSION)[0],
              "banderas": struct.unpack_from("<I", d, o + 8)[0],
              "grupo": grupo}
-        if tag != b"TES4" and (tag == b"WRLD" or b"FULL" in d[
-                o + 24:o + 24 + struct.unpack_from("<I", d, o + 4)[0]]
-                or r["banderas"] & COMPRIMIDO):
+        cuerpo = d[o + 24:o + 24 + struct.unpack_from("<I", d, o + 4)[0]]
+        if tag != b"TES4" and (tag in (b"WRLD", b"STAT")
+                               or r["banderas"] & COMPRIMIDO
+                               or any(x in cuerpo for x in _SE_ABRE_POR)):
             try:
                 subs = subrecords(d, o)
             except (ValueError, zlib.error, struct.error) as e:
@@ -269,6 +328,11 @@ def leer(ruta, meshes=None):
             full = [b for t, b in subs if t == "FULL"]
             if full:
                 r["full"] = full[0]
+            # REGLA 8: los subrecords que se leen segun la version
+            capa = [(t, b) for t, b in subs if t in TEXTURAS_DEL_MODELO
+                    or (t == "DNAM" and tag == b"STAT")]
+            if capa:
+                r["layout"] = capa
             if tag == b"WRLD":
                 # Los 94 OFST oficiales miden multiplo de 4. Con 1-3 bytes
                 # de sobra, `len // 4` los tiraba y el OFST pasaba entero
@@ -344,6 +408,7 @@ def juzgar(info):
     fallas += regla_referencias(info["records"], notas)
     fallas += _reglas_wrld(info, notas)
     fallas += _regla_full(info, notas)
+    fallas += _regla_layout(info, notas)
 
     propios = sum(1 for r in info["records"]
                   if r["tipo"] != "TES4" and (r["form_id"] >> 24) == n)
@@ -502,6 +567,102 @@ def _regla_full(info, notas):
                 "oficiales." % (cual, b[:-1].decode("cp1252", "replace"),
                                 N_FULL_PARECE_TEXTO, N_FULL_LOC))
     return _cortar(malas[:LIMITE_DETALLE], len(malas), "FULL que no es texto")
+
+
+def layout_ajeno(tipo, sub, datos, version):
+    """None si los bytes del subrecord `sub` de un record `tipo` tienen el
+    layout de `version`; si no, por que no, en una frase que empieza con
+    "su <sub> ".
+
+    Las leyes de census/escritor_plugin.py (comprobar_layout), copiadas: este
+    script no puede importar census/ porque build_skill.py no lo empaqueta.
+    tests/test_verificar_plugin.py ata las dos copias sobre los mismos
+    bytes."""
+    if sub in TEXTURAS_DEL_MODELO:
+        if version >= VERSION_MODT_CON_ENCABEZADO:
+            a, n, m = (struct.unpack_from("<III", datos) if len(datos) >= 12
+                       else (None, 0, 0))
+            if a != 2 or len(datos) != 12 + 12 * n + 4 * m:
+                que = ("su %s mide %d bytes y no tiene el encabezado (2, n, "
+                       "m) de 12 + 12n + 4m bytes de los %d de version >= %d"
+                       % (sub, len(datos), N_MODT_ENCABEZADO,
+                          VERSION_MODT_CON_ENCABEZADO))
+                if a is not None:
+                    que += ": leido con ese encabezado, pide %d texturas" % n
+                return que
+        elif len(datos) % 12:
+            que = ("su %s mide %d bytes, que no es multiplo de 12: con "
+                   "version < %d son triples de 12 (hash, extension, "
+                   "carpeta), %d de %d"
+                   % (sub, len(datos), VERSION_MODT_CON_ENCABEZADO,
+                      N_MODT_TRIPLES, N_MODT_TRIPLES))
+            if len(datos) >= 12:
+                a, n, m = struct.unpack_from("<III", datos)
+                if a == 2 and len(datos) == 12 + 12 * n + 4 * m:
+                    que += ("; tiene el encabezado (2, %d, %d) de la "
+                            "version >= %d" % (n, m,
+                                               VERSION_MODT_CON_ENCABEZADO))
+            return que
+    elif sub == "DNAM" and tipo == "STAT":
+        esperado = 12 if version >= VERSION_DNAM_STAT_DE_12 else 8
+        if len(datos) != esperado:
+            return ("su DNAM mide %d bytes y con version %d mide %d: los %d "
+                    "STAT de version %d miden 12 y los %d anteriores, 8"
+                    % (len(datos), version, esperado, N_DNAM_STAT_12,
+                       VERSION_DNAM_STAT_DE_12, N_DNAM_STAT_8))
+    return None
+
+
+def _layout_malos(records):
+    """[(record, [motivo])] de los records con algun subrecord de layout
+    ajeno a su version. Solo mira los que `leer` marco (clave "layout")."""
+    malos = []
+    for r in records:
+        motivos = [x for x in (layout_ajeno(r["tipo"], t, b, r["version"])
+                               for t, b in r.get("layout", ())) if x]
+        if motivos:
+            malos.append((r, motivos))
+    return malos
+
+
+def _regla_layout(info, notas):
+    """REGLA 8. Solo mira los records que `leer` marco con sus subrecords de
+    layout: un dict armado a mano sin esa clave no se juzga, y la nota dice
+    cuantos se comprobaron para que cero no pase por exito."""
+    con = [r for r in info["records"] if r.get("layout")]
+    if not con:
+        return []
+    malos = _layout_malos(con)
+    notas.append("OBS %d subrecord(s) de layout comprobado(s) en %d "
+                 "record(s): MODT..DMDT y el DNAM de STAT, contra la version "
+                 "de su record" % (sum(len(r["layout"]) for r in con),
+                                   len(con)))
+    reprobados = set(id(r) for r, _m in malos)
+    copias = sum(1 for r in con if id(r) not in reprobados
+                 and r["version"] < VERSION_ACTUAL)
+    if copias:
+        # Lo que la REGLA 8 puede decir, y nada mas: la primera version de
+        # esta nota decia "tienen el layout de su propia version", y el
+        # hacha del 20/9 -- la mezcla que da peso y dano 0 -- la recibia.
+        notas.append(
+            "OBS %d record(s) de version anterior a la %d pasan la REGLA 8: "
+            "sus MODT..DMDT y su DNAM de STAT no contradicen su version. No "
+            "prueba que se lean bien -- un MODT (2, n, 0) de la 44 pasa por "
+            "triples, como el del WEAP del hacha del 20/9, en version 0 --, "
+            "y por eso la REGLA 1 los reprueba igual. Si son copias de un "
+            "record vanilla con su version, no es la mezcla que cerro el "
+            "juego (trampa 26)." % (copias, VERSION_ACTUAL))
+    # Sin la palabra "formVersion": es la marca con que se busca la REGLA 1,
+    # y si este mensaje la llevara, sacar la REGLA 1 no pondria rojo nada.
+    detalle = [
+        "REGLA layout: %s %08X dice version %d en su cabecera y %s. El motor "
+        "lee el record con el layout de esa version: el ESL de la issue #31, con "
+        "records 39 de Skyrim.esm escritos con 44, cerraba el juego en la "
+        "pantalla de Bethesda. Si los bytes vienen de un record vanilla, "
+        "copia tambien su version, o converti como Bethesda (trampa 26)."
+        % (r["tipo"], r["form_id"], r["version"], "; ".join(m))
+        for r, m in malos[:LIMITE_DETALLE]]
+    return _cortar(detalle, len(malos), "el layout de otra version")
 
 
 def _regla_prn(cual, w, notas):
@@ -750,6 +911,57 @@ def autotest():
     for full in (b"Axe\x00", b"A\x00", b"\x00", b"Retrete VIP\x00"):
         caso("FULL %r sin localizar" % full, mundo(full=full), False, "REGLA")
 
+    # REGLA 8: los hashes del modelo y el DNAM de un STAT, contra la version
+    trip = struct.pack("<I4sI", 0x0BADF00D, b"dds\x00", 0x00C0FFEE) * 2
+
+    def enc(n=2, m=0):
+        """(2, n, m) con n triples y m u32: el layout de >= 40."""
+        return (struct.pack("<III", 2, n, m) + trip[:12] * n
+                + b"\x00" * (4 * m))
+
+    def capa(version, subs, tipo="STAT"):
+        return {"records": [_rec(tipo="TES4", form_id=0),
+                            dict(_rec(tipo=tipo, form_id=0x01000800,
+                                      version=version), layout=subs)],
+                "n_masters": 1, "error": None}
+
+    copia = [("MODT", trip), ("DNAM", b"\x00" * 8)]    # un STAT 39 vanilla
+    caso("el v1 de la #31: triples y DNAM de 8, con 44", capa(44, copia),
+         True, "REGLA layout")
+    caso("el v2 de la #31: lo mismo, con 39", capa(39, copia), False,
+         "REGLA layout")
+    caso("la conversion de Bethesda: (2, n, 0) y DNAM de 12, con 44",
+         capa(44, [("MODT", enc()), ("DNAM", b"\x00" * 12)]), False, "REGLA")
+    # Enumerante: cada version contra cada subrecord, de a uno. Con los dos a
+    # la vez, cualquiera alcanzaba para reprobar.
+    for v in list(range(0, VERSION_ACTUAL + 2)) + [0xFFFF]:
+        for sub in TEXTURAS_DEL_MODELO:
+            caso("%s en triples con %d" % (sub, v),
+                 capa(v, [(sub, trip)], "ACTI"),
+                 v >= VERSION_MODT_CON_ENCABEZADO, "REGLA layout")
+            caso("%s (2, 1, 1) con %d" % (sub, v),
+                 capa(v, [(sub, enc(1, 1))], "ACTI"),
+                 v < VERSION_MODT_CON_ENCABEZADO, "REGLA layout")
+        for largo in (8, 12):
+            caso("DNAM de STAT de %d con %d" % (largo, v),
+                 capa(v, [("DNAM", b"\x00" * largo)]),
+                 largo != (12 if v >= VERSION_DNAM_STAT_DE_12 else 8),
+                 "REGLA layout")
+    caso("un DNAM de 8 en un ACTI con 44 no es el de un STAT",
+         capa(44, [("DNAM", b"\x00" * 8)], "ACTI"), False, "REGLA")
+    caso("(3, 0, 0) con 44: el largo cuadra y el primero no es 2",
+         capa(44, [("MODT", struct.pack("<III", 3, 0, 0))], "ACTI"), True,
+         "REGLA layout")
+    # Lo que la REGLA 8 no ve, y por que no reemplaza a la 1
+    caso("(2, 1, 0) mide 24 y con 39 pasa por triples",
+         capa(39, [("MODT", enc(1, 0))], "ACTI"), False, "REGLA layout")
+    caso("... y la REGLA 1 lo reprueba",
+         capa(39, [("MODT", enc(1, 0))], "ACTI"), True, "formVersion")
+    hacha = capa(0, [("MODT", struct.pack("<III", 2, 0, 0))], "WEAP")
+    caso("el WEAP del hacha del 20/9, en 0 con MODT (2, 0, 0), pasa la 8",
+         hacha, False, "REGLA layout")
+    caso("... y la REGLA 1 lo reprueba", hacha, True, "formVersion")
+
     print("autotest: %d casos, %d fallas" % (corridos[0], len(fallas)))
     for x in fallas:
         print("  FALLA %s" % x)
@@ -797,6 +1009,24 @@ def falsificar(raiz):
                 ("WEAP WNAM a un propio inexistente", j,
                  dict(recs[j], weap=dict(w, WNAM=(n << 24) | 0xFFFFFE))),
             ]
+        # REGLA 8, por juzgar, sobre un record real: sus hashes sin el
+        # encabezado con la version que tiene -- los bytes de un 39 con 44,
+        # el ESL de la #31 -- y el DNAM de un STAT sin sus 4 bytes de bandera
+        con_hashes = [j for j, r in enumerate(recs) if _hashes(r)]
+        if con_hashes:
+            j = con_hashes[len(con_hashes) // 2]
+            mutaciones.append((
+                "MODT..DMDT sin su encabezado (el ESL de la #31)", j,
+                dict(recs[j], layout=[
+                    (t, _sin_encabezado(b) if t in TEXTURAS_DEL_MODELO else b)
+                    for t, b in recs[j]["layout"]])))
+        stats = [j for j, r in enumerate(recs) if _dnam_de_stat(r)]
+        if stats:
+            j = stats[len(stats) // 2]
+            mutaciones.append((
+                "DNAM de STAT de 8 bytes", j,
+                dict(recs[j], layout=[(t, b[:8] if t == "DNAM" else b)
+                                      for t, b in recs[j]["layout"]])))
         for que, i, mut in mutaciones:
             roturas += 1
             torcido = dict(info, records=recs[:i] + [mut] + recs[i + 1:])
@@ -808,11 +1038,18 @@ def falsificar(raiz):
     u2, r2, f2 = _falsificar_mundo(raiz, nombres)
     roturas += r2
     fallas += f2
+    r3, f3 = _falsificar_layout(raiz, nombres)
+    roturas += r3
+    fallas += f3
     print("falsificar: %d plugins, %d comprobaciones, %d fallas"
           % (usados, roturas, len(fallas)))
     if u2 == 0:
         print("FALLA: ninguna referencia real se pudo torcer -- no comprobar "
               "nada no es exito")
+        return 1
+    if r3 == 0:
+        print("FALLA: ningun record real con MODT..DMDT o DNAM de STAT se "
+              "pudo torcer -- no comprobar nada no es exito")
         return 1
     for x in fallas:
         print("  FALLA %s" % x)
@@ -901,6 +1138,143 @@ def _falsificar_mundo(raiz, nombres):
           % (total["g8"], total["g9"], total["otro"], total["excepciones"],
              N_REF_G8, N_REF_G9))
     return usados, roturas, fallas
+
+
+def _hashes(r):
+    """Los subrecords de hashes (MODT..DMDT) que `leer` guardo del record."""
+    return [(t, b) for t, b in r.get("layout", ())
+            if t in TEXTURAS_DEL_MODELO]
+
+
+def _dnam_de_stat(r):
+    return r["tipo"] == "STAT" and any(t == "DNAM"
+                                       for t, _b in r.get("layout", ()))
+
+
+def _m_de(b):
+    """La m del encabezado (2, n, m) de un subrecord de hashes, o None."""
+    return struct.unpack_from("<I", b, 8)[0] if len(b) >= 12 else None
+
+
+def _sin_encabezado(b):
+    """Los triples de un subrecord de hashes con encabezado: lo que era
+    antes de la version 40, que es lo que el mod de la #31 escribio con 44."""
+    n = struct.unpack_from("<I", b, 4)[0] if len(b) >= 12 else 0
+    return b[12:12 + 12 * n]
+
+
+def _contar_layout(records):
+    """Lo que la REGLA 8 mide, para compararlo con lo medido."""
+    c = dict.fromkeys(("viejos", "nuevos", "m3", "dnam44", "dnam_viejo"), 0)
+    for r in records:
+        for t, b in r.get("layout", ()):
+            if t in TEXTURAS_DEL_MODELO:
+                if r["version"] < VERSION_MODT_CON_ENCABEZADO:
+                    c["viejos"] += 1
+                else:
+                    c["nuevos"] += 1
+                    if len(b) % 12 == 0:    # (2, n, m) con m multiplo de 3
+                        c["m3"] += 1
+            elif r["version"] >= VERSION_DNAM_STAT_DE_12:
+                c["dnam44"] += 1
+            else:
+                c["dnam_viejo"] += 1
+    return c
+
+
+def _planes_de_layout(recs):
+    """Las roturas de _falsificar_layout: [(indice, version nueva, el
+    subrecord que tiene que reprobar, que es)], con el record del medio de
+    cada clase que el plugin tenga."""
+    def m_no_3(r):
+        return [t for t, b in _hashes(r)
+                if _m_de(b) is not None and _m_de(b) % 3]
+
+    clases = [
+        ([j for j, r in enumerate(recs)
+          if r["version"] < VERSION_MODT_CON_ENCABEZADO and _hashes(r)],
+         44, None, "de version < 40, escrito con 44 (el ESL de la #31)"),
+        ([j for j, r in enumerate(recs) if _dnam_de_stat(r)
+          and r["version"] >= VERSION_DNAM_STAT_DE_12],
+         43, "DNAM", "STAT de 44 escrito con 43"),
+        ([j for j, r in enumerate(recs) if _dnam_de_stat(r)
+          and VERSION_MODT_CON_ENCABEZADO <= r["version"]
+          < VERSION_DNAM_STAT_DE_12],
+         44, "DNAM", "STAT de 40 a 43 escrito con 44"),
+        ([j for j, r in enumerate(recs)
+          if r["version"] >= VERSION_MODT_CON_ENCABEZADO and m_no_3(r)],
+         39, "m", "de version >= 40 con m no multiplo de 3, escrito con 39"),
+    ]
+    planes = []
+    for js, nueva, sub, que in clases:
+        if not js:
+            continue
+        j = js[len(js) // 2]
+        if sub is None:
+            sub = _hashes(recs[j])[0][0]
+        elif sub == "m":
+            sub = m_no_3(recs[j])[0]
+        planes.append((j, nueva, sub, que))
+    return planes
+
+
+def _falsificar_layout(raiz, nombres):
+    """REGLA 8 sobre TODOS los plugins, masters de 2011 incluidos: se juzga
+    sola, como las REGLAS 5 a 7, porque la REGLA 1 no vale para los masters.
+    Primero se mide -- tal cual, cero excepciones -- y despues se tuerce la
+    version de records reales, que es lo que hizo el mod de la #31:
+      - uno de version < 40 con sus hashes, escrito con 44 (el ESL de la #31);
+      - un STAT de 44 escrito con 43, y uno de 40 a 43 escrito con 44: su
+        MODT lleva encabezado con las dos versiones, asi que reprueba el
+        DNAM solo;
+      - uno de >= 40 cuyos hashes tienen m no multiplo de 3, escrito con 39.
+        Con m multiplo de 3 el encabezado mide multiplo de 12 y pasa por
+        triples: esa direccion la REGLA 8 casi no la ve (su parrafo en el
+        docstring del modulo).
+    Cada rotura tiene que reprobar POR su subrecord, que el mensaje nombra:
+    con "alguna falla" a secas, la otra mitad de la regla la cubria.
+    Devuelve (roturas, fallas)."""
+    roturas, fallas = 0, []
+    total = dict.fromkeys(("viejos", "nuevos", "m3", "dnam44", "dnam_viejo",
+                           "excepciones"), 0)
+    for nombre in nombres:
+        info = leer(os.path.join(raiz, nombre))
+        if info["error"]:
+            print("   %-34s ilegible: %s" % (nombre, info["error"]))
+            continue
+        recs = info["records"]
+        c = _contar_layout(recs)
+        malos = _layout_malos(recs)
+        for k, v in c.items():
+            total[k] += v
+        total["excepciones"] += len(malos)
+        planes = []
+        if malos:
+            fallas.append("%s: %d records reprueban la REGLA 8 tal cual"
+                          % (nombre, len(malos)))
+        else:
+            planes = _planes_de_layout(recs)
+        for j, nueva, sub, que in planes:
+            roturas += 1
+            r = recs[j]
+            f = _regla_layout(dict(info, records=recs[:j] + [
+                dict(r, version=nueva)] + recs[j + 1:]), [])
+            if not any("su %s " % sub in x for x in f):
+                fallas.append("%s / %s %08X, %s: no reprobo por su %s"
+                              % (nombre, r["tipo"], r["form_id"], que, sub))
+        print("   %-34s %d hashes < 40 y %d >= 40, %d DNAM de STAT de 44 y "
+              "%d anteriores; %d excepciones, %d roturas de la REGLA 8"
+              % (nombre, c["viejos"], c["nuevos"], c["dnam44"],
+                 c["dnam_viejo"], len(malos), len(planes)))
+    print("   layout: %d MODT..DMDT de version < 40 y %d de >= 40 (%d con m "
+          "multiplo de 3, que con una version < 40 pasarian por triples), "
+          "%d DNAM de STAT de 44 y %d anteriores, %d excepciones (medido el "
+          "2026-09-27: %d, %d, %d, %d, %d, 0)"
+          % (total["viejos"], total["nuevos"], total["m3"], total["dnam44"],
+             total["dnam_viejo"], total["excepciones"], N_MODT_TRIPLES,
+             N_MODT_ENCABEZADO, N_MODT_M_MULTIPLO_3, N_DNAM_STAT_12,
+             N_DNAM_STAT_8))
+    return roturas, fallas
 
 
 def main(argv):

@@ -20,7 +20,17 @@ DESCRIPCION = "plugin sintetico"
 EDID_STAT = "PruebaEstaticoDePrueba"
 MODL_STAT = r"Prueba\Estatico01.nif"
 OBND_STAT = (-10, -20, -30, 10, 20, 30)
-DNAM_STAT = (0.0, 0)          # dos campos de 4 bytes
+# Angulo, material y, desde la version 44, 4 bytes de bandera: los 711 STAT
+# de 44 de los 10 plugins miden 12. Median 8 aca, con 44, y la REGLA 8 de
+# verificar_plugin.py lo reprobo con razon: es el layout de antes de la 44.
+DNAM_STAT = (0.0, 0, 1)
+
+# El MODT de un record de version < 40: triples de 12 bytes (hash del archivo,
+# extension, hash de la carpeta), sin encabezado. La extension es "dds": leida
+# como u32 da 7.562.340, la cantidad de texturas que el motor leyo en el ESL de
+# la issue #31 cuando el record decia 44. Los hashes son inventados.
+MODT_TRIPLES = (struct.pack("<I4sI", 0x0BADF00D, b"dds\x00", 0x00C0FFEE)
+                + struct.pack("<I4sI", 0x0DEADBEE, b"dds\x00", 0x00C0FFEE))
 
 
 def _cstr(texto):
@@ -67,7 +77,7 @@ def construir(comprimir_stat=False, con_escape=False, masters=(), version=44):
     stat = _sub(b"EDID", _cstr(EDID_STAT))
     stat += _sub(b"OBND", struct.pack("<6h", *OBND_STAT))
     stat += _sub(b"MODL", _cstr(MODL_STAT))
-    stat += _sub(b"DNAM", struct.pack("<fI", *DNAM_STAT))
+    stat += _sub(b"DNAM", struct.pack("<fII", *DNAM_STAT))
     subs_stat = ["EDID", "OBND", "MODL", "DNAM"]
 
     if con_escape:
@@ -119,8 +129,12 @@ def construir(comprimir_stat=False, con_escape=False, masters=(), version=44):
 
 def construir_weap(data_len=10, dnam_len=100, wnam="propio", comprimir=False,
                    con_escape=False, masters=("Skyrim.esm",), basura=0, anim=6,
-                   modl=r"Weapons\Prueba\arma.nif"):
+                   modl=r"Weapons\Prueba\arma.nif", version=44, modt=None):
     """Un plugin con un WEAP y el STAT de su primera persona.
+
+    `version` va a los tres records, como en construir(): con 0 es el hacha.
+    `modt` son los bytes del MODT del WEAP (None: sin MODT). El hacha del
+    20/9 llevaba (2, 0, 0) -- el encabezado de la 44, sin texturas -- con 0.
 
     Lo que mide el corpus (census/hallazgos_plugins.md): DATA de 10 bytes y
     DNAM de 100 en las 3.359 WEAP vanilla; el WNAM de las 463 que lo tienen
@@ -144,10 +158,12 @@ def construir_weap(data_len=10, dnam_len=100, wnam="propio", comprimir=False,
 
     stat = _sub(b"EDID", _cstr("PruebaArma1aPersona"))
     stat += _sub(b"MODL", _cstr(r"Weapons\Prueba\arma.nif"))
-    r_stat = _record(b"STAT", stat, fid_stat)
+    r_stat = _record(b"STAT", stat, fid_stat, version=version)
 
     w = _sub(b"EDID", _cstr("PruebaArma"))
     w += _sub(b"MODL", _cstr(modl))
+    if modt is not None:
+        w += _sub(b"MODT", modt)
     if con_escape:
         grande = b"\x00" * 70000
         w += _sub(b"XXXX", struct.pack("<I", len(grande)))
@@ -158,14 +174,15 @@ def construir_weap(data_len=10, dnam_len=100, wnam="propio", comprimir=False,
                         + b"\x00" * max(0, data_len - 10))[:data_len])
     w += _sub(b"DNAM", bytes([anim]) + b"\x00" * (dnam_len - 1))
     w += b"\xAA" * basura
-    r_weap = _record(b"WEAP", w, fid_weap, comprimir=comprimir)
+    r_weap = _record(b"WEAP", w, fid_weap, comprimir=comprimir,
+                     version=version)
 
     cuerpo = _grupo(b"STAT", r_stat) + _grupo(b"WEAP", r_weap)
     cab = _sub(b"HEDR", struct.pack("<fiI", 1.71, 4, (n << 24) | 0x802))
     for m in masters:
         cab += _sub(b"MAST", _cstr(m))
         cab += _sub(b"DATA", struct.pack("<Q", 0))
-    datos = _record(b"TES4", cab, 0) + cuerpo
+    datos = _record(b"TES4", cab, 0, version=version) + cuerpo
     return datos, {"fid_weap": fid_weap, "fid_stat": fid_stat,
                    "wnam": destino}
 
@@ -205,3 +222,66 @@ def construir_mundo(banderas_ref=0x400, grupo_ref=8, ofst=None, rnam=0,
     cab += _sub(b"MAST", _cstr("Skyrim.esm"))
     cab += _sub(b"DATA", struct.pack("<Q", 0))
     return _record(b"TES4", cab, 0, flags=0x80 if localizado else 0) + cuerpo
+
+
+def modt_con_encabezado(triples=MODT_TRIPLES, extra=()):
+    """El MODT de un record de version >= 40: tres u32 (2, n, m), los n
+    triples y m u32 mas. (2, n, 0) con los mismos triples es como Update.esm y
+    los DLC pasaron a 44 los records 39 de Skyrim.esm (trampa 26 de
+    asset-nuevo-skyrim)."""
+    return (struct.pack("<III", 2, len(triples) // 12, len(extra)) + triples
+            + b"".join(struct.pack("<I", x) for x in extra))
+
+
+def record_estatico(form_id, version=39, cabecera=None, modt="auto",
+                    dnam="auto", sub_modelo=b"MODT", tipo=b"STAT",
+                    comprimir=False):
+    """Un record con los subrecords de un STAT vanilla -- EDID, OBND, MODL, el
+    de hashes y DNAM --, copiado con el layout de `version`.
+
+    `cabecera` es la version que se escribe en el record; por defecto, la
+    misma. El v1 del mod de la #31, el que cerraba el juego, es `version=39,
+    cabecera=44`: los bytes de un 39 con 44. El v2 es `version=39`.
+    `modt="auto"` da triples antes de la 40 y (2, n, 0) desde la 40; None, sin
+    subrecord de hashes. `dnam="auto"` da 8 bytes antes de la 44 y 12 desde la
+    44; None, sin DNAM. `sub_modelo` es el subrecord de hashes: MODT, MO2T a
+    MO5T o DMDT. Con otro `tipo` (un ACTI) el DNAM ya no es el de un STAT."""
+    if modt == "auto":
+        modt = MODT_TRIPLES if version < 40 else modt_con_encabezado()
+    if dnam == "auto":
+        dnam = struct.pack("<fII", *DNAM_STAT)[:12 if version >= 44 else 8]
+    subs = _sub(b"EDID", _cstr("PruebaCopia%X" % form_id))
+    subs += _sub(b"OBND", struct.pack("<6h", *OBND_STAT))
+    subs += _sub(b"MODL", _cstr(MODL_STAT))
+    if modt is not None:
+        subs += _sub(sub_modelo, modt)
+    if dnam is not None:
+        subs += _sub(b"DNAM", dnam)
+    return _record(tipo, subs, form_id, comprimir=comprimir,
+                   version=version if cabecera is None else cabecera)
+
+
+def construir_estaticos(records, masters=("Skyrim.esm",)):
+    """Un ESL con `records`, [(tipo, bytes de record_estatico)]: un GRUP por
+    tipo, en el orden en que aparece cada uno."""
+    orden, por_tipo = [], {}
+    for tipo, r in records:
+        if tipo not in por_tipo:
+            orden.append(tipo)
+            por_tipo[tipo] = b""
+        por_tipo[tipo] += r
+    cuerpo = b"".join(_grupo(t, por_tipo[t]) for t in orden)
+    n = len(masters)
+    cab = _sub(b"HEDR", struct.pack("<fiI", 1.71, len(records) + len(orden),
+                                    (n << 24) | (0x800 + len(records))))
+    for m in masters:
+        cab += _sub(b"MAST", _cstr(m))
+        cab += _sub(b"DATA", struct.pack("<Q", 0))
+    return _record(b"TES4", cab, 0, flags=0x200) + cuerpo
+
+
+def construir_estatico(**kw):
+    """Un ESL con un solo `record_estatico`, el 01000800: propio, con
+    Skyrim.esm de master."""
+    return construir_estaticos([(kw.get("tipo", b"STAT"),
+                                 record_estatico(0x01000800, **kw))])

@@ -178,8 +178,12 @@ versión 39 copiada junto con los bytes, SSEEdit no encuentra nada.
 
 → Si copiás subrecords de un record vanilla, copiá también su versión: es la
 que dice cómo se leen. `census/escritor_plugin.py` rechaza la mezcla al
-escribir (`comprobar_layout`). `scripts/verificar_plugin.py` no mira el
-layout: su REGLA 1 pide 44 en todo y reprueba esa copia, que el juego carga.
+escribir (`comprobar_layout`), y `scripts/verificar_plugin.py` la reprueba en
+el plugin terminado (REGLA 8, con las mismas leyes): el ESL de la #31 que
+cerraba el juego no la pasa, y el corregido sí. Su REGLA 1 pide 44 en todo y
+reprueba también la copia bien hecha, a propósito: la REGLA 8 solo ve los
+hashes y el `DNAM` del `STAT`, y el `WEAP` del hacha de la [23](#23) —versión
+0, con un `MODT` `(2, 0, 0)` que con 0 mide lo que un triple— la pasa.
 
 Si el record tiene que ser 44 (la [23](#23)), hay que convertir, como hace
 Bethesda. `[MEASURED]` En los records 39 de `Skyrim.esm` que `Update.esm` y los
