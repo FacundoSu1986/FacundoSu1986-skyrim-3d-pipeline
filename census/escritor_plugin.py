@@ -43,6 +43,17 @@ BANDERA_ESL = parser_plugin.BANDERA_ESL
 CABECERA = parser_plugin.CABECERA_RECORD    # records y GRUP miden lo mismo
 MAX_OBJETO_ESL = 0xFFF
 
+# El layout de estos subrecords depende de la version del record (bytes 20-21
+# de la cabecera). Medido el 2026-09-27 en los 10 plugins oficiales, cero
+# excepciones. MODT, MO2T..MO5T y DMDT (hashes de las texturas del modelo):
+# con version < 40 son triples de 12 bytes (11.526 de 11.526); con >= 40
+# empiezan con tres u32 (2, n, m) y miden 12 + 12n + 4m (23.815 de 23.815).
+# El DNAM de un STAT mide 12 con version 44 (711 de 711) y 8 antes (11.915
+# de 11.915).
+TEXTURAS_DEL_MODELO = (b"MODT", b"MO2T", b"MO3T", b"MO4T", b"MO5T", b"DMDT")
+VERSION_MODT_CON_ENCABEZADO = 40
+VERSION_DNAM_STAT_DE_12 = 44
+
 
 class ErrorPlugin(Exception):
     pass
@@ -81,12 +92,68 @@ def record(tipo, form_id, subrecords, banderas=0, version=44):
     RetreteVIP v1.1 salio de aca con banderas=0 dentro de un grupo 8 -- la
     unica referencia de la instalacion con esa combinacion -- y el objeto no
     aparecio en el juego.
+
+    `version=44` NO sirve para subrecords copiados de un record vanilla de
+    otra version: el MODT y el DNAM de un STAT cambian de layout con ella.
+    Esa mezcla se rechaza aca (comprobar_layout).
     """
     if isinstance(tipo, str):
         tipo = tipo.encode("ascii")
     datos = b"".join(subrecords)
+    comprobar_layout(tipo, datos, version)
     return (tipo + struct.pack("<IIIHHHH", len(datos), banderas, form_id,
                                0, 0, version, 0) + datos)
+
+
+def comprobar_layout(tipo, datos, version):
+    """Rechaza un subrecord cuyos bytes no tienen el layout de `version`.
+
+    Copiar los subrecords de un STAT de Skyrim.esm (version 39) a un record 44
+    cerro el juego en la pantalla de Bethesda (issue #31, 2026-09-27): el motor
+    leyo el primer hash del MODT como encabezado y la extension "dds" como
+    cantidad de texturas, unos 7,5 millones. Si los bytes vienen de un record
+    vanilla, su version va con ellos. Las leyes, arriba en
+    TEXTURAS_DEL_MODELO."""
+    p, grande = 0, None
+    while p + 6 <= len(datos):
+        st = datos[p:p + 4]
+        n, = struct.unpack_from("<H", datos, p + 4)
+        p += 6
+        if st == b"XXXX":
+            grande, = struct.unpack_from("<I", datos, p)
+            p += n
+            continue
+        if grande is not None:
+            n, grande = grande, None
+        x = datos[p:p + n]
+        p += n
+        if st in TEXTURAS_DEL_MODELO:
+            if version >= VERSION_MODT_CON_ENCABEZADO:
+                a, t, m = (struct.unpack_from("<III", x) if len(x) >= 12
+                           else (None, 0, 0))
+                if a != 2 or len(x) != 12 + 12 * t + 4 * m:
+                    raise ErrorPlugin(
+                        "%s de %d bytes en un %s con version %d: sin el "
+                        "encabezado (2, n, m) de 12 + 12n + 4m bytes que llevan "
+                        "los 23.815 de version >= %d de los plugins oficiales. "
+                        "Si los bytes vienen de un record vanilla, copia "
+                        "tambien su version." % (st.decode(), len(x),
+                                                 tipo.decode(), version,
+                                                 VERSION_MODT_CON_ENCABEZADO))
+            elif len(x) % 12:
+                raise ErrorPlugin(
+                    "%s de %d bytes en un %s con version %d: con version < %d "
+                    "son triples de 12 bytes (11.526 de 11.526 en los plugins "
+                    "oficiales)." % (st.decode(), len(x), tipo.decode(),
+                                     version, VERSION_MODT_CON_ENCABEZADO))
+        elif st == b"DNAM" and tipo == b"STAT":
+            esperado = 12 if version >= VERSION_DNAM_STAT_DE_12 else 8
+            if len(x) != esperado:
+                raise ErrorPlugin(
+                    "DNAM de %d bytes en un STAT con version %d: mide %d (los "
+                    "711 STAT oficiales de version %d miden 12 y los 11.915 "
+                    "anteriores, 8)." % (len(x), version, esperado,
+                                         VERSION_DNAM_STAT_DE_12))
 
 
 def grupo(etiqueta, records, tipo_grupo=0):

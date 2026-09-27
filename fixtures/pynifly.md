@@ -180,6 +180,11 @@ Los 8 casos del mod (N = 1 cada uno):
 **En el juego: sin ver todavía.** Lo que se mire va acá y en la issue #31, con
 su N.
 
+La primera versión del mod (2026-09-27) cerraba el juego en la pantalla de
+Bethesda. **No fue PyNifly:** fue esta herramienta, que copiaba los `STAT` de la
+versión 39 y los escribía con 44. Ahora copia también la versión. Está en la
+trampa 26 de `skills/asset-nuevo-skyrim/references/trampas.md`.
+
 ## Lo que esto NO mide
 
 - **Mallas riggeadas.** Todo esto es sobre estáticos de un solo shape. Las

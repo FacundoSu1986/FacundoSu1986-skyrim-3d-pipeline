@@ -242,7 +242,7 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   `Prn` por tipo de arma, el set de impactos y el `TES4`. Medido sobre las
   3.359 `WEAP` vanilla y probado en el juego con el hacha de Tencent. **Leelo
   antes de hacer un arma.**
-- **`references/trampas.md`** — veinticinco fallos que no tiran error, con
+- **`references/trampas.md`** — veintiséis fallos que no tiran error, con
   índice por síntoma. **Leelo entero antes de empezar**, no cuando algo falle.
 
 ## Scripts

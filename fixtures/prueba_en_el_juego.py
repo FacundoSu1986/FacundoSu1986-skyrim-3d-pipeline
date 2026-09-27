@@ -16,7 +16,11 @@ EL STAT SE COPIA DEL VANILLA
 ----------------------------
 Cada caso usa el STAT de Skyrim.esm cuyo MODL es ese NIF: se copian TODOS sus
 subrecords (OBND, MODT, DNAM, lo que traiga, en su orden) y cambian solo el
-EDID y el MODL. Los campos que "lleva el vanilla" no se adivinan: se leen. Un
+EDID y el MODL. Los campos que "lleva el vanilla" no se adivinan: se leen.
+La version del record (casi siempre 39) va con ellos: el MODT y el DNAM
+cambian de layout con ella, y la primera version de este mod, que los
+escribia con 44, cerraba el juego en la pantalla de Bethesda (2026-09-27;
+las leyes en census/escritor_plugin.py, comprobar_layout). Un
 NIF que en el vanilla no es un STAT (un ACTI, un MISC, un MSTT) no entra: sale
 con 2 y dice cual. Si el NIF tiene varios STAT, se usa el primero y el reporte
 dice cuantos habia.
@@ -41,6 +45,7 @@ CARPETA = "prueba31"
 VARIANTES = ("original", "idayvuelta")
 MAESTRO = "Skyrim.esm"
 PRIMER_ID = 0x800
+OFFSET_VERSION = 20        # la version del record, en su cabecera
 
 
 def modl_de(rel):
@@ -61,9 +66,9 @@ def edid_de(rel, variante):
 
 
 def buscar_stats(plugin, rels):
-    """{rel: [(tipo, form_id, [(tipo_sub, datos)])]} de cada record que tiene
-    ese NIF como MODL, de cualquier tipo: el llamador decide que hacer con un
-    NIF que no es STAT."""
+    """{rel: [(tipo, form_id, [(tipo_sub, datos)], version)]} de cada record
+    que tiene ese NIF como MODL, de cualquier tipo: el llamador decide que
+    hacer con un NIF que no es STAT."""
     buscados = {modl_de(r): r for r in rels}
     encontrados = {r: [] for r in rels}
     for tipo, off, _tam, fid in plugin.records:
@@ -77,15 +82,18 @@ def buscar_stats(plugin, rels):
         rel = buscados.get(modl.rstrip(b"\x00").decode("latin-1").lower())
         if rel is not None:
             t = tipo.decode() if isinstance(tipo, bytes) else tipo
+            version, = struct.unpack_from("<H", plugin.d, off + OFFSET_VERSION)
             encontrados[rel].append((t, fid, [((s.decode() if isinstance(s, bytes) else s),
-                                               plugin.d[o:o + n]) for s, o, n in subs]))
+                                               plugin.d[o:o + n]) for s, o, n in subs],
+                                     version))
     return encontrados
 
 
-def stat_de_prueba(subs_vanilla, form_id, edid, modl):
+def stat_de_prueba(subs_vanilla, form_id, edid, modl, version):
     """El record STAT: los subrecords del vanilla en su orden, con el EDID y
-    el MODL cambiados. Sin EDID o sin MODL en el vanilla no hay de donde
-    copiar la forma del record: ValueError."""
+    el MODL cambiados, y la `version` del vanilla, que es la que dice como se
+    leen sus bytes. Sin EDID o sin MODL en el vanilla no hay de donde copiar
+    la forma del record: ValueError."""
     tipos = [t for t, _ in subs_vanilla]
     if "EDID" not in tipos or "MODL" not in tipos:
         raise ValueError("el STAT vanilla no trae EDID y MODL: %s" % tipos)
@@ -96,7 +104,7 @@ def stat_de_prueba(subs_vanilla, form_id, edid, modl):
         elif t == "MODL":
             datos = E.zstr(modl)
         subs.append(E.sub(t, datos))
-    return E.record("STAT", form_id, subs)
+    return E.record("STAT", form_id, subs, version=version)
 
 
 def plan(encontrados):
@@ -132,8 +140,8 @@ def armar(esm, meshes, ida, salida, rels):
                 raise SystemExit("falta %s" % os.path.join(base, rel))
     records = []
     for fid, edid, modl, rel, _variante, _fv, _n in filas:
-        subs = next(s for t, f, s in encontrados[rel] if t == "STAT")
-        records.append(stat_de_prueba(subs, fid, edid, modl))
+        _t, _f, subs, version = next(r for r in encontrados[rel] if r[0] == "STAT")
+        records.append(stat_de_prueba(subs, fid, edid, modl, version))
     os.makedirs(salida, exist_ok=True)
     esl = os.path.join(salida, "%s.esl" % CARPETA)
     E.escribir(esl, [MAESTRO], [E.grupo("STAT", records)], [f for f, *_ in filas],
@@ -168,14 +176,16 @@ def autotest():
         if not cond:
             fallas.append(texto)
 
+    # como casi todos los STAT de Skyrim.esm: version 39, MODT en triples sin
+    # encabezado y DNAM de 8 bytes
     obnd = struct.pack("<6h", -10, -20, 0, 10, 20, 30)
     dnam = struct.pack("<fI", 90.0, 0)
-    modt = b"\x02\x00\x00\x00" + b"\x00" * 8
+    modt = struct.pack("<I4sI", 0x235EFA34, b"dds\x00", 0x0D8AC7C5)
 
     def stat(fid, edid, modl):
         return E.record("STAT", fid, [E.sub("EDID", E.zstr(edid)), E.sub("OBND", obnd),
                                       E.sub("MODL", E.zstr(modl)), E.sub("MODT", modt),
-                                      E.sub("DNAM", dnam)])
+                                      E.sub("DNAM", dnam)], version=39)
     maestro = os.path.join(tmp, "Maestro.esm")
     recs = [stat(0x00012345, "EstanteVanilla", "Architecture\\Solitude\\Clutter\\SMDShelf01.nif"),
             stat(0x00012346, "OtroEstante", "architecture\\solitude\\clutter\\smdshelf01.nif"),
@@ -199,14 +209,17 @@ def autotest():
     exigir(edid_de("a/b/SMD-Shelf_01.nif", "idayvuelta") == "P31IdaSMDShelf01", "EDID limpio")
 
     # el record: los subrecords del vanilla, en su orden, con EDID y MODL nuevos
-    subs = enc["architecture/solitude/clutter/smdshelf01.nif"][0][2]
-    rec = stat_de_prueba(subs, 0x01000800, "P31OrigSMDShelf01", filas[0][2])
+    _t, _f, subs, version = enc["architecture/solitude/clutter/smdshelf01.nif"][0]
+    exigir(version == 39, "la version del vanilla se lee de su cabecera: %r" % version)
+    rec = stat_de_prueba(subs, 0x01000800, "P31OrigSMDShelf01", filas[0][2], version)
     esl = os.path.join(tmp, "prueba31.esl")
     E.escribir(esl, ["Maestro.esm"], [E.grupo("STAT", [rec])], [0x01000800])
     q = parser_plugin.Plugin(esl)
     exigir(q.es_esl and q.maestros() == ["Maestro.esm"], "ESL con su maestro")
     stats = [r for r in q.records if r[0] in (b"STAT", "STAT")]
     exigir(len(stats) == 1 and stats[0][3] == 0x01000800, "un STAT con el FormID pedido")
+    exigir(stats and struct.unpack_from("<H", q.d, stats[0][1] + OFFSET_VERSION)[0] == 39,
+           "el STAT copiado lleva la version del vanilla, no 44")
     leidos = [((t.decode() if isinstance(t, bytes) else t), q.d[o:o + m])
               for t, o, m in q.subrecords(stats[0][1])]
     exigir([t for t, _ in leidos] == ["EDID", "OBND", "MODL", "MODT", "DNAM"],
@@ -217,9 +230,15 @@ def autotest():
     exigir(d["EDID"] == E.zstr("P31OrigSMDShelf01") and d["MODL"] == E.zstr(filas[0][2]),
            "EDID y MODL cambiados")
     try:
-        stat_de_prueba([("OBND", obnd)], 0x01000800, "X", "y")
+        stat_de_prueba([("OBND", obnd)], 0x01000800, "X", "y", 39)
         exigir(False, "un STAT sin EDID ni MODL tenia que rechazarse")
     except ValueError:
+        exigir(True, "")
+    try:
+        stat_de_prueba(subs, 0x01000800, "X", "y", 44)
+        exigir(False, "los bytes de un 39 con version 44 tenian que rechazarse: "
+                      "cerraban el juego en la pantalla de Bethesda")
+    except E.ErrorPlugin:
         exigir(True, "")
     exigir(plan({}) == ([], []), "sin casos, plan vacio")
     shutil.rmtree(tmp, ignore_errors=True)
