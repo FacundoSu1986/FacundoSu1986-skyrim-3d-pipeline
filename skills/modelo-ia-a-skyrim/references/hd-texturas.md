@@ -139,6 +139,17 @@ Qué hace, y por qué, medido:
   del conjunto: con piezas separadas, la del conjunto da rayos que cruzan de
   una pieza a otra. Por defecto 0,01. Medido en la esfera con relieve: 1,6 %
   de fallidos con 0,01 y 0 % con 0,03.
+- **Cuánto conserva de la fuente.** Antes de hornear mide con qué resolución
+  pintó la IA cada alta: la textura más grande que llega a su Principled,
+  sobre su UV de render (`densidad_fuente`, en téxeles por unidad, la misma
+  cuenta que `densidad_texel`). La `retencion` de cada baja es su densidad
+  sobre la de su fuente. Por debajo de 0,5 avisa: el atlas tira más de la
+  mitad de la resolución lineal que trajo la IA, y la textura sale más
+  borrosa que la fuente.
+- **`--sin-doble`** hornea a la resolución final, sin la reducción 2×2: un
+  cuarto de la memoria. Sirve cuando el destino es tan fino como la fuente,
+  porque la trampa 35 es la de una fuente más fina. Si la retención baja de
+  0,7, avisa.
 
 Costo medido, en 4 núcleos, un asset de 1.000 triángulos bajos y 16.000 altos:
 
@@ -150,8 +161,11 @@ Costo medido, en 4 núcleos, un asset de 1.000 triángulos bajos y 16.000 altos:
 
 El pico de memoria lo pone el bake de Cycles, no el Python que viene después.
 A 4096 final son cuatro veces los píxeles: del orden de 19 GB `[calculado]`,
-fuera del alcance de una máquina de 16 GB. Para lo que no es arquitectura
-principal, 2048 alcanza (ver la tabla de resolución).
+fuera del alcance de una máquina de 16 GB. Con `--sin-doble` el bake es de
+4096², el mismo que el de 2048 al doble. Medido en el hacha de Filo Celeste
+(10.000 triángulos bajos, 1,88 M altos, 12 núcleos): 82 s y 4,7 GB de pico,
+contra 81 s y 4,6 GB a 2048 al doble. Si 2048 alcanza lo dice la
+`retencion` del reporte (ver la tabla de resolución).
 
 ## Los controles: `<base>_horneado.json`
 
@@ -161,6 +175,8 @@ principal, 2048 alcanza (ver la tabla de resolución).
 | `cobertura` | fracción del atlas ocupada por islas | 0 es error; si no, se informa el tamaño equivalente lleno |
 | `fallidos` | fracción de téxeles de isla donde el rayo no encontró la alta | > 1 % |
 | `densidad_texel` | téxeles por unidad de cada pieza | max/min > 2 |
+| `densidad_fuente` | téxeles por unidad de las texturas de cada alta: la más grande que llega a su Principled, sobre su UV de render | se informa |
+| `retencion` | densidad de cada baja sobre la de su fuente: cuánto de la resolución lineal de la IA conserva el atlas | < 0,5; con `--sin-doble`, < 0,7 (aliasing, trampa 35) |
 | `albedo_media_cubierta` | luminancia media, **solo** sobre téxeles cubiertos | < 0,02 (trampa 31) |
 | `correlacion_albedo_ao` | Pearson entre la luminancia del albedo y el AO, sobre lo cubierto | > 0,5 |
 
@@ -227,6 +243,17 @@ La columna HD es criterio, **sin relevar**: no se midió qué resoluciones usan
 los mods HD publicados. `[PROVIDER, no medido]` La cobertura del atlas pesa
 tanto como la resolución: un 2048 con 25 % de cobertura rinde como un 1024
 lleno (lo informa `hornear.py`).
+
+Y la fuente es el techo: más allá de su densidad no hay detalle que
+conservar. `hornear.py` informa la `retencion`. Medido en el hacha de Filo
+Celeste, con las texturas de 4096 de Tripo (65,5 téxeles por unidad):
+
+- a 2048, sobre un atlas de 35 % de cobertura, 0,39;
+- a 4096, con las islas de la cara de la hoja agrandadas 1,5 veces antes de
+  empaquetar, 0,81.
+
+En un render de cerca, la greca y los grabados salen más nítidos a 4096. En
+el juego, sin ver. `[OBSERVED]`
 
 ## Replacer: ruta vanilla
 

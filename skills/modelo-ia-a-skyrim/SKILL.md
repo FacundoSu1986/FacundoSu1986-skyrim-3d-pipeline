@@ -414,11 +414,13 @@ pieza que mañana pierda una atadura.
   islas se pisan. `--falsificar` lo prueba sin archivos del juego.
 - **`scripts/hornear.py`** (Blender) — hornea la malla alta que guarda
   `preparar_parte.py --guardar-alto` sobre la baja ya desplegada: normal, AO,
-  albedo, rugosidad y metalicidad, al doble de resolución y reducidos. Antes
+  albedo, rugosidad y metalicidad, al doble de resolución y reducidos
+  (`--sin-doble`: a la final, con un cuarto de la memoria). Antes
   de hornear sale con error si la alta no está donde está la baja, si la UV
   activa no es la de render, si las islas se pisan o si no hay nada que
-  hornear. Deja los controles y los avisos en `<base>_horneado.json`. Orden y
-  gates en `references/hd-texturas.md`.
+  hornear. Avisa si el atlas conserva menos de la mitad de la resolución de
+  las texturas de la IA. Deja los controles y los avisos en
+  `<base>_horneado.json`. Orden y gates en `references/hd-texturas.md`.
 - **`scripts/horneado_puro.py`** — la parte del horneado que no necesita
   Blender (reducción por tipo de mapa, margen, relleno, PNG sin alfa,
   alineación, solape de UV), con `--autotest`. El CI instala numpy para que

@@ -123,19 +123,45 @@ def recorrer_records(d):
     los dos: un segundo recorrido escrito aparte es como aparecieron en este
     repo dos parsers de plugins que nadie cruzo.
     """
+    recs, cerro = recorrer_con_grupos(d)
+    return [(tag, o) for tag, o, _g in recs], cerro
+
+
+def recorrer_con_grupos(d):
+    """([(tag, offset, tipo_de_grupo)], cerro): el mismo recorrido, con el
+    groupType (+12 de la cabecera del GRUP) del grupo que contiene a cada
+    record, o None si no hay ninguno (el TES4).
+
+    verificar_plugin.py lo necesita para las referencias colocadas: en un
+    GRUP de tipo 8 (Cell Persistent Children) llevan la bandera 0x400 y en uno
+    de tipo 9 no. recorrer_records sale de aca, asi que sigue siendo un solo
+    recorrido.
+
+    Ademas de embaldosar el archivo, cada GRUP tiene que cerrar exacto en su
+    propio fin, como exige census/parser_esm.py: si un record cruza el borde
+    de su grupo, el tipo de grupo que se le atribuye es mentira, y cerro es
+    False."""
     recs = []
+    pila = []                     # [(fin del grupo, groupType)]
     i = 0
     while i + 24 <= len(d):
+        while pila and i == pila[-1][0]:
+            pila.pop()
+        if pila and i > pila[-1][0]:
+            return recs, False
         tag = d[i:i + 4]
         tam = struct.unpack_from("<I", d, i + 4)[0]
         if tag == b"GRUP":
-            if tam < 24:
+            if tam < 24 or (pila and i + tam > pila[-1][0]):
                 return recs, False
+            pila.append((i + tam, struct.unpack_from("<i", d, i + 12)[0]))
             i += 24
             continue
-        recs.append((bytes(tag), i))
+        recs.append((bytes(tag), i, pila[-1][1] if pila else None))
         i += 24 + tam
-    return recs, i == len(d)
+    while pila and i == pila[-1][0]:
+        pila.pop()
+    return recs, i == len(d) and not pila
 
 
 def recorrer_formids(d):
