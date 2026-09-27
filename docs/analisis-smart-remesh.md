@@ -332,8 +332,8 @@ exactamente lo que se quiere en un organismo y lo que ablanda una pieza de metal
 
 | Herramienta | Encaje en paneles de metal |
 |---|---|
-| **Decimación planar / *Limited Dissolve*** (Blender, gratis) | Junta las caras de un mismo panel en una sola sin mover la superficie. **Implementado** como `preparar_parte.py --planar <grados>`, opt-in, después de soldar, **después de copiar la alta** (la alta es el oráculo del bake y tiene que llegar densa) y antes de colapsar. **No endereza**: disolver una región casi plana borra geometría redundante, no proyecta un vértice sobre una recta. Su valor acá es indirecto: un panel que ya es una sola cara no le da al colapsador interior donde repartir el error, y por eso los filos quedan menos ondulados. Riesgo: los paneles de una malla de IA **no son perfectamente planos**, y un ángulo generoso deja n-gonos combados. El ángulo no está medido; **el pase no se corrió con Blender** |
-| **Enderezado de cadenas duras** (Blender, gratis) | El arreglo **directo** de la línea que zigzaguea: ajustar la cuerda de la cadena y proyectar los vértices interiores sobre ella, con los extremos fijos. Implementado como `enderezar.py` + `enderezar_puro.py`, con tope fail-closed (si la cadena se aparta más que el tope es una **curva de diseño** y no se toca), rechazo de bifurcaciones y ciclos, y modo informe por defecto. La matemática está verificada por `test_enderezar_puro.py`; **el script de Blender no se corrió** y el tope no está medido |
+| **Decimación planar / *Limited Dissolve*** (Blender, gratis) | Junta las caras de un mismo panel en una sola sin mover la superficie. **Implementado** como `preparar_parte.py --planar <grados>`, opt-in, después de soldar, **después de copiar la alta** (la alta es el oráculo del bake y tiene que llegar densa) y antes de colapsar. **No endereza**: disolver una región casi plana borra geometría redundante, no proyecta un vértice sobre una recta. La hipótesis era indirecta: un panel que ya es una sola cara no le daría al colapsador interior donde repartir el error. **En una pieza real salió al revés** (`[OBSERVED]`, el hacha de Filo Celeste: alta de Tripo de 1,88 M de triángulos colapsada a 10.000, renders con MatCap de franjas y la misma cámara): con 5° las ranuras de la banda del filo ondularon más que con el colapso solo, y con 10° también la silueta. Riesgo: los paneles de una malla de IA **no son perfectamente planos**, y un ángulo generoso deja n-gonos combados. Queda opt-in y experimental: **no es el arreglo de un filo que ondula** |
+| **Enderezado de cadenas duras** (Blender, gratis) | El arreglo **directo** de la línea que zigzaguea: ajustar la cuerda de la cadena y proyectar los vértices interiores sobre ella, con los extremos fijos. Implementado como `enderezar.py` + `enderezar_puro.py`, con tope fail-closed (si la cadena se aparta más que el tope es una **curva de diseño** y no se toca), rechazo de bifurcaciones y ciclos, y modo informe por defecto. La matemática está verificada por `test_enderezar_puro.py`, y el script corre en Blender en `test_enderezar_blender.py`, sobre una barra sintética. En el hacha de Filo Celeste no toca las ranuras: son arcos, curvas de diseño. El tope no está medido |
 | **QRemeshify** (gratis) | El mejor gratis para esto: se puede guiar por aristas duras, costuras o face sets. Límite: entradas por debajo de ~100 k triángulos, o sea predécimar primero |
 | **AutoRemesher** (gratis, headless) | Tiene `--sharp-edge <ángulo>`, pero sigue siendo isótropo |
 | **Superficie de Smart Remesh (Hardsurface)** | La única diseñada para esto: paneles a n-gono, círculos redondos, y **ningún vértice nuevo**. USD 17 y headless `[sin verificar]` |
@@ -347,7 +347,8 @@ en lo tercero:
 1. **Disolver no es enderezar.** La primera versión de esta sección proponía el
    pase planar como el arreglo de la línea ondulada. No lo es: `DISSOLVE` borra
    geometría redundante; no calcula una recta ni proyecta nada. Solo ayuda de
-   forma indirecta (deja al colapsador menos interior donde repartir el error).
+   forma indirecta (deja al colapsador menos interior donde repartir el error),
+   y en el hacha de Filo Celeste ni eso: empeoró las ranuras (ver la tabla).
    El arreglo directo es el enderezado, y eso es `enderezar.py`.
 2. **Sobre la alta, la revisión leyó mal, y el error de redacción fue mío.** El
    código siempre copió la alta **antes** de tocar la baja (`alto_malla =
@@ -500,8 +501,9 @@ números de empaquetado de UV y las licencias.
 
 Pero **no es la etapa de este flujo**, y decirlo importa para no gastar:
 sobre una malla de escultura de IA, un chaflán no se modela, se **reconstruye**
-—que es exactamente lo que hace el pase planar (`--planar`) y el enderezado de
-este PR, con lo que ya trae Blender—. La compra se justifica el día que haya
+—que es lo que intentan el pase planar (`--planar`, que en el hacha de Filo Celeste
+empeoró las ranuras) y el enderezado de este PR, con lo que ya trae
+Blender—. La compra se justifica el día que haya
 geometría con topología limpia y controlada sobre la que trabajar, no antes.
 
 ## Lo que este documento no afirma

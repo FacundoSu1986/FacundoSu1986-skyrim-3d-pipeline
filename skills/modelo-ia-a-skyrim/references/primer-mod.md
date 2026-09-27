@@ -125,7 +125,7 @@ los pasos 0, 1 y 10; el agente corre los del medio.
 | 0 | probar el taller | `examples/escudo-minimo/correr.py` | sale 0 (o 3, y sabés por qué) |
 | 1 | pedirle el modelo a la IA | `references/pedir-a-la-ia-3d.md` | tenés un `.glb` |
 | 2 | medirlo | `medir_parte.py` | el informe dice cuánto mide, en cm |
-| 3 | soldarlo y llevarlo al presupuesto | `preparar_parte.py` | entra en los presupuestos medidos. Si tenés paneles planos, `--planar` |
+| 3 | soldarlo y llevarlo al presupuesto | `preparar_parte.py` | entra en los presupuestos medidos |
 | 4 | desplegar las UV | `desplegar_uv.py` | **un** atlas, sin islas pisadas |
 | 5 | enderezar líneas que ondulan (si las hay) | `enderezar.py --marcadas` | primero **sin** `--aplicar`: te dice qué haría |
 | 6 | hornear la capa HD (si la querés) | `hornear.py` | los mapas salen con sus controles |
@@ -155,7 +155,7 @@ la traducción de lo que ves a lo que hay que correr. El número es la trampa en
 | Las **texturas se ven desordenadas o pisadas** | el empaquetado corrió en vacío, o dos objetos comparten atlas (trampa 17) | `desplegar_uv.py` |
 | El **metal se ve negro** | horneaste el albedo con `DIFFUSE` (trampa 31) | `hornear.py` |
 | Se ve **gris y plástico** en vez de metálico | PyNifly deja el material en `Default` y glossiness 20 (trampa 36) | `material_arma.py` |
-| **Pesa muchísimo** y el juego va lento | el decimado se topa con un piso (trampa 7) | `preparar_parte.py --planar` |
+| **Pesa muchísimo** y el juego va lento | el decimado se topa con un piso (trampa 7) | `preparar_parte.py`: suelda las costuras antes de decimar (`--soldadura` si el aviso lo pide) |
 | **No aparece en el inventario** | falta el plugin, o el `ARMO` está mal | `verificar_plugin.py` |
 | **Se equipa pero no se ve** | es otro bug, en otro archivo (el NIF y el plugin son dos) | `verificar_export.py` |
 | Blender dijo **"todo bien" pero el archivo no está** | Blender sin interfaz sale con 0 aunque el script reviente (trampa 37) | mirá el archivo, no el código de salida |

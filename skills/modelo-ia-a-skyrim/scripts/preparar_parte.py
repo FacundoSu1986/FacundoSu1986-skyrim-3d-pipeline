@@ -25,18 +25,19 @@ importa:
      cara, el pico o los dedos del pie. La heuristica de masa de
      medir_parte.py es una pista, no una prueba.
 
-Opcional, para piezas de PANELES (armas, props, metal): `--planar <grados>`
-funde en una sola cara lo que ya es el mismo panel y no mueve un vertice --es
-el modo Hardsurface de los addons de retopologia, con lo que ya trae Blender--.
-Va DESPUES de soldar y ANTES de colapsar, y el orden es el punto: un panel que
-ya es una sola cara no tiene interior que colapsar, asi que el error del
-colapso se queda en las zonas curvas en vez de repartirse por los planos y
-ondular los filos. Sin esto, el colapso redondea los cantos de una pieza de
-metal y la linea del filo zigzaguea.
+Opcional y EXPERIMENTAL: `--planar <grados>` funde en una sola cara lo que ya
+es el mismo panel y no mueve un vertice --es el modo Hardsurface de los addons
+de retopologia, con lo que ya trae Blender--. Va DESPUES de soldar y ANTES de
+colapsar. La idea: un panel que ya es una sola cara no tiene interior que
+colapsar, asi que el error del colapso se quedaria en las zonas curvas. En una
+pieza real salio al reves `[OBSERVED]`: en el hacha de Filo Celeste (alta de
+Tripo de 1,88 M de triangulos colapsada a 10.000), con 5 grados las ranuras de
+la banda del filo ondularon MAS que con el colapso solo, y con 10 tambien la
+silueta. No es el arreglo de un filo que ondula: eso es `enderezar.py`.
 
 En una malla de IA los paneles NO son perfectamente planos: con un angulo
-generoso quedan caras combadas, que al triangularse se ven como sombras. Empeza
-por 5 y subi despacio. **El angulo no esta medido:** lo que decide es el render,
+generoso quedan caras combadas, que al triangularse se ven como sombras. Si lo
+probas, empeza por 5 y compara el render contra el colapso solo. **El angulo no esta medido:** lo que decide es el render,
 no el conteo de caras. Si el resultado queda en n-gonos, el script triangula
 antes de guardar, para que el .blend sea lo que se exporta.
 
@@ -52,14 +53,15 @@ y no toca las UV.
 Uso:
   blender -b --python preparar_parte.py -- <entrada> <salida.blend> <tris> [--planar <grados>] [--girar-180] [--guardar-alto <alto.blend>] [--soldadura F] [--force]
 
-  --planar G      fusiona los paneles planos en una sola cara antes de
-                  colapsar (grados de tolerancia; probar 5 y subir)
+  --planar G      EXPERIMENTAL: fusiona los paneles planos en una sola cara
+                  antes de colapsar (grados de tolerancia). En el hacha de
+                  Filo Celeste empeoro las ranuras: ver arriba
   --soldadura F   distancia de soldadura como fraccion del alto (0.00001 por
                   defecto: junta los duplicados de las costuras de UV)
 
 Ejemplo:
   blender -b --python preparar_parte.py -- cabeza.glb partes/cabeza.blend 8000
-  blender -b --python preparar_parte.py -- arma.glb partes/arma.blend 12000 --planar 5
+  blender -b --python preparar_parte.py -- arma.glb partes/arma.blend 10000
 """
 
 import math

@@ -140,7 +140,20 @@ def enderezar(puntos, tope):
 TOPES_SUGERIDOS = (0.0005, 0.001, 0.002, 0.005, 0.01)
 
 
-def calibracion(desvios, alto, topes=TOPES_SUGERIDOS):
+def largo_de_caja(puntos):
+    """El lado mayor de la caja alineada a los ejes: la escala del tope.
+
+    No depende de como este orientada la pieza cuando se la gira 90 grados de
+    un marco a otro. El alto (la Z) si: en un arma ya en el marco del NIF el
+    alto es el grosor, y el mismo tope valia 7 veces menos que en el hacha
+    parada. 0 sin puntos."""
+    if not puntos:
+        return 0.0
+    return max(max(p[k] for p in puntos) - min(p[k] for p in puntos)
+               for k in range(3))
+
+
+def calibracion(desvios, largo, topes=TOPES_SUGERIDOS):
     """Cuantas cadenas calificarian con cada tope, y como se reparten.
 
     Es lo que convierte "elegi un tope" en un numero. Si las cadenas se parten
@@ -149,11 +162,11 @@ def calibracion(desvios, alto, topes=TOPES_SUGERIDOS):
     tope, y adivinar es como se aplana un arco decorativo.
 
     `desvios` viene en unidades del modelo; la fraccion se calcula aca contra
-    `alto`, que es como lo pide `--tope`.
+    `largo` (`largo_de_caja`), que es como lo pide `--tope`.
     """
-    if alto <= 0 or not desvios:
+    if largo <= 0 or not desvios:
         return None
-    fracciones = sorted(d / alto for d in desvios)
+    fracciones = sorted(d / largo for d in desvios)
     n = len(fracciones)
 
     def p(q):
@@ -398,7 +411,7 @@ def autotest():
     comprobacion(encadenar([]) == ([], []), "sin aristas tiene que dar vacio")
 
     # 15. Calibracion: cuenta por tope y percentiles, con numeros a mano.
-    #     Desvios 0 / 1 / 2 / 4 sobre un alto de 4 -> fracciones 0 / 0,25 /
+    #     Desvios 0 / 1 / 2 / 4 sobre un largo de 4 -> fracciones 0 / 0,25 /
     #     0,5 / 1,0.
     cal = calibracion([0.0, 1.0, 2.0, 4.0], 4.0, topes=(0.3, 0.5, 1.0))
     comprobacion(cal["n_cadenas"] == 4, "cuatro cadenas: %r" % (cal,))
@@ -411,7 +424,18 @@ def autotest():
                  == {"0.1000": 0}, "nadie califica con tope chico")
     # Sin datos o sin escala no hay informe: se devuelve None, no un dict vacio.
     comprobacion(calibracion([], 4.0) is None, "sin desvios, None")
-    comprobacion(calibracion([1.0], 0.0) is None, "sin alto, None")
+    comprobacion(calibracion([1.0], 0.0) is None, "sin largo, None")
+
+    # 15b. La escala del tope es el lado mayor de la caja, y no cambia al
+    #      girar la pieza 90 grados (el alto, si: era el grosor de un arma).
+    barra = [(0.0, 0.0, 0.0), (10.0, 0.2, 1.0), (5.0, -0.1, 0.5)]
+    comprobacion(largo_de_caja(barra) == 10.0, "el largo de la barra es 10")
+    parada = [(z, y, x) for x, y, z in barra]
+    acostada = [(y, x, z) for x, y, z in barra]
+    comprobacion(largo_de_caja(parada) == largo_de_caja(acostada)
+                 == largo_de_caja(barra),
+                 "girada 90 grados, el largo tiene que ser el mismo")
+    comprobacion(largo_de_caja([]) == 0.0, "sin puntos, largo 0")
 
     # 16. Los puntos intermedios quedan ordenados a lo largo (no se cruzan).
     escalonada = [(0.0, 0.0, 0.0), (1.0, 0.02, 0.0), (2.0, 0.0, 0.0),

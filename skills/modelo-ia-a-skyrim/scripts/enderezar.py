@@ -5,8 +5,9 @@ POR QUE NO ALCANZA CON `preparar_parte.py --planar`. El pase planar DISUELVE
 geometria redundante: junta en una cara lo que ya es el mismo panel. Lo que no
 hace es mover un vertice. Si la linea de un filo zigzaguea porque sus vertices
 estan fisicamente desplazados, disolver no la endereza --y con menos vertices
-encima, a veces se ve peor--. Este script hace la otra operacion: ajusta la
-cuerda de cada cadena y PROYECTA los vertices interiores sobre ella.
+encima, a veces se ve peor--. En el hacha de Filo Celeste, ademas, lo
+empeoro `[OBSERVED]`. Este script hace la otra operacion: ajusta la cuerda de
+cada cadena y PROYECTA los vertices interiores sobre ella.
 
 Que endereza: los CAMINOS de aristas duras de 3 vertices o mas. Los caminos
 salen de partir el grafo de aristas duras en los cruces: un vertice donde las
@@ -25,16 +26,17 @@ pieza y no un umbral de grados. En un arma Dwemer generada por IA, marcar las
 lineas estructurales antes de correr esto es la diferencia entre enderezar
 algo y enderezar nada.
 
-El tope es la parte importante: `--tope F` es la fraccion del alto de la pieza
-que una cadena puede apartarse de su cuerda y seguir siendo "una linea
-ondulada". Si se aparta mas, se la deja como esta y se informa: es una curva de
+El tope es la parte importante: `--tope F` es la fraccion del LARGO de la
+pieza --el lado mayor de su caja, que no cambia al pasarla de un marco a otro:
+en un arma ya en el marco del NIF, el alto es el grosor-- que una cadena puede
+apartarse de su cuerda y seguir siendo "una linea ondulada". Si se aparta mas, se la deja como esta y se informa: es una curva de
 diseno. En una pieza Dwemer conviven las dos cosas --una barra mecanica y un
 arco decorativo--, y confundirlas no tira ningun error: la malla sigue sana y
 el destrozo solo se ve en el render.
 
-**El tope NO esta medido.** 0,002 (0,2 % del alto) es un punto de partida
+**El tope NO esta medido.** 0,002 (0,2 % del largo) es un punto de partida
 prudente, no un valor del censo. Para elegirlo con datos en vez de a ojo, el
-informe trae la CALIBRACION: los percentiles de desvio/alto de todas las
+informe trae la CALIBRACION: los percentiles de desvio/largo de todas las
 cadenas candidatas --tambien las que el tope rechazo-- y cuantas calificarian
 con cada tope de una grilla. Si las cadenas se parten en dos grupos, el tope
 que los separa se lee ahi.
@@ -59,7 +61,7 @@ con un tope grande en la misma corrida.
 Uso:
   blender -b --python enderezar.py -- <pieza.blend> [--tope F] [--angulo G] [--minimo N] [--marcadas] [--aplicar]
 
-  --tope F      fraccion del alto de la pieza (0.002 por defecto, NO medido)
+  --tope F      fraccion del largo de la pieza (0.002 por defecto, NO medido)
   --angulo G    grados a partir de los cuales una arista es "dura" (30)
   --minimo N    vertices minimos de un camino para considerarlo (3)
   --marcadas    usar SOLO las aristas marcadas como sharp en Blender, en vez
@@ -84,7 +86,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import enderezar_puro as ep  # noqa: E402
 from correr_en_blender import correr  # noqa: E402
 
-TOPE = 0.002      # fraccion del alto; NO medido, punto de partida (docstring)
+TOPE = 0.002      # fraccion del largo; NO medido, punto de partida (docstring)
 ANGULO = 30.0     # grados: a partir de aca la arista es una cresta
 MINIMO = 3        # vertices: con dos no hay recta que ajustar
 
@@ -150,14 +152,14 @@ def enderezar_malla(obj, tope, angulo, minimo, aplicar, marcadas=False):
         co = [v.co.copy() for v in bm.verts]
         if not co:
             return {"malla": obj.name, "motivo": "la malla no tiene vertices"}
-        alto = max(c.z for c in co) - min(c.z for c in co)
-        if alto <= 0.0:
-            return {"malla": obj.name, "motivo": "alto 0: no hay escala a la "
+        largo = ep.largo_de_caja(co)
+        if largo <= 0.0:
+            return {"malla": obj.name, "motivo": "largo 0: no hay escala a la "
                                                  "que referir el tope"}
-        limite = alto * tope
+        limite = largo * tope
         crestas, bordes = aristas_duras(bm, angulo, orden, marcadas)
         informe = {"malla": obj.name, "vertices": len(bm.verts),
-                   "alto": round(alto, 6), "tope_unidades": round(limite, 8),
+                   "largo": round(largo, 6), "tope_unidades": round(limite, 8),
                    "fuente": "marcadas" if marcadas else "automatica",
                    "aristas_duras": len(crestas) + len(bordes),
                    "crestas": len(crestas), "bordes": len(bordes)}
@@ -190,7 +192,7 @@ def enderezar_malla(obj, tope, angulo, minimo, aplicar, marcadas=False):
         informe["rechazadas"] = rechazadas
         # La calibracion mira TODAS las candidatas --tambien las que el tope
         # rechazo--: es para elegir el tope, no para justificar el elegido.
-        informe["calibracion"] = ep.calibracion(candidatas, alto)
+        informe["calibracion"] = ep.calibracion(candidatas, largo)
         if aplicar and enderezadas:
             for v in bm.verts:
                 v.co = co[orden[v]]
@@ -250,7 +252,7 @@ def main():
             print("  sin tocar: %s" % r)
         cal = i.get("calibracion")
         if cal:
-            print("  calibracion: %d cadenas candidatas; desvio/alto min %.5f "
+            print("  calibracion: %d cadenas candidatas; desvio/largo min %.5f "
                   "mediana %.5f p90 %.5f max %.5f"
                   % (cal["n_cadenas"], cal["min"], cal["p50"], cal["p90"],
                      cal["max"]))

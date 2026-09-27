@@ -38,8 +38,8 @@ BLENDER_Y_PYNIFLY = "requiere BLENDER_EXE y PyNifly; no se valido"
 
 # id del test -> motivo del salteo. Escrita a mano, copiada del log del CI de
 # main (ubuntu, 3.11 y 3.12 dan los mismos 13), mas los 4 de
-# test_hornear_blender (PR #95): los 17 necesitan Blender, que el runner de CI
-# no tiene.
+# test_hornear_blender (PR #95) y los 5 de test_enderezar_blender (PR #93): los
+# 22 necesitan Blender, que el runner de CI no tiene.
 SALTEADOS_EN_CI = {
     "test_al_marco_blender.AlMarcoEnBlenderTests.test_escudo_baja_y_alta_con_la_misma_matriz": BLENDER,
     "test_al_marco_blender.AlMarcoEnBlenderTests.test_falsificar": BLENDER,
@@ -50,6 +50,11 @@ SALTEADOS_EN_CI = {
     "test_ejemplo_escudo_minimo.ConBlenderTests.test_cada_comprobacion_del_paso_6_puede_fallar": BLENDER_Y_PYNIFLY,
     "test_ejemplo_escudo_minimo.ConBlenderTests.test_de_cero_a_un_nif_verificado": BLENDER_Y_PYNIFLY,
     "test_ejemplo_escudo_minimo.ConBlenderTests.test_un_paso_que_falla_corta_la_cadena_con_1": BLENDER_Y_PYNIFLY,
+    "test_enderezar_blender.EnderezarEnBlenderTests.test_aplicar_mueve_el_interior_y_no_los_extremos": BLENDER,
+    "test_enderezar_blender.EnderezarEnBlenderTests.test_argumento_que_no_sirve_sale_con_2": BLENDER,
+    "test_enderezar_blender.EnderezarEnBlenderTests.test_el_arco_de_diseno_no_se_toca": BLENDER,
+    "test_enderezar_blender.EnderezarEnBlenderTests.test_informa_y_no_escribe_nada": BLENDER,
+    "test_enderezar_blender.EnderezarEnBlenderTests.test_marcadas_usa_lo_que_marco_la_persona": BLENDER,
     "test_exportar_nif_blender.ExportarNifEnBlenderTests.test_argumento_que_no_sirve_sale_con_2": BLENDER_Y_PYNIFLY,
     "test_exportar_nif_blender.ExportarNifEnBlenderTests.test_falsificar": BLENDER_Y_PYNIFLY,
     "test_hornear_blender.HornearFuenteEnBlenderTests.test_al_doble_avisa_cuando_el_atlas_tira_resolucion": BLENDER,

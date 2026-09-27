@@ -286,15 +286,16 @@ pieza que mañana pierda una atadura.
 - **`scripts/preparar_parte.py`** — soldar, decimar a un presupuesto y, si se lo
   pedís con `--girar-180`, orientar. No gira por defecto a propósito: una
   rotación es destructiva y no debe dispararse por una heurística. Con
-  `--planar <grados>` disuelve los paneles planos antes de colapsar: es el
-  modo Hardsurface de los addons de retopología, con lo que ya trae Blender, y
-  sirve para que el colapso no ondule los filos de una pieza de metal. **Ojo:
-  disolver no es enderezar** — junta caras, no mueve vértices. Para una línea
-  que zigzaguea hace falta `enderezar.py`.
+  `--planar <grados>` (experimental) disuelve los paneles planos antes de
+  colapsar: es el modo Hardsurface de los addons de retopología, con lo que
+  ya trae Blender. **No es el arreglo de un filo que ondula:** en el hacha de Filo Celeste
+  (`[OBSERVED]`) con 5° las ranuras ondularon más, y con 10° también la
+  silueta. Disolver junta caras, no mueve vértices; para una línea que
+  zigzaguea hace falta `enderezar.py`.
 - **`scripts/enderezar.py`** — endereza las **líneas duras** que ondulan:
   ajusta la cuerda de cada camino de crestas/bordes y proyecta los vértices
   interiores sobre ella, con los extremos fijos. El tope (`--tope`, fracción
-  del alto) es lo que separa una línea ondulada de una curva de diseño: si un
+  del largo de la pieza) es lo que separa una línea ondulada de una curva de diseño: si un
   camino se aparta más que el tope, **no se toca y se informa** — en una pieza
   Dwemer conviven una barra mecánica y un arco decorativo, y confundirlas no
   tira ningún error. Los caminos se parten en los **cruces**, que quedan como

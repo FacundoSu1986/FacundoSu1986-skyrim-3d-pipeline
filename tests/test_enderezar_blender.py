@@ -33,10 +33,14 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "skills" / "modelo-ia-a-skyrim"
           / "scripts" / "enderezar.py")
 
 # Barra larga con el canto ondulado. `NUDO` es la amplitud de la ondulacion
-# (del orden del 1 % del alto de la pieza, que es 1,0).
+# (el 0,2 % del largo de la pieza, que es LARGO = 10: el lado mayor de su caja,
+# la escala a la que se refiere --tope).
 NUDO = 0.02
 ALTO = 1.0
 LARGO = 10
+# 0,005 del largo = 0,05 unidades: entre el nudo (0,02), que tiene que
+# enderezarse, y el arco de diseno (flecha 0,3), que no.
+TOPE = "0.005"
 
 
 def _blender(*args):
@@ -207,8 +211,8 @@ class LasExpresionesSonPythonValidoTests(unittest.TestCase):
         self.assertIn("4 * (n - 1) + 3", expr)
         # La salida que los tests parsean.
         self.assertIn("[xy]", expr)
-        # El alto y el nudo son los que usan las cuentas del tope: la altura
-        # es la escala a la que se refiere --tope, asi que cambiarla cambia el
+        # El largo es la escala a la que se refiere --tope, y el nudo lo que
+        # tiene que caber debajo: cambiar LARGO, ALTO o NUDO cambia el
         # resultado de los tests de Blender sin tocar el script.
         self.assertIn("n, alto, nudo = %d, %r, %r" % (LARGO + 1, ALTO, NUDO),
                       expr)
@@ -232,7 +236,7 @@ class EnderezarEnBlenderTests(unittest.TestCase):
             ruta = Path(d) / "barra.blend"
             _barra(ruta)
             antes = _coordenadas(ruta)
-            p = _enderezar(str(ruta), "--tope", "0.05")
+            p = _enderezar(str(ruta), "--tope", TOPE)
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
             informe = _informe(p.stdout)
             self.assertFalse(informe["aplicado"])
@@ -247,7 +251,7 @@ class EnderezarEnBlenderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             ruta = Path(d) / "barra.blend"
             antes = _barra(ruta)
-            p = _enderezar(str(ruta), "--tope", "0.05", "--aplicar")
+            p = _enderezar(str(ruta), "--tope", TOPE, "--aplicar")
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
             despues = _coordenadas(ruta)
             # Los vertices de las tapas --los 4 de cada punta-- no se mueven.
@@ -268,7 +272,7 @@ class EnderezarEnBlenderTests(unittest.TestCase):
             # Se curva la barra entera: es una curva de diseno, no ondulacion.
             _editar(ruta, expr_curvar(ruta))
             curvada = _coordenadas(ruta)
-            p = _enderezar(str(ruta), "--tope", "0.05", "--aplicar")
+            p = _enderezar(str(ruta), "--tope", TOPE, "--aplicar")
             self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
             self.assertIn("no se guardo", p.stdout)
             self.assertEqual(curvada, _coordenadas(ruta))
@@ -280,7 +284,7 @@ class EnderezarEnBlenderTests(unittest.TestCase):
             _barra(ruta, ondulacion=0.0, marcadas=False)
             # Una sola linea del canto superior, marcada a mano.
             _editar(ruta, expr_marcar_un_canto(ruta))
-            p = _enderezar(str(ruta), "--marcadas", "--tope", "0.05")
+            p = _enderezar(str(ruta), "--marcadas", "--tope", TOPE)
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
             informe = _informe(p.stdout)
             self.assertEqual("marcadas", informe["fuente"])
