@@ -178,10 +178,20 @@ versión 39 copiada junto con los bytes, SSEEdit no encuentra nada.
 
 → Si copiás subrecords de un record vanilla, copiá también su versión: es la
 que dice cómo se leen. `census/escritor_plugin.py` rechaza la mezcla al
-escribir (`comprobar_layout`); `scripts/verificar_plugin.py` todavía no la
-mira. Si el record tiene que ser 44 (la [23](#23)), no copies el `MODT` crudo:
-no es obligatorio (118 `STAT` oficiales con modelo no lo llevan). Y el `DNAM`
-de un `STAT` 44 mide 12.
+escribir (`comprobar_layout`). `scripts/verificar_plugin.py` no mira el
+layout: su REGLA 1 pide 44 en todo y reprueba esa copia, que el juego carga.
+
+Si el record tiene que ser 44 (la [23](#23)), hay que convertir, como hace
+Bethesda. `[MEASURED]` En los records 39 de `Skyrim.esm` que `Update.esm` y los
+DLC reescribieron en 44 con el mismo modelo:
+- **el `MODT` de 44** es `(2, n, 0)` seguido de los mismos triples, en 196
+  de 196 pares;
+- **el `DNAM` del `STAT`** conserva los 8 bytes y suma 4 más, una bandera.
+  Vale 1 en 177 pares y 0 en 11. `Update.esm` reescribió esos `STAT` para la
+  nieve de SE, así que el 1 no es un valor por defecto.
+
+El `MODT` tampoco es obligatorio: 118 `STAT` oficiales con modelo no lo
+llevan.
 
 ## La colisión
 
