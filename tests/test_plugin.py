@@ -243,5 +243,58 @@ class SubrecordsTests(unittest.TestCase):
         self.assertEqual(6 + 0xFFFF, len(s))
 
 
+class LayoutSegunVersionTests(unittest.TestCase):
+    """El motor lee el MODT (y MO2T..MO5T, DMDT) y el DNAM de un STAT con el
+    layout de la version del record. Un STAT copiado de Skyrim.esm (39) con
+    44 cerro el juego en la pantalla de Bethesda (issue #31, 2026-09-27)."""
+
+    TRIPLE = struct.pack("<I4sI", 0x235EFA34, b"dds\x00", 0x0D8AC7C5)
+    DNAM8 = struct.pack("<fI", 90.0, 0)
+
+    def _stat(self, version, modt=None, dnam=None):
+        subs = [ep.sub("EDID", ep.zstr("S"))]
+        if modt is not None:
+            subs.append(ep.sub("MODT", modt))
+        if dnam is not None:
+            subs.append(ep.sub("DNAM", dnam))
+        return ep.record("STAT", 0x01000800, subs, version=version)
+
+    def test_triples_sin_encabezado_con_44_se_rechazan(self):
+        with self.assertRaises(ep.ErrorPlugin) as cm:
+            self._stat(44, modt=self.TRIPLE * 2)
+        self.assertIn("MODT", str(cm.exception))
+
+    def test_triples_sin_encabezado_con_39_pasan(self):
+        self._stat(39, modt=self.TRIPLE * 2)
+
+    def test_encabezado_con_44_pasa(self):
+        self._stat(44, modt=struct.pack("<III", 2, 2, 0) + self.TRIPLE * 2)
+        self._stat(44, modt=struct.pack("<III", 2, 0, 0))
+
+    def test_un_encabezado_que_no_cuadra_con_el_largo_se_rechaza(self):
+        with self.assertRaises(ep.ErrorPlugin):
+            self._stat(44, modt=struct.pack("<III", 2, 3, 0) + self.TRIPLE * 2)
+
+    def test_con_39_un_largo_que_no_es_de_triples_se_rechaza(self):
+        with self.assertRaises(ep.ErrorPlugin):
+            self._stat(39, modt=self.TRIPLE + b"\x00" * 4)
+
+    def test_los_otros_subrecords_de_modelo_tambien(self):
+        for tipo in ("MO2T", "MO3T", "MO4T", "MO5T", "DMDT"):
+            with self.subTest(tipo=tipo), self.assertRaises(ep.ErrorPlugin):
+                ep.record("ARMA", 0x01000800, [ep.sub(tipo, self.TRIPLE)], version=44)
+
+    def test_el_dnam_del_stat_mide_segun_la_version(self):
+        self._stat(39, dnam=self.DNAM8)
+        self._stat(44, dnam=self.DNAM8 + b"\x00" * 4)
+        for version, dnam in ((44, self.DNAM8), (39, self.DNAM8 + b"\x00" * 4)):
+            with self.subTest(version=version), self.assertRaises(ep.ErrorPlugin):
+                self._stat(version, dnam=dnam)
+
+    def test_el_dnam_de_otro_tipo_no_se_mira(self):
+        """El DNAM de un WEAP mide 100: la regla es solo la del STAT."""
+        ep.record("WEAP", 0x01000800, [ep.sub("DNAM", b"\x00" * 100)], version=44)
+
+
 if __name__ == "__main__":
     unittest.main()

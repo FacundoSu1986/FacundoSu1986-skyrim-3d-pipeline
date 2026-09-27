@@ -1,8 +1,9 @@
-# Trampas: veinticinco fallos que no tiran error
+# Trampas: veintiséis fallos que no tiran error
 
 Casi todas se pagaron en `Escudo_Dwemer_SE_v01` (un escudo dwemer nuevo, con
 panel transparente, para Skyrim SE); la [4b](#4b), la [23](#23) y la [24](#24)
-salieron del hacha de Tencent, y la [25](#25) del Retrete VIP. **Ninguna tira excepción.** El pipeline termina `ok`, el mod
+salieron del hacha de Tencent, la [25](#25) del Retrete VIP y la [26](#26) del
+mod de prueba de la issue #31. **Ninguna tira excepción.** El pipeline termina `ok`, el mod
 se instala, y el problema aparece mirando el archivo escrito o probando en el
 juego.
 
@@ -16,6 +17,7 @@ Empezá acá. La primera columna es lo que ve el jugador.
 | Síntoma | Trampa |
 |---|---|
 | **En el juego** | |
+| Se cierra en la pantalla de Bethesda, antes del menú | [26](#26) |
 | Está en el inventario, dice "equipado", y no se dibuja | [1](#1), [4](#4) |
 | `help "nombre" 0` no devuelve nada | [2](#2) |
 | Se equipa y la armadura no sube | [3](#3) |
@@ -90,7 +92,9 @@ versión de la última vez que alguien lo tocó. Es la misma trampa que la
 [4b](#4b): el subconjunto equivocado invierte la respuesta.
 
 → `census/escritor_plugin.py` ya escribe 44. Si armás los bytes a mano, o el
-plugin viene de otra herramienta: `scripts/verificar_plugin.py MiMod.esl`.
+plugin viene de otra herramienta: `scripts/verificar_plugin.py MiMod.esl`. Y
+si los subrecords son copiados de un record vanilla, 44 tampoco alcanza: ver
+la [26](#26).
 
 ### 24. Dónde cuelga el arma envainada lo decide el NIF, no el plugin {#24}
 
@@ -145,6 +149,49 @@ más que tampoco avisan:
 → En un grupo 8, `banderas=0x400`. No copies un `WRLD` crudo: sin `OFST`, sin
 las `RNAM` del master y con el nombre escrito. `scripts/verificar_plugin.py`
 reprueba las tres cosas (el `RNAM`, como observación).
+
+### 26. Un record copiado del vanilla, escrito con 44, cierra el juego al arrancar {#26}
+
+Es la otra cara de la [23](#23). El mod de prueba de la issue #31 copió
+todos los subrecords de 8 `STAT` de `Skyrim.esm` y los escribió con
+`census/escritor_plugin.py`, que pone **44**. Los originales eran **39**, el
+valor más común del corpus. El juego se cerraba en la pantalla de Bethesda,
+antes del menú, y trainwreck no pudo escribir su log.
+
+El `MODT` (los hashes de las texturas del modelo) cambia de forma en la
+versión 40:
+- **antes de la 40**, son triples de 12 bytes (hash, `dds`, carpeta);
+- **desde la 40**, empiezan con un encabezado de tres enteros.
+
+Con 44, el motor leyó el primer hash como encabezado y la extensión `dds`
+como cantidad de texturas: unos 7,5 millones. SSEEdit lo marca en cada record:
+*SubRecord has invalid format for the Form Version of this record*. Con la
+versión 39 copiada junto con los bytes, SSEEdit no encuentra nada.
+
+`[MEASURED]` En los 10 plugins oficiales, sin excepciones:
+- `MODT`, `MO2T` a `MO5T` y `DMDT`, con versión < 40: triples, **11.526 de
+  11.526**;
+- los mismos, con versión ≥ 40: empiezan con `(2, n, m)` y miden
+  `12 + 12n + 4m`, **23.815 de 23.815**;
+- el `DNAM` de un `STAT`: 12 bytes con 44 (**711 de 711**) y 8 antes
+  (**11.915 de 11.915**).
+
+→ Si copiás subrecords de un record vanilla, copiá también su versión: es la
+que dice cómo se leen. `census/escritor_plugin.py` rechaza la mezcla al
+escribir (`comprobar_layout`). `scripts/verificar_plugin.py` no mira el
+layout: su REGLA 1 pide 44 en todo y reprueba esa copia, que el juego carga.
+
+Si el record tiene que ser 44 (la [23](#23)), hay que convertir, como hace
+Bethesda. `[MEASURED]` En los records 39 de `Skyrim.esm` que `Update.esm` y los
+DLC reescribieron en 44 con el mismo modelo:
+- **el `MODT` de 44** es `(2, n, 0)` seguido de los mismos triples, en 196
+  de 196 pares;
+- **el `DNAM` del `STAT`** conserva los 8 bytes y suma 4 más, una bandera.
+  Vale 1 en 177 pares y 0 en 11. `Update.esm` reescribió esos `STAT` para la
+  nieve de SE, así que el 1 no es un valor por defecto.
+
+El `MODT` tampoco es obligatorio: 118 `STAT` oficiales con modelo no lo
+llevan.
 
 ## La colisión
 

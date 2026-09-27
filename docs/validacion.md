@@ -86,6 +86,8 @@ necesita los archivos extraídos de los BSA, que el repo no trae.
 | `census/verificar.py <raíz> [--json salida.json]` | la identidad de tamaño de cada bloque de los 22.394 NIF | no |
 | `registrar.py <meshes> <textures> --verificar` | vuelve a medir el estático de referencia y lo compara con el JSON versionado, sha256 incluido | no |
 | `comparar.py --identico <archivo.nif>` | la referencia campo por campo contra `fixtures/roadsignwhiterun01.json` | no |
+| `ida_y_vuelta_pynifly.py -- <meshes> <salida> <lista.txt> <resultado.json>` (Blender) | la medición de `fixtures/pynifly.md` sobre una lista: caja de malla y colisión en espacio de mundo y material Havok, antes y después de PyNifly; deja los NIF exportados | no |
+| `prueba_en_el_juego.py <Skyrim.esm> <meshes> <ida y vuelta> <mod> <caso.nif> ...` | el mod de la issue #31: dos STAT por caso (original y exportado) copiados del STAT vanilla de ese NIF. No mide nada: lo que contesta es mirarlo | no |
 
 ## 3. Los autotests que no necesitan el corpus
 
@@ -108,6 +110,7 @@ se ve.
 | `compresor_dxt.py --autotest` | `test_compresor_dxt.py`, con Pillow de oráculo |
 | `compresor_bc7.py --autotest` | `test_compresor_bc7.py`, con Pillow de oráculo |
 | `exportar_puro.py --autotest` | desde el paquete, y `test_exportar_puro.py` |
+| `prueba_en_el_juego.py --autotest` | `test_prueba_en_el_juego.py`, sobre un maestro sintético |
 | `escritor_dds.py --autotest` | ningún test lo llama: `test_escritor_dds.py` prueba el escritor por su cuenta |
 | `escritor_plugin.py --autotest` | ningún test lo llama: `test_plugin.py` y `test_verificar_plugin.py` prueban el escritor por su cuenta |
 
