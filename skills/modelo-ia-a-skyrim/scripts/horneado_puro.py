@@ -19,6 +19,10 @@ lo que se puede separar de Blender vive aca, con autotest:
   principled_conectado   el Principled que de verdad alimenta la salida de
                          un material (sobre nodos de Blender o imitaciones)
   densidad_texel         texeles por unidad de una pieza, para comparar piezas
+  lados_de_imagenes      el tamano de las texturas que alimentan un Principled
+  retencion / avisos_de_la_fuente
+                         cuanto conserva el atlas de la resolucion de las
+                         texturas de la IA, y el aliasing sin el doble
   area_uv / fuera_del_cuadro / juzgar_despliegue
                          el juicio de desplegar_uv.py: que empaquetar haya
                          movido las UV (trampa 17), el cuadro 0..1 y el solape
@@ -458,6 +462,77 @@ def densidad_texel(area_3d, area_uv, res):
     return math.sqrt(area_uv * res * res / area_3d)
 
 
+# Cuanto conserva el atlas de la resolucion de las texturas de la IA. Los dos
+# umbrales son criterio [no medido]. El caso que los motivo, el hacha de Filo
+# Celeste (texturas de Tripo de 4096, 65,5 texeles por unidad): horneada a
+# 2048 sobre un atlas con 35 % de cobertura conservaba 0,39, y se veia mas
+# borrosa que a 4096 con las caras de la hoja agrandadas, 0,81.
+AVISO_RETENCION = 0.5
+# Sin el doble cada texel lee UN punto de la fuente: si la fuente es mas fina
+# que el destino, lo que esta entre la frecuencia maxima de uno y la del otro
+# vuelve como aliasing (trampa 35). Con la fuente a menos de 1 / 0,7 del
+# destino esa banda es angosta y el filtro lineal de la textura la apaga.
+AVISO_ALIASING = 0.7
+
+
+def lados_de_imagenes(bsdf):
+    """(ancho, alto) de cada textura que alimenta `bsdf`, una vez por nodo,
+    yendo hacia atras por los vinculos: a traves de normal maps, separadores
+    y mezclas. Sin las que no tienen imagen o miden 0.
+
+    Sirve con nodos de Blender o con imitaciones: `type`, `inputs` iterable
+    con `links` y `from_node`, y en los TEX_IMAGE, `image.size`.
+    """
+    vistos, lados = set(), []
+    cola = [l.from_node for e in bsdf.inputs for l in e.links]
+    while cola:
+        n = cola.pop(0)
+        if id(n) in vistos:
+            continue
+        vistos.add(id(n))
+        if n.type == "TEX_IMAGE":
+            img = getattr(n, "image", None)
+            if img is not None and img.size[0] > 0 and img.size[1] > 0:
+                lados.append((int(img.size[0]), int(img.size[1])))
+        for entrada in n.inputs:
+            for l in entrada.links:
+                cola.append(l.from_node)
+    return lados
+
+
+def retencion(destino, fuente):
+    """Que fraccion de la resolucion LINEAL de la fuente conserva el atlas:
+    los texeles por unidad del destino sobre los de la fuente, medidos igual
+    (`densidad_texel`). Arriba de 1 el atlas es mas fino que la fuente. None
+    si falta una de las dos."""
+    if not destino or not fuente or destino <= 0 or fuente <= 0:
+        return None
+    return destino / fuente
+
+
+def avisos_de_la_fuente(retenciones, sin_doble):
+    """Los avisos de hornear.py sobre la fuente, de {pieza: retencion}."""
+    def lista(sel):
+        return ", ".join("%s %d %%" % (k, round(v * 100))
+                         for k, v in sorted(sel.items()))
+    avisos = []
+    pocas = {k: v for k, v in retenciones.items()
+             if v is not None and v < AVISO_RETENCION}
+    if pocas:
+        avisos.append("el atlas conserva poco de la resolucion lineal de las "
+                      "texturas de la IA (%s): la textura sale mas borrosa que "
+                      "la fuente. Subi <res> o aprovecha mas el atlas "
+                      "(cobertura)" % lista(pocas))
+    finas = {k: v for k, v in retenciones.items()
+             if v is not None and v < AVISO_ALIASING}
+    if sin_doble and finas:
+        avisos.append("--sin-doble con una fuente mas fina que el destino "
+                      "(%s): cada texel lee un solo punto de la fuente, "
+                      "aliasing (trampa 35). Hornea al doble si la memoria "
+                      "alcanza" % lista(finas))
+    return avisos
+
+
 def area_uv(tris_uv):
     """Area de los triangulos UV [((u,v), (u,v), (u,v))], en fraccion del
     atlas: el cuadro 0..1 mide 1."""
@@ -789,6 +864,59 @@ def autotest():
     exigir(abs(densidad_texel(4.0, 1.0, 1024) - 512.0) < 1e-9,
            "densidad: 4x area 3D = mitad de texeles por unidad")
     exigir(densidad_texel(0.0, 1.0, 1024) is None, "densidad sin area 3D")
+
+    # --- la fuente: las texturas de la alta y cuanto conserva el atlas ---
+    class Imagen(object):
+        def __init__(self, ancho, alto):
+            self.size = (ancho, alto)
+
+    def textura(imagen):
+        n = Nodo("TEX_IMAGE")
+        n.image = imagen
+        return n
+
+    color = textura(Imagen(4096, 4096))
+    normal = textura(Imagen(2048, 2048))
+    rugosidad = textura(Imagen(4096, 4096))
+    separar = Nodo("SEPARATE_COLOR", Color=[rugosidad])
+    bsdf = Nodo("BSDF_PRINCIPLED", **{
+        "Base Color": [color], "Normal": [Nodo("NORMAL_MAP", Color=[normal])],
+        "Roughness": [separar], "Metallic": [separar],
+        "Alpha": [textura(None)], "Emission Color": [textura(Imagen(0, 0))]})
+    lados = sorted(lados_de_imagenes(bsdf))
+    exigir(lados == [(2048, 2048), (4096, 4096), (4096, 4096)],
+           "lados_de_imagenes: las tres texturas, una vez cada una, a traves "
+           "del normal map y del separar; sin la vacia ni la de 0x0: %r" % lados)
+    exigir(lados_de_imagenes(Nodo("BSDF_PRINCIPLED")) == [],
+           "lados_de_imagenes: sin texturas tiene que dar []")
+    # un plano de 2x2 con las UV en todo el cuadro y una textura de 256
+    exigir(densidad_texel(4.0, 1.0, 256) == 128.0, "densidad de la fuente")
+    exigir(abs(retencion(25.67, 65.53) - 0.3917) < 1e-3,
+           "retencion: el hacha de Filo Celeste a 2048 conserva el 39 %%: %r"
+           % retencion(25.67, 65.53))
+    exigir(retencion(None, 63.9) is None and retencion(25.67, None) is None
+           and retencion(25.67, 0.0) is None,
+           "retencion sin una de las dos densidades tiene que dar None")
+    av = avisos_de_la_fuente({"hacha": 0.392}, sin_doble=False)
+    exigir(len(av) == 1 and "hacha" in av[0] and "39 %" in av[0],
+           "avisos_de_la_fuente: 0,39 tiene que avisar, con la pieza y el "
+           "porcentaje: %r" % av)
+    exigir(avisos_de_la_fuente({"hacha": 0.81}, sin_doble=False) == []
+           and avisos_de_la_fuente({"hacha": 0.81}, sin_doble=True) == [],
+           "avisos_de_la_fuente: 0,81 (el hacha a 4096) no avisa")
+    av = avisos_de_la_fuente({"hacha": 0.60}, sin_doble=True)
+    exigir(len(av) == 1 and "trampa 35" in av[0],
+           "avisos_de_la_fuente: sin el doble y con la fuente mas fina que "
+           "el destino, aliasing: %r" % av)
+    exigir(avisos_de_la_fuente({"hacha": 0.60}, sin_doble=False) == [],
+           "avisos_de_la_fuente: 0,60 horneando al doble no avisa")
+    exigir(len(avisos_de_la_fuente({"hacha": 0.392}, sin_doble=True)) == 2,
+           "avisos_de_la_fuente: 0,39 sin el doble son los dos avisos")
+    exigir(avisos_de_la_fuente({"hacha": AVISO_RETENCION}, sin_doble=False) == []
+           and avisos_de_la_fuente({"hacha": AVISO_ALIASING}, sin_doble=True) == [],
+           "avisos_de_la_fuente: el umbral justo no avisa")
+    exigir(avisos_de_la_fuente({"hacha": None}, sin_doble=True) == [],
+           "avisos_de_la_fuente: sin fuente medida no hay aviso")
 
     # --- el despliegue: area, cuadro y las tres REGLAS ---
     medio = ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0))

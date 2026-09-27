@@ -63,6 +63,15 @@ CONTROLES
                la alta sale mas afuera que el cage.
   densidad     texeles por unidad de cada pieza; piezas del mismo atlas con
                densidades muy distintas se ven una borrosa al lado de la otra.
+  fuente       ANTES de hornear, los texeles por unidad de las texturas con
+               que la IA pinto cada alta (la mas grande que llega a su
+               Principled, sobre su UV de render: la misma cuenta que la
+               densidad del atlas), y la `retencion` de cada baja: su densidad
+               sobre la de su fuente. Menos de 0,5 avisa: el atlas tira mas
+               de la mitad de la resolucion lineal que trajo la IA. Medido en
+               el hacha de Filo Celeste (texturas de Tripo de 4096, 65,5 por
+               unidad): a 2048, con 35 % de cobertura, 0,39, y el render de
+               cerca la mostraba mas borrosa que a 4096 (0,81).
   albedo       media de luminancia SOLO sobre texeles cubiertos (trampa 31).
   luz horneada correlacion entre la luminancia del albedo y el AO horneado.
                Alta sugiere sombras pegadas al color (trampa 21). Es
@@ -75,9 +84,18 @@ mismos, se escriben siempre en `<base>_horneado.json` para poder auditarlos.
 Uso:
   blender -b --python hornear.py -- <baja.blend> <carpeta> <res> <alta.blend> [<alta.blend> ...]
           [--extrusion F] [--muestras-ao N] [--distancia-ao F]
-          [--permitir-solape] [--force]
+          [--permitir-solape] [--sin-doble] [--force]
 
   <res>           resolucion FINAL, potencia de 2 (se hornea a 2*res)
+  --sin-doble     hornea a <res> y no al doble, sin la reduccion 2x2: un
+                  cuarto de la memoria. 4096 al doble son ~19 GB
+                  `[calculado]`; sin el doble, el hacha de Filo Celeste (alta
+                  de 1,88 M de triangulos, texturas de 4096) horneo en 82 s
+                  con 4,7 GB de pico en Cycles, lo mismo que a 2048 al doble
+                  (81 s, 4,6 GB): el bake es de 4096^2 en los dos `[medido]`.
+                  Sirve cuando el
+                  destino es tan fino como la fuente; si la fuente es mas fina
+                  (retencion menor que 0,7), avisa: aliasing (trampa 35).
   --extrusion     distancia del cage como fraccion de la diagonal de la baja
                   --la MEDIANA de las piezas, no la del conjunto: con varias
                   piezas separadas la del conjunto da rayos que cruzan de una
@@ -108,6 +126,7 @@ las UV NUEVAS.
 """
 
 import json
+import math
 import os
 import sys
 
@@ -144,7 +163,8 @@ def args_cli():
             opciones[a] = type(opciones[a])(args[i + 1])
             i += 2
             continue
-        if a.startswith("--") and a not in ("--force", "--permitir-solape"):
+        if a.startswith("--") and a not in ("--force", "--permitir-solape",
+                                            "--sin-doble"):
             # Antes caia como una ruta de alta mas y reventaba al cargarla.
             raise SystemExit("opcion desconocida: %s" % a)
         if not a.startswith("--"):
@@ -159,7 +179,8 @@ def args_cli():
                          "en 32.241 texturas vanilla)" % res)
     return (baja, carpeta, res, posicionales[3:], opciones["--extrusion"],
             opciones["--muestras-ao"], opciones["--distancia-ao"],
-            "--force" in args, "--permitir-solape" in args)
+            "--force" in args, "--permitir-solape" in args,
+            "--sin-doble" in args)
 
 
 def mallas(objetos):
@@ -243,6 +264,58 @@ def areas(obj):
         auv += abs((u[1][0] - u[0][0]) * (u[2][1] - u[0][1])
                    - (u[2][0] - u[0][0]) * (u[1][1] - u[0][1])) / 2.0
     return a3, auv
+
+
+def areas_np(obj, capa):
+    """(area 3D en mundo, area UV) como `areas`, con numpy y sobre la capa
+    `capa`: la alta de la IA pasa del millon de triangulos."""
+    me = obj.data
+    me.calc_loop_triangles()
+    n = len(me.loop_triangles)
+    if n == 0:
+        return 0.0, 0.0
+    tv = np.empty(n * 3, np.int64)
+    me.loop_triangles.foreach_get("vertices", tv)
+    tl = np.empty(n * 3, np.int64)
+    me.loop_triangles.foreach_get("loops", tl)
+    co = np.empty(len(me.vertices) * 3, np.float64)
+    me.vertices.foreach_get("co", co)
+    mw = np.array(obj.matrix_world, np.float64)
+    co = co.reshape(-1, 3) @ mw[:3, :3].T + mw[:3, 3]
+    uv = np.empty(len(me.loops) * 2, np.float64)
+    capa.data.foreach_get("uv", uv)
+    p = co[tv.reshape(-1, 3)]
+    u = uv.reshape(-1, 2)[tl.reshape(-1, 3)]
+    a3 = 0.5 * np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]),
+                              axis=1)
+    e1, e2 = u[:, 1] - u[:, 0], u[:, 2] - u[:, 0]
+    auv = 0.5 * np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0])
+    return float(a3.sum()), float(auv.sum())
+
+
+def densidad_de_la_fuente(alta):
+    """((ancho, alto), texeles por unidad) de las texturas con que la IA
+    pinto la alta: la mas grande que llega a un Principled conectado a la
+    salida, sobre la capa UV de render de la alta (la que usa un nodo de
+    imagen sin nodo UV). (None, None) si la alta no trae textura o UV."""
+    lados = []
+    for mat in materiales([alta]):
+        if not mat.use_nodes:
+            continue
+        salida = next((n for n in mat.node_tree.nodes
+                       if n.type == 'OUTPUT_MATERIAL' and n.is_active_output),
+                      None)
+        if salida is None:
+            continue
+        for bsdf in hp.principled_conectado(salida):
+            lados.extend(hp.lados_de_imagenes(bsdf))
+    capas = alta.data.uv_layers
+    if not lados or not len(capas):
+        return None, None
+    ancho, alto = max(lados, key=lambda s: s[0] * s[1])
+    capa = next((c for c in capas if c.active_render), capas.active)
+    a3, auv = areas_np(alta, capa)
+    return (ancho, alto), hp.densidad_texel(a3, auv, math.sqrt(ancho * alto))
 
 
 def unir_bajas(bajas):
@@ -393,7 +466,7 @@ def muestrear(*arrays):
 
 def main():
     (ruta_baja, carpeta, res, rutas_altas, frac, muestras_ao, frac_ao,
-     forzar, permitir_solape) = args_cli()
+     forzar, permitir_solape, sin_doble) = args_cli()
 
     bpy.ops.wm.open_mainfile(filepath=os.path.abspath(ruta_baja))
     bajas = mallas(bpy.context.scene.objects)
@@ -433,6 +506,16 @@ def main():
     validas = [d for d in densidades.values() if d]
     dispersion = max(validas) / min(validas) if validas else None
 
+    # La fuente: con que resolucion pinto la IA cada alta, y cuanto de eso
+    # conserva el atlas. Antes de unir las bajas y de tocar los materiales.
+    fuentes, retenciones = {}, {}
+    for b, a in pares:
+        lado_f, dens_f = densidad_de_la_fuente(a)
+        fuentes[a.name] = {"lado": list(lado_f) if lado_f else None,
+                           "densidad": (None if dens_f is None
+                                        else round(dens_f, 2))}
+        retenciones[b.name] = hp.retencion(densidades.get(b.name), dens_f)
+
     base = os.path.splitext(os.path.basename(ruta_baja))[0]
     carpeta = os.path.abspath(carpeta)
     mapas = {"albedo": ("color", "sRGB", 3), "normalgl": ("normal",
@@ -460,7 +543,8 @@ def main():
     if escena.world is None:
         escena.world = bpy.data.worlds.new("hornear")
     escena.world.light_settings.distance = distancia_ao
-    lado = res * 2
+    factor = 1 if sin_doble else 2
+    lado = res * factor
 
     # Mascaras a resolucion final, sin margen.
     cubierto = mascara(altas, baja, res, extrusion, desde_alta=False)
@@ -484,9 +568,10 @@ def main():
 
     def guardar(mapa, arr):
         modo, _, canales = mapas[mapa]
-        hp.dilatar(arr, MARGEN_FINAL * 2)
+        hp.dilatar(arr, MARGEN_FINAL * factor)
         hp.rellenar_vacios(arr, hp.RELLENO[mapa])
-        red = hp.reducir_np(arr, modo)
+        red = (hp.reducir_np(arr, modo) if factor == 2
+               else arr.astype(np.float32, copy=False))
         hp.escribir_png(rutas[mapa], res, res, canales,
                         hp.a_bytes(red, res, res, canales))
         finales[mapa] = red
@@ -541,6 +626,7 @@ def main():
     if corr is not None and corr > AVISO_CORRELACION:
         avisos.append("el albedo correlaciona con el AO (r=%.2f): posible luz "
                       "horneada del generador (trampa 21)" % corr)
+    avisos.extend(hp.avisos_de_la_fuente(retenciones, sin_doble))
     if sin_principled:
         avisos.append("materiales sin un Principled conectado a la salida, "
                       "salen negros en albedo/rugosidad/metalicidad: %s"
@@ -551,6 +637,7 @@ def main():
 
     reporte = {
         "blender": bpy.app.version_string, "res": res, "horneado_a": lado,
+        "sin_doble": sin_doble,
         "extrusion": extrusion, "muestras_ao": muestras_ao,
         "distancia_ao": distancia_ao,
         "piezas": piezas,
@@ -561,6 +648,9 @@ def main():
                            for k, v in densidades.items()},
         "densidad_max_sobre_min": (None if dispersion is None
                                    else round(dispersion, 2)),
+        "densidad_fuente": fuentes,
+        "retencion": {k: None if v is None else round(v, 3)
+                      for k, v in retenciones.items()},
         "albedo_media_cubierta": (None if media_albedo is None
                                   else round(media_albedo, 4)),
         "correlacion_albedo_ao": None if corr is None else round(corr, 3),
