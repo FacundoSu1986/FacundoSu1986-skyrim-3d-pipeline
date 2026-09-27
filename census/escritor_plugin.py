@@ -50,6 +50,11 @@ MAX_OBJETO_ESL = 0xFFF
 # empiezan con tres u32 (2, n, m) y miden 12 + 12n + 4m (23.815 de 23.815).
 # El DNAM de un STAT mide 12 con version 44 (711 de 711) y 8 antes (11.915
 # de 11.915).
+# Las mismas leyes juzgan el plugin TERMINADO: la REGLA 8 de
+# skills/asset-nuevo-skyrim/scripts/verificar_plugin.py, que las copia porque
+# el paquete de la skill no lleva census/. Solo atajan juntas si son iguales:
+# tests/test_verificar_plugin.py (LayoutComoElEscritorTests) compara las dos
+# copias sobre los mismos bytes, y cambiar una sin la otra lo pone rojo.
 TEXTURAS_DEL_MODELO = (b"MODT", b"MO2T", b"MO3T", b"MO4T", b"MO5T", b"DMDT")
 VERSION_MODT_CON_ENCABEZADO = 40
 VERSION_DNAM_STAT_DE_12 = 44

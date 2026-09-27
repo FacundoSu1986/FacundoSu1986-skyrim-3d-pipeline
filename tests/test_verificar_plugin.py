@@ -22,17 +22,22 @@ Bethesda **autoró para SE** (Creation Club y `_ResourcePack`) están en 44 los
 segundo. Es la tercera vez en el proyecto que un subconjunto mal elegido invierte
 la respuesta (antes: `bhkRadius` y la máscara especular).
 """
+import contextlib
+import io
 import os
+import shutil
 import struct
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from _paths import preparar_path
 
 preparar_path()
 
+import escritor_plugin as ep  # noqa: E402
 import plugin_sintetico  # noqa: E402
 import verificar_plugin as vp  # noqa: E402
 
@@ -508,6 +513,361 @@ class RecorridoConGruposTests(unittest.TestCase):
         self.assertFalse(esl.recorrer_con_grupos(bytes(datos))[1])
 
 
+def _juzgar_bytes(caso, datos):
+    """bytes -> archivo -> leer -> juzgar: el camino de un plugin de verdad."""
+    fd, ruta = tempfile.mkstemp(suffix=".esl")
+    os.write(fd, datos)
+    os.close(fd)
+    caso.addCleanup(os.unlink, ruta)
+    info = vp.leer(ruta)
+    caso.assertIsNone(info["error"], info["error"])
+    return vp.juzgar(info)
+
+
+class ReglaLayoutTests(unittest.TestCase):
+    """REGLA 8: MODT, MO2T..MO5T y DMDT, y el DNAM de un STAT, con el layout
+    de la version del record. Sobre BYTES: la regla vale lo que vale la
+    lectura.
+
+    El ESL de la issue #31 copio los subrecords de 8 STAT de Skyrim.esm, que
+    son version 39, y los escribio con 44. El motor leyo el primer hash del
+    MODT como encabezado y la extension "dds" como cantidad de texturas, y el
+    juego se cerraba en la pantalla de Bethesda. Este verificador lo aprobaba:
+    su unica regla sobre la version era la 1, que pide 44, y el v1 tenia 44."""
+
+    V1 = dict(version=39, cabecera=44)     # los bytes de un 39, con 44
+
+    def test_el_v1_de_la_31_reprueba_y_dice_cual(self):
+        fallas, _ = _juzgar_bytes(self, plugin_sintetico.construir_estatico(
+            **self.V1))
+        capa = [f for f in fallas if "REGLA layout" in f]
+        self.assertEqual(len(capa), 1, fallas)
+        self.assertIn("STAT 01000800", capa[0])
+        self.assertIn("su MODT ", capa[0])
+        self.assertIn("su DNAM ", capa[0])
+
+    def test_el_v1_pasaba_la_regla_1_y_ese_era_el_hueco(self):
+        """"formVersion" a secas, y no "REGLA formVersion": es la marca con
+        que los tests de la REGLA 1 la buscan, y ningun otro mensaje la puede
+        llevar. La primera version del de la REGLA 8 la llevaba, y con eso
+        sacar la REGLA 1 dejaba en verde test_un_plugin_en_version_cero_sale_uno:
+        el sintetico en 0 reprueba tambien la 8."""
+        fallas, _ = _juzgar_bytes(self, plugin_sintetico.construir_estatico(
+            **self.V1))
+        self.assertFalse(any("formVersion" in f for f in fallas), fallas)
+
+    def test_el_mensaje_dice_lo_que_lee_el_motor(self):
+        """Con los triples leidos como encabezado, "dds" es la cantidad de
+        texturas: 7562340, los "unos 7,5 millones" de la trampa 26."""
+        fallas, _ = _juzgar_bytes(self, plugin_sintetico.construir_estatico(
+            **self.V1))
+        self.assertTrue(any("7562340 texturas" in f for f in fallas), fallas)
+
+    def test_el_v2_de_la_31_pasa_la_regla_8(self):
+        fallas, _ = _juzgar_bytes(self, plugin_sintetico.construir_estatico(
+            version=39))
+        self.assertFalse(any("REGLA layout" in f for f in fallas), fallas)
+
+    def test_la_conversion_de_bethesda_pasa_todo_y_la_nota_cuenta(self):
+        """(2, n, 0) con los mismos triples y un DNAM de 12: como Update.esm y
+        los DLC pasaron a 44 records 39 (trampa 26). La nota dice cuanto se
+        comprobo, para que cero no pase por exito."""
+        fallas, notas = _juzgar_bytes(
+            self, plugin_sintetico.construir_estatico(version=44))
+        self.assertEqual(fallas, [])
+        self.assertTrue(any("2 subrecord(s) de layout" in n for n in notas),
+                        notas)
+        # la nota de las copias es para los de antes de la 44
+        self.assertFalse(any("pasan la REGLA 8" in n for n in notas), notas)
+
+    def test_cada_subrecord_de_hashes_se_juzga(self):
+        """Enumerante sobre la familia, en un ACTI: su DNAM no es el de un
+        STAT, asi que la falla es del subrecord de hashes y de nada mas."""
+        for sub in vp.TEXTURAS_DEL_MODELO:
+            with self.subTest(subrecord=sub):
+                fallas, _ = _juzgar_bytes(
+                    self, plugin_sintetico.construir_estatico(
+                        sub_modelo=sub.encode("ascii"), tipo=b"ACTI",
+                        **self.V1))
+                capa = [f for f in fallas if "REGLA layout" in f]
+                self.assertEqual(len(capa), 1, fallas)
+                self.assertIn("su %s " % sub, capa[0])
+                self.assertNotIn("su DNAM", capa[0])
+
+    def test_el_dnam_se_juzga_solo_en_un_stat(self):
+        """8 bytes con 44 reprueba en un STAT; en otro tipo el DNAM es otra
+        cosa (el de un WEAP mide 100) y no se mira."""
+        fallas, _ = _juzgar_bytes(self, plugin_sintetico.construir_estatico(
+            version=44, dnam=b"\x00" * 8))
+        self.assertTrue(any("su DNAM " in f for f in fallas), fallas)
+        fallas, _ = _juzgar_bytes(self, plugin_sintetico.construir_estatico(
+            version=44, dnam=b"\x00" * 8, tipo=b"ACTI"))
+        self.assertFalse(any("REGLA layout" in f for f in fallas), fallas)
+
+    def test_un_encabezado_con_m_no_multiplo_de_3_reprueba_con_39(self):
+        """La otra direccion, cuando se ve: (2, 2, 1) mide 40 bytes, que no
+        es multiplo de 12."""
+        modt = plugin_sintetico.modt_con_encabezado(extra=(7,))
+        fallas, _ = _juzgar_bytes(self, plugin_sintetico.construir_estatico(
+            version=39, modt=modt))
+        self.assertTrue(any("REGLA layout" in f and "su MODT " in f
+                            for f in fallas), fallas)
+
+    def test_los_16_del_v1_dan_diez_con_detalle_y_el_total(self):
+        """El v1 de la #31 tenia 16 STAT: el detalle se corta en 10, y el
+        total tiene que ser el verdadero."""
+        datos = plugin_sintetico.construir_estaticos([
+            (b"STAT", plugin_sintetico.record_estatico(0x01000800 + i,
+                                                        **self.V1))
+            for i in range(16)])
+        fallas, _ = _juzgar_bytes(self, datos)
+        self.assertEqual(len([f for f in fallas if "REGLA layout" in f]),
+                         10, fallas)
+        self.assertIn("16 records en total", fallas[-1])
+
+    def test_la_regla_ve_adentro_de_un_record_comprimido(self):
+        """Comprimido, el MODT no aparece en los bytes crudos. El ACTI es el
+        caso que importa: un STAT se abre siempre, por su tipo."""
+        for tipo in (b"STAT", b"ACTI"):
+            with self.subTest(tipo=tipo):
+                fallas, _ = _juzgar_bytes(
+                    self, plugin_sintetico.construir_estatico(
+                        comprimir=True, tipo=tipo, **self.V1))
+                self.assertTrue(any("REGLA layout" in f and "su MODT " in f
+                                    for f in fallas), fallas)
+
+    def test_un_stat_sin_modt_tambien_se_juzga(self):
+        """118 STAT vanilla son EDID+OBND+MODL+DNAM, sin MODT (hallazgo 3 de
+        census/hallazgos_plugins.md): el STAT se abre por su tipo, no porque
+        sus bytes nombren un MODT."""
+        fallas, _ = _juzgar_bytes(self, plugin_sintetico.construir_estatico(
+            version=44, modt=None, dnam=b"\x00" * 8))
+        self.assertTrue(any("REGLA layout" in f and "su DNAM " in f
+                            for f in fallas), fallas)
+
+
+class LaRegla1SeQuedaTests(unittest.TestCase):
+    """La decision (docstring de verificar_plugin.py, REGLA 1): un record
+    anterior a la 44 que pasa la REGLA 8 -- los 16 STAT del mod de la #31 --
+    sigue reprobando la REGLA 1. La 8 no alcanza para eximirlo: solo ve
+    MODT..DMDT y el DNAM de un STAT, y lo que no ve, pasa. Estos tests son
+    ese porque. Si alguien relaja la REGLA 1 confiando en la 8, se ponen
+    rojos."""
+
+    def test_el_hacha_del_20_9_pasa_la_regla_8(self):
+        """La forma del ESL del hacha del 20/9, medida: el WEAP en version 0
+        con un MODT (2, 0, 0) -- el encabezado de la 44 sin texturas --, que
+        con 0 mide lo que un triple. Su DATA, que el juego leyo con peso y
+        dano 0, mide 10 bytes con los dos layouts. La REGLA 8 lo pasa; la
+        unica que lo agarra es la 1. Y la nota no dice que se lea bien: la
+        primera version decia "tienen el layout de su propia version"."""
+        datos, esperado = plugin_sintetico.construir_weap(
+            version=0, modt=struct.pack("<III", 2, 0, 0))
+        fallas, notas = _juzgar_bytes(self, datos)
+        self.assertFalse(any("REGLA layout" in f for f in fallas), fallas)
+        fid = "%08X" % esperado["fid_weap"]
+        self.assertTrue(any("REGLA formVersion" in f and fid in f
+                            for f in fallas), fallas)
+        nota = [n for n in notas if "pasan la REGLA 8" in n]
+        self.assertEqual(len(nota), 1, notas)
+        self.assertIn("No prueba que se lean bien", nota[0])
+
+    def test_un_modt_de_44_escrito_con_39_pasa_la_regla_8(self):
+        """(2, n, 0) mide 12 + 12n, multiplo de 12, y con 39 se lee como
+        triples: la REGLA 8 no lo distingue. Son 23.563 de los 23.815 MODT de
+        version >= 40 de los 10 plugins (m multiplo de 3)."""
+        fallas, _ = _juzgar_bytes(self, plugin_sintetico.construir_estatico(
+            version=39, modt=plugin_sintetico.modt_con_encabezado(),
+            tipo=b"ACTI"))
+        self.assertFalse(any("REGLA layout" in f for f in fallas), fallas)
+        self.assertTrue(any("formVersion" in f for f in fallas), fallas)
+
+    def test_el_v2_de_la_31_reprueba_la_1_y_la_nota_dice_por_que(self):
+        """Reprueba por la REGLA 1, no por la 8, y la nota lo distingue del
+        v1: que no se confunda la copia bien hecha con la que cerraba el
+        juego."""
+        fallas, notas = _juzgar_bytes(
+            self, plugin_sintetico.construir_estatico(version=39))
+        self.assertTrue(any("formVersion" in f for f in fallas), fallas)
+        self.assertTrue(any(n.startswith("OBS 1 record(s) de version "
+                                         "anterior a la 44 pasan la REGLA 8")
+                            and "REGLA 1" in n for n in notas), notas)
+
+    def test_la_nota_no_cuenta_un_record_sin_nada_que_ver(self):
+        """Un WEAP sin MODT no tiene subrecords de layout: la REGLA 8 no lo
+        comprobo, y la nota no lo cuenta como que la pasa."""
+        datos, _ = plugin_sintetico.construir_weap(version=0)
+        _, notas = _juzgar_bytes(self, datos)
+        self.assertFalse(any("pasan la REGLA 8" in n for n in notas), notas)
+
+
+class LayoutComoElEscritorTests(unittest.TestCase):
+    """verificar_plugin.py no puede importar census/ (build_skill.py no lo
+    empaqueta): lleva su copia de las leyes de
+    census/escritor_plugin.comprobar_layout. Este test ata las dos -- las
+    mismas constantes, y el mismo veredicto sobre los mismos bytes --, para
+    que no haya un plugin que el escritor acepta y el verificador reprueba,
+    ni al reves."""
+
+    def test_la_familia_es_exactamente_la_medida(self):
+        """El ancla. Los 6 subrecords de hashes y los dos umbrales, LITERALES
+        y en las dos copias: son los medidos (11.526 + 23.815 subrecords, 711
+        + 11.915 DNAM de STAT, census/hallazgos_plugins.md entrada 19).
+        Compararlas entre si no alcanzaba: un septimo agregado a las dos
+        pasaba sin que nadie lo midiera.
+
+        Romperlo no se arregla agregando el nombre aca. Un subrecord nuevo en
+        la familia pide medirlo en los 10 plugins (--falsificar reimprime los
+        conteos), escribir su ley en las DOS copias -- comprobar_layout y
+        layout_ajeno -- y recien entonces sumarlo a esta lista."""
+        familia = ("MODT", "MO2T", "MO3T", "MO4T", "MO5T", "DMDT")
+        self.assertEqual(vp.TEXTURAS_DEL_MODELO, familia)
+        self.assertEqual(ep.TEXTURAS_DEL_MODELO,
+                         tuple(t.encode("ascii") for t in familia))
+        for copia in (vp, ep):
+            with self.subTest(copia=copia.__name__):
+                self.assertEqual(copia.VERSION_MODT_CON_ENCABEZADO, 40)
+                self.assertEqual(copia.VERSION_DNAM_STAT_DE_12, 44)
+
+    def test_el_mismo_veredicto_sobre_los_mismos_bytes(self):
+        t = plugin_sintetico.MODT_TRIPLES
+        enc = plugin_sintetico.modt_con_encabezado
+        cargas = [b"", b"\x00" * 4, b"\x00" * 8, b"\x00" * 12, t[:12], t,
+                  t + b"\x00" * 4, enc(), enc(extra=(7,)),
+                  enc(extra=(7, 8, 9)), enc(t[:12]), enc(b""),
+                  struct.pack("<III", 3, 0, 0),
+                  struct.pack("<III", 2, 3, 0) + t, b"\x00" * 100]
+        veredictos = {True: 0, False: 0}
+        # Ademas de la familia, subrecords que NO la son y que todo STAT o
+        # WEAP lleva: una ley nueva en una sola copia, como la del DNAM, se ve
+        # como un veredicto distinto.
+        otros = ("DNAM", "OBND", "MNAM", "DATA", "EDID", "MODL", "MODS")
+        for version in list(range(0, 46)) + [0xFFFF]:
+            for tipo in ("STAT", "ACTI", "WEAP"):
+                for sub in vp.TEXTURAS_DEL_MODELO + otros:
+                    for datos in cargas:
+                        mio = vp.layout_ajeno(tipo, sub, datos,
+                                              version) is None
+                        try:
+                            ep.comprobar_layout(tipo.encode("ascii"),
+                                                ep.sub(sub, datos), version)
+                            suyo = True
+                        except ep.ErrorPlugin:
+                            suyo = False
+                        if mio != suyo:
+                            self.fail("%s %s de %d bytes con version %d: el "
+                                      "verificador %s y el escritor %s"
+                                      % (tipo, sub, len(datos), version,
+                                         "pasa" if mio else "reprueba",
+                                         "pasa" if suyo else "reprueba"))
+                        veredictos[mio] += 1
+        # El par: una enumeracion que diera siempre lo mismo no ataria nada.
+        self.assertGreater(veredictos[True], 1000, veredictos)
+        self.assertGreater(veredictos[False], 1000, veredictos)
+
+
+class FalsificarLayoutTests(unittest.TestCase):
+    """--falsificar sobre una carpeta Data SINTETICA. El CI no tiene el
+    juego: sin esto, la parte de la REGLA 8 de --falsificar no corre nunca
+    ahi. La corrida sobre los 10 plugins esta en
+    census/hallazgos_plugins.md, entrada 19."""
+
+    def _data(self, extra=None):
+        ps = plugin_sintetico
+        archivos = {
+            "Mundo.esp": ps.construir_mundo(),
+            # autorado para SE: sirve de patron entero
+            "Nuevo.esl": ps.construir_estaticos([
+                (b"STAT", ps.record_estatico(0x01000800 + i, version=44))
+                for i in range(2)]),
+            # como un master de 2011: la REGLA 1 no vale, la 8 si. La rotura
+            # de la #31 cae en el del medio de los tres de version 39, el STAT
+            # 803, que con 44 reprueba por el MODT y por el DNAM: como el
+            # 0007219F de Skyrim.esm en la corrida sobre el juego
+            "Viejo.esm": ps.construir_estaticos([
+                (b"STAT", ps.record_estatico(0x800, version=39)),
+                (b"STAT", ps.record_estatico(
+                    0x801, version=43,
+                    modt=ps.modt_con_encabezado(extra=(7,)))),
+                (b"STAT", ps.record_estatico(0x803, version=39)),
+                (b"ACTI", ps.record_estatico(0x802, version=39,
+                                             tipo=b"ACTI"))], masters=()),
+        }
+        archivos.update(extra or {})
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for nombre, datos in archivos.items():
+            with open(os.path.join(tmp, nombre), "wb") as fh:
+                fh.write(datos)
+        return tmp
+
+    def _falsificar(self, data):
+        salida = io.StringIO()
+        with contextlib.redirect_stdout(salida):
+            codigo = vp.falsificar(data)
+        return codigo, salida.getvalue()
+
+    def test_los_plugins_sanos_pasan_y_cada_rotura_reprueba(self):
+        codigo, salida = self._falsificar(self._data())
+        self.assertEqual(codigo, 0, salida)
+        linea = next((x for x in salida.splitlines()
+                      if x.strip().startswith("layout:")), None)
+        self.assertIsNotNone(linea, salida)
+        self.assertIn("0 excepciones", linea)
+
+    def test_una_regla_8_muerta_no_pasa(self):
+        """Por los dos caminos: el patron, que la corre dentro de juzgar
+        como un plugin de verdad, y la pasada sola sobre todos."""
+        with mock.patch.object(vp, "layout_ajeno", lambda *a: None):
+            codigo, salida = self._falsificar(self._data())
+        self.assertEqual(codigo, 1, salida)
+        for rotura in ("Nuevo.esl / MODT..DMDT sin su encabezado",
+                       "Nuevo.esl / DNAM de STAT de 8 bytes",
+                       "Viejo.esm / STAT 00000803, de version < 40"):
+            self.assertIn(rotura, salida)
+
+    def test_sin_nada_que_torcer_no_es_exito(self):
+        """Sin MODT..DMDT ni DNAM de STAT, la REGLA 8 no se comprobo: cero
+        roturas no es exito."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        with open(os.path.join(tmp, "Mundo.esp"), "wb") as fh:
+            fh.write(plugin_sintetico.construir_mundo())
+        codigo, salida = self._falsificar(tmp)
+        self.assertEqual(codigo, 1, salida)
+        self.assertIn("MODT..DMDT o DNAM de STAT", salida)
+
+    def test_cada_mitad_de_la_regla_tiene_su_rotura(self):
+        """Sin el DNAM, las roturas del DNAM no reprueban; sin los hashes, la
+        de la #31 no reprueba POR su MODT -- aunque reprueba igual, por el
+        DNAM del STAT 803: el v1 de la #31 caia por los dos. Con "alguna
+        falla" a secas esa rotura pasaba, y la mitad de los hashes podia
+        estar muerta (lo encontro un mutante)."""
+        real = vp.layout_ajeno
+        esperadas = {
+            "DNAM": "STAT de 40 a 43 escrito con 44: no reprobo por su DNAM",
+            "MODT": "Viejo.esm / STAT 00000803, de version < 40, escrito con "
+                    "44 (el ESL de la #31): no reprobo por su MODT"}
+        for apagado, linea in esperadas.items():
+            def parcial(tipo, sub, datos, version, apagado=apagado):
+                if (sub == "DNAM") == (apagado == "DNAM"):
+                    return None
+                return real(tipo, sub, datos, version)
+            with self.subTest(apagado=apagado), \
+                    mock.patch.object(vp, "layout_ajeno", parcial):
+                codigo, salida = self._falsificar(self._data())
+                self.assertEqual(codigo, 1, salida)
+                self.assertIn(linea, salida)
+
+    def test_un_plugin_que_reprueba_tal_cual_no_pasa(self):
+        """El v1 de la #31 en la carpeta: ahi la ley no vale, y medirla asi
+        no es exito."""
+        v1 = plugin_sintetico.construir_estatico(version=39, cabecera=44)
+        codigo, salida = self._falsificar(self._data({"Prueba31.esl": v1}))
+        self.assertEqual(codigo, 1, salida)
+        self.assertIn("REGLA 8 tal cual", salida)
+
+
 class LineaDeComandosTests(unittest.TestCase):
 
     def _correr(self, *args):
@@ -543,6 +903,20 @@ class LineaDeComandosTests(unittest.TestCase):
             codigo, salida = self._correr(ruta)
             self.assertEqual(codigo, 1, salida)
             self.assertIn("formVersion", salida)
+        finally:
+            os.unlink(ruta)
+
+    def test_el_v1_de_la_31_sale_uno(self):
+        """El ESL que cerraba el juego en la pantalla de Bethesda: este
+        script lo daba por bueno y salia con 0."""
+        fd, ruta = tempfile.mkstemp(suffix=".esl")
+        os.write(fd, plugin_sintetico.construir_estatico(version=39,
+                                                         cabecera=44))
+        os.close(fd)
+        try:
+            codigo, salida = self._correr(ruta)
+            self.assertEqual(codigo, 1, salida)
+            self.assertIn("REGLA layout", salida)
         finally:
             os.unlink(ruta)
 

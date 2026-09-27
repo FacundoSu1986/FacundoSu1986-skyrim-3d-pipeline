@@ -147,7 +147,11 @@ python scripts/colision_caja.py meshes/weapons/MiArma/miarma.nif
 `DATA` de 10 y `DNAM` de 100 en cada `WEAP`, que el `WNAM` apunte a un
 `STAT` que exista, y que el `Prn` del NIF corresponda al tipo del arma. Sobre
 las 3.359 `WEAP` vanilla, la regla estructural reprueba cero; la del `Prn` se
-falsificó sobre 324 armas reales con 1.944 roturas.
+falsificó sobre 324 armas reales con 1.944 roturas. Y el `MODT` del arma y el
+del `STAT` de primera persona tienen que tener la forma de la versión de su
+record (REGLA 8, [trampa 26](trampas.md#26)): copiados de un record vanilla de
+antes de la 40 son triples sin encabezado, y con 44 se leen mal. Se convierten
+como lo hizo Bethesda.
 
 Corrélo sobre la carpeta del mod —el `.esl` al lado de `meshes/`— para que
 encuentre el NIF. Si no lo encuentra, lo dice y no juzga el `Prn`.

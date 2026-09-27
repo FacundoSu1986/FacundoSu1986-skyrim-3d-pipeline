@@ -152,7 +152,10 @@ valor correcto — y pesaba 0 y hacía 0 de daño. Tiene que ser **44**: los 10.
 records que Bethesda autoró para SE lo son, sin excepción. `[MEASURED]` Si el
 plugin no sale de `census/escritor_plugin.py`, pasalo por
 `scripts/verificar_plugin.py` antes de instalarlo. Ver
-[trampa 23](references/trampas.md#23).
+[trampa 23](references/trampas.md#23). Y si copiás subrecords de un record
+vanilla, su versión va con ellos: el `MODT` y el `DNAM` de un `STAT` cambian
+de forma con ella, y 44 con los bytes de un 39 cierra el juego al arrancar
+([trampa 26](references/trampas.md#26)).
 
 ## Reproducir el juego fuera del juego
 
@@ -295,7 +298,7 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   `--autotest` y `--falsificar <carpeta meshes>`, que tuerce cuatro campos de
   cajas vanilla reales y exige que el control las pesque.
 - **`scripts/verificar_plugin.py`** — lee un `.esp`/`.esl` **terminado** y
-  reprueba lo que el juego lee mal sin avisar. Siete REGLAS: **`formVersion
+  reprueba lo que el juego lee mal sin avisar. Ocho REGLAS: **`formVersion
   == 44`** en cada record (10.273 de 10.273 en los plugins autorados para SE),
   **índice de mod ≤ cantidad de masters** (1.188.810 de 1.188.811; la
   excepción es un `GMST` sucio de `Skyrim.esm`), en cada **`WEAP`** `DATA` de
@@ -309,6 +312,11 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   `WRLD` cae dentro del archivo (76.250 de 76.250); y en un plugin **no
   localizado** cada `FULL` es texto, no un ID de 4 bytes. Un override de
   `WRLD` con `RNAM` es observación (10 de 45 overrides oficiales lo llevan).
+  Y la del **layout** ([trampa 26](references/trampas.md#26)): `MODT`..`DMDT`
+  y el `DNAM` de un `STAT` tienen la forma de la versión de su record (35.341
+  subrecords de hashes y 12.626 `DNAM` de `STAT`, cero excepciones). Es la
+  que reprueba el ESL de la issue #31, que la `formVersion` dejaba pasar: 44
+  con los bytes de un 39 cerraba el juego al arrancar.
 
   Es para **tu** plugin. Pasado sobre `Skyrim.esm` reprueba 1,1 millones de
   records que el juego carga perfecto: los masters de 2011 conservan la versión

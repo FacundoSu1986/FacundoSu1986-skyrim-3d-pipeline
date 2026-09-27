@@ -246,3 +246,21 @@ El hacha de Tencent fue la primera arma que hizo el recorrido entero hasta el ju
 **CONSULTA**: los flags del `TES4` y el `HEDR` contra un recorrido que cuenta records y grupos por separado.
 **N**: 10 de 10 en las dos.
 **EXCEPCIONES**: ninguna en vanilla, pero **no son reglas**. El hacha cargó con `HEDR` = 105 (v1) y = 2 (v2), las dos mal, así que el motor no lo valida. Y cargó **sin** `LOCALIZED`, con `FULL` y `DESC` como cadenas literales. Qué hace el motor con `LOCALIZED` y cadenas literales —el formato dice que las leería como IDs de la tabla de cadenas— **no está medido acá**. Copiar los flags del `TES4` de un plugin de Bethesda trae ese bit de arrastre.
+
+---
+
+## La versión de cada record
+
+### 19. La forma de los hashes del modelo y del `DNAM` de un `STAT` la decide la versión del record
+**ORIGEN**: issue [#31](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/issues/31) → PR [#96](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/96).
+
+**AFIRMACIÓN**: `MODT`, `MO2T` a `MO5T` y `DMDT` —los hashes de las texturas del modelo— son triples de 12 bytes (hash, extensión, carpeta) con versión < 40; con versión ≥ 40 empiezan con tres `u32` `(2, n, m)` y miden `12 + 12n + 4m`. El `DNAM` de un `STAT` mide 12 bytes con versión 44 y 8 con cualquier versión anterior.
+**CONSULTA**: el largo de cada uno de esos subrecords y sus tres primeros `u32`, contra los bytes 20-21 de la cabecera de su record, en cada record de los 10 plugins. `verificar_plugin.py --falsificar <Data>` la recalcula e imprime los conteos al lado de los medidos.
+**N**: 11.526 subrecords de hashes con versión < 40 —todos de la 39, la única versión < 40 que los lleva, y todos de `Skyrim.esm`—; 23.815 con versión ≥ 40 (de las versiones 40, 43 y 44); 711 `DNAM` de `STAT` con 44 y 11.915 con versiones de la 18 a la 43.
+**EXCEPCIONES**: 0. Y ninguno de los 11.526 de < 40 tiene por casualidad la forma de un encabezado: un primer hash igual a 2 y el largo que cuadra.
+
+**Visto en el juego.** El ESL de la issue #31 copió los subrecords de 8 `STAT` 39 de `Skyrim.esm` y los escribió con 44: el juego se cerraba en la pantalla de Bethesda. Leídos con 44, el primer hash de cada `MODT` es el encabezado y la extensión `dds` es la cantidad de texturas: 7.562.340. SSEEdit 4.1.5f marca los 16 records (*SubRecord has invalid format for the Form Version of this record*) y, con la versión 39 copiada junto con los bytes, ninguno. Que el corregido cargue en el juego todavía no se vio.
+
+`verificar_plugin.py` lo exige (REGLA 8) con las leyes de `census/escritor_plugin.py`, que rechaza la mezcla al escribir. Los 10 plugins pasan tal cual. `--falsificar` torció la versión de 12 records reales —un `STAT` 39 de `Skyrim.esm` escrito con 44, como el ESL de la #31; seis `STAT` de 44 con 43; cuatro de 40 a 43 con 44; un `PROJ` de 44 con m no múltiplo de 3, con 39— y los 12 reprobaron por su subrecord. En los 5 plugins autorados para SE, los hashes sin su encabezado y el `DNAM` de 8 bytes reprobaron dentro del juicio entero (9 roturas más).
+
+**Lo que la regla no ve.** La otra dirección, casi siempre: un encabezado con m múltiplo de 3 mide múltiplo de 12 y, escrito con una versión < 40, pasa por triples. Son **23.563 de los 23.815** (98,9 %). El ESL del hacha del 20/9 es un caso real: su `WEAP` en versión 0 lleva un `MODT` `(2, 0, 0)` de 12 bytes, que con 0 se lee como un triple. Tampoco ve ningún otro subrecord cuyo layout dependa de la versión: el `DATA` de ese mismo `WEAP`, el que dio peso y daño 0, mide 10 bytes con los dos layouts. Por eso la REGLA 1 no se relaja para los records que pasan la 8: de los 1.097.858 records de versión < 44 de los 10 plugins, 1.082.396 no tienen nada que la 8 mire.
