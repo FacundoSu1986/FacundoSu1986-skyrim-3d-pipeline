@@ -128,5 +128,7 @@ se reproduce sin esos assets mediante la prueba sintética de la trampa 40.
 
 La conversión BC7 también se verificó localmente decodificando el DDS y
 comparándolo con el PNG previo; no basta la cabecera. Esto complementa la
-receta de color/gamma de la trampa 35. El conversor de este repo sigue siendo
-DXT1/DXT5: esta contribución no incorpora un codificador BC7.
+receta de color/gamma de la trampa 35. (Después: el repo SÍ escribe BC7, con
+`compresion="bc7"` y `census/compresor_bc7.py`: modos 5 y 6, decodificador
+fijado byte a byte contra Pillow en `tests/test_compresor_bc7.py`; los otros
+modos quedan fuera por decisión.)

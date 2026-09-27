@@ -119,24 +119,33 @@ class JobManifestRechazoTests(unittest.TestCase):
                     _manifest(raiz, mesh, sombreado=s).validar()
 
     def test_compresion_desconocida_rechazada(self):
-        """BC7 no: 0 de 32.241 texturas vanilla lo son, y mascara_especular
-        no lee su alfa."""
-        self._assert_rechaza(compresion="bc7")
+        """"bc7" SI se acepta: 0 de 32.241 texturas vanilla lo usan, pero SE
+        admite (references/limites-skyrim.md) y el pipeline lo escribe con
+        census/compresor_bc7.py. Lo que no se acepta es un nombre inventado."""
+        self._assert_rechaza(compresion="astc")
 
-    def test_dxt_sin_numpy_es_error_de_configuracion(self):
+    def test_dxt_y_bc7_sin_numpy_es_error_de_configuracion(self):
         tmp, raiz, mesh = _raiz_y_mesh()
-        with tmp, mock.patch("importlib.util.find_spec", return_value=None):
-            with self.assertRaises(ConfigurationError) as ctx:
-                _manifest(raiz, mesh, compresion="dxt").validar()
-        self.assertIn("numpy", str(ctx.exception))
+        with tmp:
+            for compresion in ("dxt", "bc7"):
+                with self.subTest(compresion=compresion):
+                    with mock.patch("importlib.util.find_spec",
+                                    return_value=None):
+                        with self.assertRaises(ConfigurationError) as ctx:
+                            _manifest(raiz, mesh,
+                                      compresion=compresion).validar()
+                    self.assertIn("numpy", str(ctx.exception))
 
-    def test_las_dos_compresiones_se_aceptan(self):
+    def test_las_tres_compresiones_se_aceptan(self):
         tmp, raiz, mesh = _raiz_y_mesh()
         with tmp:
             _manifest(raiz, mesh).validar()
             self.assertEqual(_manifest(raiz, mesh).compresion, "ninguna")
             if importlib.util.find_spec("numpy") is not None:
-                _manifest(raiz, mesh, compresion="dxt").validar()
+                for compresion in ("dxt", "bc7"):
+                    with self.subTest(compresion=compresion):
+                        _manifest(raiz, mesh,
+                                  compresion=compresion).validar()
 
     # --- max_lado_textura ---------------------------------------------------
 

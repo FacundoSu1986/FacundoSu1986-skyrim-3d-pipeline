@@ -15,8 +15,9 @@ Reglas de validación (todas verificables con tests):
   - max_lado_textura: entero, potencia de dos, dentro del rango que mide el
     corpus (ver MAX_LADO_TEXTURA);
   - sombreado: "vanilla" o "cs_pbr" (SOMBREADOS_SOPORTADOS);
-  - compresion: "ninguna" o "dxt" (COMPRESIONES_SOPORTADAS); "dxt" necesita
-    numpy, y sin numpy es error de configuracion, no de la fase;
+  - compresion: "ninguna", "dxt" o "bc7" (COMPRESIONES_SOPORTADAS); "dxt" y
+    "bc7" necesitan numpy, y sin numpy es error de configuracion, no de la
+    fase;
   - los campos nulos/vacíos no son válidos.
 
 No hay paths hardcodeados: todas las rutas vienen del llamador.
@@ -49,7 +50,11 @@ SOMBREADOS_SOPORTADOS = frozenset({"vanilla", "cs_pbr"})
 # Como se escriben los DDS. "ninguna": sin comprimir de 32 bpp, como el 31,2 %
 # del corpus. "dxt": DXT5 el `_n` (los 12.075 `_n` vanilla lo son) y todo mapa
 # con alfa; DXT1 el resto. Lo comprime census/compresor_dxt.py, con numpy.
-COMPRESIONES_SOPORTADAS = frozenset({"ninguna", "dxt"})
+# "bc7": TODOS los mapas en BC7 --modos 5 y 6 de census/compresor_bc7.py, con
+# numpy--, DXGI 98 o 99 segun el slot (references/limites-skyrim.md recomienda
+# BC7 sRGB para difuso y BC7 lineal para normal y mascara: el censo dice que
+# Bethesda no lo uso --0 de 32.241-- pero SE lo admite y es mejor).
+COMPRESIONES_SOPORTADAS = frozenset({"ninguna", "dxt", "bc7"})
 
 # Lado máximo de textura, en téxeles. [OBSERVED] Del censo de 32.241 DDS: la
 # mediana del lado mayor es 256 en terrain, 512 en actors y clutter, 1024 en
@@ -180,12 +185,12 @@ class JobManifest:
                 f"compresion no soportada: {self.compresion!r} "
                 f"(soportadas: {sorted(COMPRESIONES_SOPORTADAS)})"
             )
-        elif (self.compresion == "dxt"
+        elif (self.compresion in ("dxt", "bc7")
               and importlib.util.find_spec("numpy") is None):
             problemas.append(
-                "compresion 'dxt' necesita numpy (census/compresor_dxt.py), y "
+                "compresion %r necesita numpy (census/compresor_%s.py), y "
                 "no esta instalado: `pip install numpy`, o compresion "
-                "'ninguna'"
+                "'ninguna'" % (self.compresion, self.compresion)
             )
         # El lado máximo se valida contra el corpus, no contra el gusto: una
         # textura de 3000 téxeles no es "grande", es un lado que no es potencia

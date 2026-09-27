@@ -94,8 +94,9 @@ Y aparte, en [`census/`](census), las herramientas que producen los números:
 | [`census/parser_nif.py`](census/parser_nif.py) | Parser NIF completo: geometría, particiones, huesos, pesos, shaders, colisión Havok |
 | [`census/verificar.py`](census/verificar.py) | Auditoría estructural bloque por bloque |
 | [`census/agregados.py`](census/agregados.py) | Las consultas del censo |
-| [`census/escritor_dds.py`](census/escritor_dds.py) | Escribe DDS con mipmaps: sin comprimir, DXT1 o DXT5, con la cabecera de los vanilla |
+| [`census/escritor_dds.py`](census/escritor_dds.py) | Escribe DDS con mipmaps: sin comprimir, DXT1, DXT5 o BC7, con la cabecera de los vanilla |
 | [`census/compresor_dxt.py`](census/compresor_dxt.py) | Comprime y decodifica DXT1/DXT5 (numpy); verificado contra Pillow y contra el corpus |
+| [`census/compresor_bc7.py`](census/compresor_bc7.py) | Comprime y decodifica BC7, modos 5 y 6 (numpy); verificado contra Pillow byte a byte |
 | [`census/hallazgos.md`](census/hallazgos.md) | 44 hallazgos medidos sobre las mallas, con consulta y N cada uno |
 | [`census/hallazgos_plugins.md`](census/hallazgos_plugins.md) | 18 hallazgos sobre los plugins |
 | [`census/hallazgos_texturas.md`](census/hallazgos_texturas.md) | 10 hallazgos sobre las texturas |
@@ -247,18 +248,20 @@ conectar, así que una corrida hoy **no puede** terminar en PUBLISHED: es el
 estado honesto de un pipeline a medias, no un bug.
 
 `PROCESS_TEXTURES` convierte PNG/TGA/DDS sin comprimir a DDS con mipmaps
---sin comprimir de 32 bpp por defecto, o con `compresion="dxt"` el `_n` y lo
-que tenga alfa en DXT5 y el resto en DXT1--, derivando el alfa del `_n` desde
+--sin comprimir de 32 bpp por defecto; con `compresion="dxt"`, el `_n` y lo
+que tenga alfa en DXT5 y el resto en DXT1; con `compresion="bc7"`, todos los
+mapas en BC7 (modos 5 y 6, `census/compresor_bc7.py`, DXGI 98/99 según el
+slot)--, derivando el alfa del `_n` desde
 la rugosidad (`255 − roughness`, una heurística) y la máscara `_m` desde la
 metalicidad con el rango expandido. Reconoce los nombres de glTF, Substance, Poly Haven y Tripo, y
 rechaza los que traen un rol que no conoce en vez de tomarlos por color. Lo que
 **no** hace, y por qué, está escrito en el docstring de `pipeline/texturas.py`:
-no comprime si no se lo piden, no escribe BC7 (el corpus no tiene ninguno y
-`mascara_especular.py` no lo lee), no saca la luz horneada del albedo (se atenúa con curvas, no se recupera), no toca el
+no comprime si no se lo piden, no saca la luz horneada del albedo (se atenúa con curvas, no se recupera), no toca el
 NIF y no puede comprobar que la malla conserve las UV del generador (lo deja
 escrito como precondición). Cada DDS que escribe se verifica con
 `fixtures/comparar.py`, y la máscara del `_n` se mide con
-`scripts/mascara_especular.py` y pide revisión si queda fuera de lo que usa el
+`scripts/mascara_especular.py` --sobre el DXT5 escrito, o sobre el BC7
+ya decodificado-- y pide revisión si queda fuera de lo que usa el
 vanilla.
 
 Con `sombreado="cs_pbr"` en el manifest, la misma fase escribe para el True PBR

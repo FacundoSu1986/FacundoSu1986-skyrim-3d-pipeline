@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Escribe DDS con cadena de mipmaps: sin comprimir (32 bpp), DXT1 o DXT5.
+"""Escribe DDS con cadena de mipmaps: sin comprimir (32 bpp), DXT1, DXT5 o
+BC7.
 
     python escritor_dds.py --autotest
 
-SIN COMPRIMIR, O DXT
---------------------
+SIN COMPRIMIR, DXT O BC7
+------------------------
 Sin comprimir no es un atajo: el 31,2 % del corpus vanilla son DDS sin
 comprimir de 32 bpp (10.048 de 32.241, hallazgo 2 del censo de texturas). Es
 un formato que el juego carga igual que DXT; lo que cambia es el peso.
@@ -17,6 +18,14 @@ los 22.004 DXT1/DXT5 del corpus: los 22.001 con mipmaps tienen caps 0x401008;
 21.998 tienen flags 0xA1007 (los otros 3 son cubemaps sin LINEARSIZE); pixel
 format FOURCC y el tamano del nivel 0 en el campo de pitch. Los 3 sin
 mipmaps, flags 0x81007 y caps 0x1000: lo mismo que se escribe sin mipmaps.
+
+BC7 lo comprime `compresor_bc7.py`, con el mismo criterio de import perezoso.
+BC7 exige el header DX10: la fourcc es "DX10" y siguen 20 bytes con el codigo
+DXGI --98 = BC7_UNORM, 99 = BC7_UNORM_SRGB, el que pipeline/texturas.py pide
+para los slots sRGB con `srgb=True`-- y con eso la cabecera mide 148 y el
+cuerpo arranca en 148. El resto de la cabecera es el mismo de los DXT
+vanilla: flags 0xA1007, caps 0x401008, y en pitch_or_linear_size el tamano
+del nivel 0 a 16 bytes por bloque.
 
 COMO SE VERIFICA
 ----------------
@@ -49,7 +58,7 @@ DDPF_ALPHAPIXELS = 0x1
 DDPF_FOURCC = 0x4
 DDPF_RGB = 0x40
 
-FORMATOS = ("RGBA", "DXT1", "DXT5")
+FORMATOS = ("RGBA", "DXT1", "DXT5", "BC7")
 
 DDSCAPS_COMPLEX = 0x8
 DDSCAPS_TEXTURE = 0x1000
@@ -96,7 +105,12 @@ def reducir(pix, ancho, alto):
     return bytes(fuera)
 
 
-def cabecera(ancho, alto, n_mips, formato="RGBA"):
+def cabecera(ancho, alto, n_mips, formato="RGBA", srgb=False):
+    """Los primeros 128 bytes (148 con BC7, que se le anexa el DX10).
+
+    `srgb` solo se usa con formato="BC7": 99 (SRGB) en vez de 98 (UNORM);
+    en los demas formatos se ignora.
+    """
     b = bytearray(128)
     b[0:4] = b"DDS "
     struct.pack_into("<I", b, 4, 124)
@@ -117,7 +131,8 @@ def cabecera(ancho, alto, n_mips, formato="RGBA"):
     struct.pack_into("<I", b, 76, 32)
     if comprimido:
         struct.pack_into("<I", b, 80, DDPF_FOURCC)
-        b[84:88] = formato.encode("ascii")
+        # BC7 no tiene fourcc propia: la spec lo manda por "DX10" + bloque.
+        b[84:88] = (b"DX10" if formato == "BC7" else formato.encode("ascii"))
     else:
         struct.pack_into("<I", b, 80, DDPF_RGB | DDPF_ALPHAPIXELS)
         struct.pack_into("<I", b, 88, 32)             # bits por pixel
@@ -129,15 +144,21 @@ def cabecera(ancho, alto, n_mips, formato="RGBA"):
     caps = DDSCAPS_TEXTURE | (DDSCAPS_COMPLEX | DDSCAPS_MIPMAP
                               if n_mips > 1 else 0)
     struct.pack_into("<I", b, 108, caps)
+    # El header DX10 de BC7: DXGI_FORMAT (99 sRGB / 98 UNORM), dimension 3,
+    # misc 0, array size 1, misc flags 0. parser_dds exige los 148 bytes
+    # exactos para BC7 y ya mapea 98/99 a sRGB.
+    if formato == "BC7":
+        b += struct.pack("<IIIII", 99 if srgb else 98, 3, 0, 1, 0)
     return bytes(b)
 
 
 def escribir(ruta, ancho, alto, pixeles, con_mipmaps=True,
-             reducir_nivel=None, formato="RGBA"):
+             reducir_nivel=None, formato="RGBA", srgb=False):
     """`pixeles` son ancho*alto*4 bytes en orden RGBA.
 
     `formato`: "RGBA" (sin comprimir; se guarda como BGRA porque es lo que
-    declara la mascara del encabezado), "DXT1" o "DXT5".
+    declara la mascara del encabezado), "DXT1", "DXT5" o "BC7". `srgb` solo
+    se atiende con BC7 (DXGI 99 en vez de 98) y en los demas se ignora.
 
     `reducir_nivel(pix, ancho, alto)` arma cada mipmap desde el anterior; por
     defecto `reducir`, que promedia en el espacio en que vienen los valores.
@@ -147,7 +168,9 @@ def escribir(ruta, ancho, alto, pixeles, con_mipmaps=True,
     """
     if formato not in FORMATOS:
         raise ValueError("formato %r: se admite %s" % (formato, FORMATOS))
-    if formato != "RGBA":
+    if formato == "BC7":
+        import compresor_bc7   # necesita numpy; solo si se comprime
+    elif formato != "RGBA":
         import compresor_dxt   # necesita numpy; solo si se comprime
     reducir_nivel = reducir_nivel or reducir
     esperado = ancho * alto * 4
@@ -166,6 +189,9 @@ def escribir(ruta, ancho, alto, pixeles, con_mipmaps=True,
                                  "(%dx%d RGBA)" % (i, len(actual), w * h * 4,
                                                    w, h))
             aw, ah = w, h
+        if formato == "BC7":
+            cuerpo += compresor_bc7.comprimir(actual, w, h)
+            continue
         if formato != "RGBA":
             cuerpo += compresor_dxt.comprimir(actual, w, h, formato)
             continue
@@ -174,26 +200,33 @@ def escribir(ruta, ancho, alto, pixeles, con_mipmaps=True,
             cuerpo += bytes((b, g, r, a))
 
     with open(ruta, "wb") as fh:
-        fh.write(cabecera(ancho, alto, len(cadena), formato))
+        fh.write(cabecera(ancho, alto, len(cadena), formato, srgb=srgb))
         fh.write(bytes(cuerpo))
     return ruta
 
 
 def leer_pixeles(ruta):
     """Los pixeles del nivel 0, en RGBA. Para verificar lo que se escribio.
-    Un DXT1/DXT5 se decodifica con `compresor_dxt` (numpy)."""
+    Un DXT1/DXT5 se decodifica con `compresor_dxt` (numpy) y un BC7 con
+    `compresor_bc7` (tambien numpy)."""
     d = parser_dds.leer(ruta)
+    n_bl = ((d["ancho"] + 3) // 4) * ((d["alto"] + 3) // 4)
+    if d["formato"] == "BC7":
+        import compresor_bc7
+        with open(ruta, "rb") as fh:
+            fh.seek(148)              # cabecera de 128 + header DX10 de 20
+            crudo = fh.read(n_bl * 16)
+        return d, compresor_bc7.descomprimir(crudo, d["ancho"], d["alto"])
     if d["formato"] in ("DXT1", "DXT5"):
         import compresor_dxt
         bpb = 8 if d["formato"] == "DXT1" else 16
         with open(ruta, "rb") as fh:
             fh.seek(128)
-            crudo = fh.read(((d["ancho"] + 3) // 4) *
-                            ((d["alto"] + 3) // 4) * bpb)
+            crudo = fh.read(n_bl * bpb)
         return d, compresor_dxt.descomprimir(crudo, d["ancho"], d["alto"],
                                              d["formato"])
     if d["comprimido"]:
-        raise ValueError("se releen sin comprimir, DXT1 y DXT5; no %s"
+        raise ValueError("se releen sin comprimir, DXT1, DXT5 y BC7; no %s"
                          % d["formato"])
     with open(ruta, "rb") as fh:
         fh.seek(128)
@@ -276,25 +309,26 @@ def autotest():
           % (d["potencia_de_dos"], "ok" if d["potencia_de_dos"] else "FALLA"))
 
     print("")
-    print("  e. DXT1 y DXT5: tamano, cabecera vanilla y relectura")
+    print("  e. DXT1, DXT5 y BC7: tamano, cabecera vanilla y relectura")
     try:
         import numpy  # noqa: F401
         hay_numpy = True
     except ImportError:
         hay_numpy = False
         print("     numpy no esta: se saltea (no cuenta como comprobado)")
-    for formato in (("DXT1", "DXT5") if hay_numpy else ()):
+    for formato in (("DXT1", "DXT5", "BC7") if hay_numpy else ()):
         for w, h in ((4, 4), (256, 128), (64, 2)):
             plano = bytes([200, 100, 50, 255] * (w * h))  # 565: no exacto
             ruta = escribir(os.path.join(tmp, "%s_%dx%d.dds" % (formato, w, h)),
                             w, h, plano, formato=formato)
             d = parser_dds.leer(ruta)
             with open(ruta, "rb") as fh:
-                cab = fh.read(128)
+                cab = fh.read(148)
             flags, = struct.unpack_from("<I", cab, 8)
             lineal, = struct.unpack_from("<I", cab, 20)
             pf, = struct.unpack_from("<I", cab, 80)
             caps, = struct.unpack_from("<I", cab, 108)
+            fourcc = bytes(cab[84:88])
             bpb = 8 if formato == "DXT1" else 16
             _, vuelta = leer_pixeles(ruta)
             dif = max(abs(a - b) for a, b in zip(vuelta, plano))
@@ -302,6 +336,8 @@ def autotest():
                   and d["mip_mas_chico"] == [1, 1]
                   and flags == 0xA1007 and pf == DDPF_FOURCC
                   and caps == 0x401008
+                  and fourcc == (b"DX10" if formato == "BC7"
+                                 else formato.encode("ascii"))
                   and lineal == ((w + 3) // 4) * ((h + 3) // 4) * bpb
                   and len(vuelta) == w * h * 4 and dif <= 4)
             n += 1
@@ -310,6 +346,22 @@ def autotest():
                   "error maximo %d  %s"
                   % (formato, w, h, d["bytes"], d["tamano_cuadra"], flags,
                      caps, dif, "ok" if ok else "FALLA"))
+
+    if hay_numpy:
+        # El srgb de BC7 vive en el codigo DXGI del header DX10: 99, y
+        # parser_dds tiene que verlo como sRGB.
+        plano = bytes([200, 100, 50, 255] * (8 * 8))
+        ruta = escribir(os.path.join(tmp, "bc7srgb.dds"), 8, 8, plano,
+                        formato="BC7", srgb=True)
+        d = parser_dds.leer(ruta)
+        with open(ruta, "rb") as fh:
+            dxgi, = struct.unpack_from("<I", fh.read(148), 128)
+        ok = (d["formato"] == "BC7" and d["srgb"] and dxgi == 99
+              and d["tamano_cuadra"])
+        n += 1
+        fallos += 0 if ok else 1
+        print("     BC7 srgb: DXGI=%d srgb=%s  %s"
+              % (dxgi, d["srgb"], "ok" if ok else "FALLA"))
 
     print("")
     if n == 0:

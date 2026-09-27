@@ -58,6 +58,17 @@ los indices. Con eso alcanza para medir cuanto de la mascara esta saturada.
 
 Medido tambien: los 12.075 `_n` del corpus son DXT5. Cero usan DXT1 o BC5, que
 es lo esperable -- sin canal alfa no hay mascara.
+
+BC7 no deja nada en la cabecera que leer, y este script como tal sigue sin
+poder: `ALFA_NO_MEDIBLE` lo tira a "NO MEDIBLE" en vez de darlo por bueno, y
+asi lo exige `tests/test_mascara_especular.py`. El pipeline NO depende de eso:
+`pipeline/texturas.py::medir_mascara` decodifica el nivel 0 con
+`census/compresor_bc7.py` (numpy; su decodificador se compara byte a byte
+contra Pillow en `tests/test_compresor_bc7.py`) y mide con `medir_pixeles`,
+que aplica LA MISMA semantica de bloque --blanco solo si las 16 alfas del
+bloque son 255-- sobre los pixeles decodificados. Un bloque con alfa
+constante vuelve constante EXACTO en los modos 5 y 6, asi que la saturacion
+se mide igual que en el original.
 """
 import os
 import struct
@@ -112,44 +123,26 @@ CON_ALFA_POR_BLOQUE = ("DXT5", "BC3_UNORM", "BC3_SRGB")
 # es un defecto del asset.
 SIN_ALFA = ("DXT1", "BC1", "BC4", "BC5")
 
-# Formatos que SI llevan alfa pero que este lector no decodifica. BC7 tiene
-# ocho modos con particionado variable; escribir ese decodificador de memoria
-# es como se meten los errores que no dan error. No es un defecto del asset:
-# es un limite de esta herramienta, y se dice distinto.
+# Formatos que SI llevan alfa pero que ESTE SCRIPT no decodifica: BC7 tiene
+# ocho modos con particionado variable y este archivo, python puro y sin
+# numpy, no los lee. No es un defecto del asset: es un limite de esta
+# herramienta, y se dice distinto. El pipeline no se queda sin medir por eso:
+# decodifica con census/compresor_bc7.py y mide con `medir_pixeles` (ver el
+# docstring de arriba).
 ALFA_NO_MEDIBLE = ("BC7_UNORM", "BC7_SRGB", "DXT2", "DXT3", "BC2")
 
 
-def _medir_sin_comprimir(d, ancho, alto, paso):
-    """El alfa de un DDS sin comprimir de 32 bpp, texel por texel.
+def _medir_bloques(alfa, ancho, alto, paso, formato):
+    """(blanco, negro, media) muestreando cada N-ésimo bloque de 4x4.
 
-    La semantica es la misma que en DXT5: un bloque de 4x4 cuenta como
-    "blanco" solo si es CONSTANTE 255, y como "negro" solo si es constante 0.
-    Un bloque que varia no esta saturado aunque uno de sus texeles llegue a
-    255. Donde DXT5 necesita el truco `alpha0 == alpha1`, acá se miran los
-    texeles.
-
-    A diferencia de DXT5, aca la media de un bloque no constante es EXACTA:
-    no hay que aproximar nada porque los valores estan ahi. El canal alfa se
-    saca de una con un corte con paso (operacion de C, no un loop de Python),
-    y cada bloque se decide comparando sus cuatro filas.
-
-    En QUE byte del texel va el alfa lo dice la mascara alfa de la cabecera,
-    no una suposicion: 0xFF000000 es el byte 3 (BGRA, lo que escribe
-    census/escritor_dds.py), 0x000000FF el byte 0. Una mascara que no es un
-    byte entero no se adivina.
+    `alfa` es un byte por texel, en orden de fila. La semantica es la de
+    DXT5: un bloque cuenta como "blanco" solo si es CONSTANTE 255 y como
+    "negro" solo si es constante 0; un bloque que varia no esta saturado
+    aunque uno de sus texeles llegue a 255. Donde DXT5 mira `alpha0 ==
+    alpha1`, aca se miran los texeles del bloque, que es la misma regla
+    aplicada al alfa ya resuelto. La media de un bloque no constante es
+    EXACTA: no hay que aproximar nada porque los valores estan ahi.
     """
-    base = 128
-    if base + ancho * alto * 4 > len(d):
-        return {"error": "el archivo no llega a contener su primer mip"}
-    amask, = struct.unpack_from("<I", d, 104)
-    byte_alfa = {0x000000FF: 0, 0x0000FF00: 1, 0x00FF0000: 2,
-                 0xFF000000: 3}.get(amask)
-    if byte_alfa is None:
-        return {"error": "mascara alfa 0x%08X: no es un byte entero del "
-                         "texel, y no se adivina donde esta el alfa" % amask}
-    alfa = d[base + byte_alfa: base + byte_alfa + ancho * alto * 4: 4]
-    if len(alfa) < ancho * alto:
-        return {"error": "el archivo no llega a contener su primer mip"}
     bw, bh = (ancho + 3) // 4, (alto + 3) // 4
     blancos = negros = total = 0
     suma = 0
@@ -173,8 +166,61 @@ def _medir_sin_comprimir(d, ancho, alto, paso):
         return {"error": "solo %d bloques muestreados" % total}
     return {"blanco_pct": 100.0 * blancos / total,
             "negro_pct": 100.0 * negros / total, "media": suma / float(total),
-            "bloques": total, "formato": SIN_COMPRIMIR_32,
-            "tamano": (ancho, alto)}
+            "bloques": total, "formato": formato, "tamano": (ancho, alto)}
+
+
+def medir_pixeles(pixeles, ancho, alto, formato, paso=3):
+    """La misma medicion, sobre RGBA YA EN MEMORIA, un byte por texel.
+
+    Para quien midio antes de comprimir (o sobre la decodificacion propia
+    de un formato que no deja el alfa a la vista, como BC7: ver
+    pipeline/texturas.py::medir_mascara). `formato` es el rotulo que va en
+    el reporte: "BC7" para pixeles decodificados de BC7,
+    SIN_COMPRIMIR_32 para los de un DDS de 32 bpp. La semantica de bloque
+    es la de `_medir_bloques`, la misma que sobre el DXT5 sin decodificar.
+
+    Los pixeles son RGBA (el orden de Pillow y del pipeline); el BGRA de los
+    DDS de 32 bpp es un asunto de la CABECERA del archivo, y aca no hay
+    cabecera.
+    """
+    if len(pixeles) != ancho * alto * 4:
+        return {"error": "pixeles: %d bytes, se esperaban %d (%dx%d RGBA)"
+                         % (len(pixeles), ancho * alto * 4, ancho, alto),
+                "formato": formato}
+    alfa = bytes(pixeles[3::4])
+    return _medir_bloques(alfa, ancho, alto, paso, formato)
+
+
+def _medir_sin_comprimir(d, ancho, alto, paso):
+    """El alfa de un DDS sin comprimir de 32 bpp, texel por texel.
+
+    La semantica es la misma que en DXT5: un bloque de 4x4 cuenta como
+    "blanco" solo si es CONSTANTE 255, y como "negro" solo si es constante 0.
+    Un bloque que varia no esta saturado aunque uno de sus texeles llegue a
+    255. Donde DXT5 necesita el truco `alpha0 == alpha1`, acá se miran los
+    texeles.
+
+    `medir_pixeles` comparte el loop con esta funcion (`_medir_bloques`): la
+    diferencia es de DONDE sale el byte de alfa.
+
+    En QUE byte del texel va el alfa lo dice la mascara alfa de la cabecera,
+    no una suposicion: 0xFF000000 es el byte 3 (BGRA, lo que escribe
+    census/escritor_dds.py), 0x000000FF el byte 0. Una mascara que no es un
+    byte entero no se adivina.
+    """
+    base = 128
+    if base + ancho * alto * 4 > len(d):
+        return {"error": "el archivo no llega a contener su primer mip"}
+    amask, = struct.unpack_from("<I", d, 104)
+    byte_alfa = {0x000000FF: 0, 0x0000FF00: 1, 0x00FF0000: 2,
+                 0xFF000000: 3}.get(amask)
+    if byte_alfa is None:
+        return {"error": "mascara alfa 0x%08X: no es un byte entero del "
+                         "texel, y no se adivina donde esta el alfa" % amask}
+    alfa = d[base + byte_alfa: base + byte_alfa + ancho * alto * 4: 4]
+    if len(alfa) < ancho * alto:
+        return {"error": "el archivo no llega a contener su primer mip"}
+    return _medir_bloques(alfa, ancho, alto, paso, SIN_COMPRIMIR_32)
 
 
 def medir(ruta, paso=3):

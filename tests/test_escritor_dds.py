@@ -6,7 +6,9 @@ Nada en el repo escribia DDS. Ahora si, y la falsificacion es barata porque
 encabezado -- una prediccion que se cumple en 32.241 de 32.241 DDS de Bethesda.
 Si lo que escribimos no la cumple, el encabezado miente.
 """
+import math
 import os
+import struct
 import tempfile
 import unittest
 
@@ -165,7 +167,60 @@ class CabeceraVanillaTests(unittest.TestCase):
     def test_formato_desconocido_se_rechaza(self):
         with self.assertRaises(ValueError):
             escritor_dds.escribir(os.path.join(self.dir, "c.dds"), 8, 8,
-                                  degradado(8, 8), formato="BC7")
+                                  degradado(8, 8), formato="ASTC")
+
+    def test_bc7_lleva_el_header_dx10_y_se_relee(self):
+        """BC7 no tiene fourcc propia: "DX10" + 20 bytes con el DXGI (98 =
+        BC7_UNORM), y el cuerpo arranca en 148. La prediccion de tamano de
+        parser_dds tiene que seguir cerrando."""
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest("BC7 necesita numpy")
+        ruta = escritor_dds.escribir(os.path.join(self.dir, "bc7.dds"),
+                                     64, 32, degradado(64, 32),
+                                     formato="BC7")
+        c = _cabecera(ruta)
+        self.assertEqual(c["flags"], 0xA1007)
+        self.assertEqual(c["pf"], 0x4)
+        self.assertEqual(c["fourcc"], b"DX10")
+        self.assertEqual(c["caps"], 0x401008)
+        self.assertEqual(c["pitch"], (64 // 4) * (32 // 4) * 16)
+        with open(ruta, "rb") as fh:
+            dxgi, = struct.unpack_from("<I", fh.read(148), 128)
+        self.assertEqual(dxgi, 98)
+        d = parser_dds.leer(ruta)
+        self.assertEqual(d["formato"], "BC7")
+        self.assertTrue(d["tamano_cuadra"])
+        self.assertFalse(d["srgb"])
+        _d, vuelta = escritor_dds.leer_pixeles(ruta)
+        self.assertEqual(len(vuelta), 64 * 32 * 4)
+        # La imagen de prueba es adrede hostil (el alfa (x*y)%256 salta entre
+        # vecinos, y el color en barras): lo que se exige es que BC7 no la
+        # destroce. La prueba de exactitud real de BC7 es Pillow, en
+        # tests/test_compresor_bc7.py.
+        dif = max(abs(a - b) for a, b in zip(vuelta, degradado(64, 32)))
+        self.assertLessEqual(dif, 40)
+        orig = degradado(64, 32)
+        rsm = [math.sqrt(sum((x - y) ** 2 for x, y in
+                             zip(vuelta[c::4], orig[c::4])) / (64 * 32))
+               for c in range(4)]
+        self.assertLess(sum(rsm) / 4, 7.5)
+
+    def test_bc7_srgb_es_dxgi_99(self):
+        """SRGB solo con BC7: 99 en vez de 98, y parser_dds lo tiene que
+        ver (los slots de color piden srgb en pipeline/texturas.py)."""
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest("BC7 necesita numpy")
+        ruta = escritor_dds.escribir(os.path.join(self.dir, "bc7s.dds"),
+                                     8, 8, degradado(8, 8),
+                                     formato="BC7", srgb=True)
+        with open(ruta, "rb") as fh:
+            dxgi, = struct.unpack_from("<I", fh.read(148), 128)
+        self.assertEqual(dxgi, 99)
+        self.assertTrue(parser_dds.leer(ruta)["srgb"])
 
 
 class NivelesTests(unittest.TestCase):

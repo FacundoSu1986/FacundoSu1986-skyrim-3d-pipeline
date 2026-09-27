@@ -124,6 +124,49 @@ class ReglaDeArmaTests(unittest.TestCase):
         self.assertEqual(me.juzgar(_medir([30, 60, 90]), True)[0], [])
 
 
+class MedirPixelesTests(unittest.TestCase):
+    """`medir_pixeles`: LA MISMA medición sobre RGBA ya en memoria, que es
+    lo que usa pipeline/texturas.py cuando BC7 ya se decodificó. La
+    semántica de bloque no puede cambiar con el formato de entrada."""
+
+    def _pixeles(self, alfa_fn, ancho=64, alto=64):
+        out = bytearray()
+        for y in range(alto):
+            for x in range(ancho):
+                out += bytes((128, 130, 240, alfa_fn(x, y)))
+        return bytes(out)
+
+    def test_da_lo_mismo_que_medir_el_archivo(self):
+        """Toda blanca: los numeros tienen que ser IDENTICOS a los de la
+        medición sobre el DDS (ahi DXT5 con alpha0 == alpha1 == 255). El
+        único campo que puede diferir es el rotulo de formato: la fuente
+        cambio, la regla no."""
+        pix = self._pixeles(lambda x, y: 255)
+        m = me.medir_pixeles(pix, 64, 64, me.SIN_COMPRIMIR_32, paso=1)
+        archivo = _medir([255])
+        self.assertEqual({k: v for k, v in m.items() if k != "formato"},
+                         {k: v for k, v in archivo.items()
+                          if k != "formato"})
+        self.assertEqual(m["formato"], me.SIN_COMPRIMIR_32)
+
+    def test_el_rotulo_del_formato_va_en_el_reporte(self):
+        pix = self._pixeles(lambda x, y: 55)
+        m = me.medir_pixeles(pix, 64, 64, "BC7", paso=1)
+        self.assertEqual(m["formato"], "BC7")
+        self.assertAlmostEqual(m["media"], 55.0, 6)
+        # La misma regla que en DXT5: constante 55 no es blanco.
+        self.assertEqual(m["blanco_pct"], 0.0)
+
+    def test_un_bloque_que_varia_no_es_blanco(self):
+        pix = self._pixeles(lambda x, y: 255 if x % 4 == 0 else 40)
+        m = me.medir_pixeles(pix, 64, 64, "BC7", paso=1)
+        self.assertEqual(m["blanco_pct"], 0.0)
+
+    def test_largo_malo_da_error(self):
+        m = me.medir_pixeles(b"x" * 10, 64, 64, "BC7")
+        self.assertIn("error", m)
+
+
 class FormatoTests(unittest.TestCase):
     """Dos clases de fallo que no se pueden confundir."""
 

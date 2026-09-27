@@ -48,7 +48,7 @@ sin documentar también (issue
 | `enderezar_puro.py --autotest` | 34 comprobaciones con figuras de respuesta conocida: la recta no se mueve, la ondulada se acepta y los extremos quedan fijos, el arco de diseño se rechaza por tope, la cadena que se dobla o degenerada se rechaza, los caminos se parten en los cruces (una Y da tres caminos que comparten el cruce como extremo, una cruz cuatro), ninguna arista queda en dos caminos, el ciclo se rechaza, y la calibración cuenta por tope | la figura ondulada es una construcción, no una pieza del corpus: mide la aritmética, no el gusto | `test_enderezar_puro.py`; el CI corre el autotest | sí |
 | `enderezar.py -- <pieza.blend> [--tope F] [--angulo G] [--minimo N] [--marcadas] [--aplicar]` (Blender) | sin `--aplicar` informa qué caminos calificarían, cuánto se aparta cada uno (con percentiles para calibrar el tope) y cuántos quedaron cortos por salir de un cruce; con `--aplicar`, si ninguno califica **no guarda** y sale con 1. Los cruces son extremos, nunca puntos interiores, así que un vértice de cruce no lo mueven dos cuerdas; los ciclos cerrados se rechazan. `--marcadas` usa solo las aristas marcadas *sharp* en Blender | **El tope (0,002 del largo, el lado mayor de la caja de la pieza) no está medido**: se calibra con los percentiles del informe y el render. El efecto del movimiento sobre el horneado no se midió (`[no medido]`): mueve la baja y no la alta (trampa 34) | la matemática: `test_enderezar_puro.py`; con `BLENDER_EXE`, `test_enderezar_blender.py` (sintética, 5 casos); sin él, las expresiones que se le pasan a Blender se compilan igual | la parte pura |
 | `uv_exportacion.conservar_uv(mesh, nombre)` (Blender, desde un script) | deja una sola UV, activa y de render, sin cambiar sus coordenadas. Rechaza antes de borrar: Edit Mode, malla con más de un usuario, nombre ausente. Devuelve avisos de nodos del material que nombraban una capa borrada. `montar.py` no lo llama: PyNifly exporta la UV activa (trampa 40) | `[OBSERVED]` en Blender 4.4.1: el bucle viejo falla en 4 de los 6 órdenes de capas | `test_uv_exportacion.py` (malla falsa); con `BLENDER_EXE`, `test_uv_exportacion_blender.py` corre la malla real y el control negativo | la lógica sí; la API real de Blender, no |
-| fase de texturas (`pipeline/texturas.py`) | cada DDS escrito pasa por `fixtures/comparar.py`; la máscara del `_n` se mide y pide revisión si sale de lo vanilla; el error de compresión va al reporte. Y el runner no llega a PUBLISHED mientras quede una fase stub | ver `mascara_especular.py` y `compresor_dxt.py` | `test_pipeline_texturas.py`, `test_pipeline_gate_stubs.py` | sí |
+| fase de texturas (`pipeline/texturas.py`) | cada DDS escrito pasa por `fixtures/comparar.py`; la máscara del `_n` se mide y pide revisión si sale de lo vanilla; el error de compresión va al reporte. Y el runner no llega a PUBLISHED mientras quede una fase stub | ver `mascara_especular.py`, `compresor_dxt.py` y `compresor_bc7.py` | `test_pipeline_texturas.py`, `test_pipeline_gate_stubs.py` | sí |
 
 ## 2. Contra el corpus vanilla
 
@@ -106,6 +106,7 @@ se ve.
 | `colision_caja.py --autotest` | desde el paquete, y `test_colision_caja.py` |
 | `verificar_plugin.py --autotest` | desde el paquete, y `test_verificar_plugin.py` |
 | `compresor_dxt.py --autotest` | `test_compresor_dxt.py`, con Pillow de oráculo |
+| `compresor_bc7.py --autotest` | `test_compresor_bc7.py`, con Pillow de oráculo |
 | `exportar_puro.py --autotest` | desde el paquete, y `test_exportar_puro.py` |
 | `escritor_dds.py --autotest` | ningún test lo llama: `test_escritor_dds.py` prueba el escritor por su cuenta |
 | `escritor_plugin.py --autotest` | ningún test lo llama: `test_plugin.py` y `test_verificar_plugin.py` prueban el escritor por su cuenta |
@@ -115,9 +116,9 @@ se ve.
 `.github/workflows/ci.yml`, en Python 3.11 y 3.12:
 
 1. `pip install -r requirements-dev.txt`: numpy; Pillow y PyYAML, oráculos de
-   `test_compresor_dxt.py` y de `test_frontmatter_skills.py`; y ruff y mypy
-   con la versión fijada. Si falta numpy, Pillow o PyYAML, un test falla en
-   vez de saltearse.
+   `test_compresor_dxt.py`, de `test_compresor_bc7.py` y de
+   `test_frontmatter_skills.py`; y ruff y mypy con la versión fijada. Si falta
+   numpy, Pillow o PyYAML, un test falla en vez de saltearse.
 2. `compileall` sobre `census`, `skills`, `tests`, `pipeline`, `fixtures` y
    `examples`:
    la sintaxis de todo, incluidos los scripts de Blender, que fuera de Blender
