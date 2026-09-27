@@ -846,6 +846,12 @@ Lo que **no** se midió: cuánto mejora a la vista. El mecanismo es sólido y el
 hacha salió bien, pero ese cambio vino junto con otros y la mejora del
 horneado no se aisló.
 
+**Cuándo aplica.** Cuando la fuente es más fina que el destino. `hornear.py`
+mide las dos antes de hornear (`densidad_fuente` y `retencion`, en
+`hd-texturas.md`). `--sin-doble` hornea a la resolución final, sin este
+arreglo y con un cuarto de la memoria, y avisa si la retención baja de 0,7.
+En el hacha de Filo Celeste a 4096 la retención fue 0,81: sin aviso.
+
 ### 36. PyNifly deja el material en `Default` y glossiness 20 {#36}
 
 Salió del hacha de Tencent, que se armó con `createShapeFromData` en vez de

@@ -87,7 +87,7 @@ jobs:
       #
       # La suite la corre tests/correr_suite.py: lo mismo que `unittest
       # discover -s tests -v`, mas un ancla. En CI los tests salteados tienen
-      # que ser EXACTAMENTE los de SALTEADOS_EN_CI (hoy, los 13 que necesitan
+      # que ser EXACTAMENTE los de SALTEADOS_EN_CI (hoy, los 17 que necesitan
       # Blender), por igualdad y con su motivo. Un salteo nuevo --una
       # dependencia que falta, una condicion que cambio-- pone rojo este paso
       # en vez de pasar como "OK (skipped=N)", que es como la comparacion con

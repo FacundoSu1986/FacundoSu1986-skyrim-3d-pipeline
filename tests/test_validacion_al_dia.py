@@ -48,6 +48,7 @@ NO_CONTROLES = {
     "--frente-az", "--girar-180", "--guardar-alto", "--help", "--json",
     "--marcar", "--maximo", "--muestras-ao", "--prn", "--quitar", "--relativo-a",
     "--salida", "--soldadura", "--vistas",
+    "--sin-doble",   # hornear.py a la resolucion final: memoria, no un control
 }
 # Flags de la línea de comandos de Blender, que la página escribe al lado de
 # un script (`blender -b --python hornear.py -- ...`) y no son del script.
