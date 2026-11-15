@@ -163,7 +163,7 @@ entendemos.
 **AFIRMACIÓN**: De los **3 archivos `.esl`** de una instalación SE —todos marcados como ESL y cargados por el juego— los **1.032** records propios tienen índices de objeto de **0x001 a 0xD9A**, y **ninguno** supera **0xFFF**. En `_ResourcePack.esl`, **368 de 373** están **por debajo de 0x800**.
 **CONSULTA**: clasificación de cada FormID por índice de mod contra la cantidad de `MAST` del `TES4`, y el índice de objeto de los propios.
 **N**: 3 archivos, 1.197 records, 1.032 propios.
-**EXCEPCIONES**: ninguna por encima del techo. **Esto refuta una regla que este repo tenía escrita**: `esl.py` exigía `0x800 ≤ índice ≤ 0xFFF` y habría rechazado a `_ResourcePack.esl`, que Bethesda distribuye y el juego carga. El techo de **0xFFF** sí es del motor —son 12 bits en el espacio `FE:xxx`— y es el único que bloquea; el piso se informa con su medición.
+**EXCEPCIONES**: ninguna por encima del techo. **Esto refuta una regla que este repo tenía escrita**: `esl.py` exigía `0x800 ≤ índice ≤ 0xFFF` y habría rechazado a `_ResourcePack.esl`, que Bethesda distribuye y el juego carga. El techo de **0xFFF** sí es del motor —son 12 bits en el espacio `FE:xxx`— y es el único que bloquea; el piso se informa con su medición. **Alcance corregido en la entrada 19**: `_ResourcePack.esl` tiene `HEDR` 1.71, y el piso depende de esa versión.
 
 ### 11. Los overrides de un ESL no entran en la cuenta del rango
 **ORIGEN**: PR [#39](https://github.com/FacundoSu1986/FacundoSu1986-skyrim-3d-pipeline/pull/39).
@@ -246,3 +246,13 @@ El hacha de Tencent fue la primera arma que hizo el recorrido entero hasta el ju
 **CONSULTA**: los flags del `TES4` y el `HEDR` contra un recorrido que cuenta records y grupos por separado.
 **N**: 10 de 10 en las dos.
 **EXCEPCIONES**: ninguna en vanilla, pero **no son reglas**. El hacha cargó con `HEDR` = 105 (v1) y = 2 (v2), las dos mal, así que el motor no lo valida. Y cargó **sin** `LOCALIZED`, con `FULL` y `DESC` como cadenas literales. Qué hace el motor con `LOCALIZED` y cadenas literales —el formato dice que las leería como IDs de la tabla de cadenas— **no está medido acá**. Copiar los flags del `TES4` de un plugin de Bethesda trae ese bit de arrastre.
+
+### 19. El piso de un ESL lo decide la versión del `HEDR`
+**ORIGEN**: rama `fix/esl-piso-por-cabecera`. Corrige el alcance de la entrada 10, no la refuta.
+
+**AFIRMACIÓN**: De los **3 `.esl`** de una instalación 1.6.1170, el único con records propios por debajo de `0x800` es `_ResourcePack.esl` (**368 de 373**), y es el único con `HEDR` **1.71**. Los dos con `HEDR` **1.70** —`ccBGSSSE037-Curios.esl` y `ccQDRSSE001-SurvivalMode.esl`— tienen **0 de 659** records propios por debajo de `0x800`. En los 10 plugins, la versión es 1.71 en 8 (los 5 masters, `ccBGSSSE001-Fish.esm`, `ccBGSSSE025-AdvDSGS.esm` y `_ResourcePack.esl`) y 1.70 en los otros 2.
+**CONSULTA**: el primer float del `HEDR` del `TES4` (`esl.version_hedr`), cruzado con el conteo `bajo_el_piso_del_ck` de la entrada 10.
+**N**: 3 archivos `.esl`, 1.032 records propios; 10 plugins para la versión.
+**EXCEPCIONES**: ninguna. **Lo que no está medido**: qué hace el motor con un ESL de cabecera 1.70 que tiene records por debajo de `0x800` —no hay ningún archivo así para mirar—, ni qué hace 1.5.97 con una cabecera 1.71 (la comunidad dice que hace falta BEES). Por eso `esl.py` se **niega** a marcar ese caso salvo `--aceptar-piso-bajo`: es precaución, no regla, y la negativa se puede pasar por encima. El techo de `0xFFF` (entrada 10) no tiene permiso que lo saltee.
+
+`census/escritor_plugin.py` escribe siempre `HEDR` 1.71 (`tes4()`), así que lo que sale de este repo cae en el rango `0x001..0xFFF` y su `comprobar_esl`, que mira solo el techo, es correcto para lo que escribe.

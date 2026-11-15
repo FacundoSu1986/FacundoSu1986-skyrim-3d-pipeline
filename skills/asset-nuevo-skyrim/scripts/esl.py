@@ -16,18 +16,30 @@ encima el juego NO da error al cargar: lo remapea, y el objeto aparece corrupto
 o directamente no aparece. Por eso esto se comprueba ANTES de escribir, y si
 falla no toca nada.
 
-DOS COSAS QUE ESTE SCRIPT AFIRMABA Y EL CORPUS REFUTO
+TRES COSAS QUE ESTE SCRIPT AFIRMABA Y EL CORPUS CORRIGIO
 
 1. **El piso de 0x800 no es del motor, es del Creation Kit.** `_ResourcePack.esl`
    --un ESL que Bethesda distribuye y el juego carga-- tiene sus 373 records
    propios con indices de **0x001 a 0xD6A**, y **368 de ellos estan por debajo
-   de 0x800**. Exigir 0x800 rechazaba un plugin valido. Ahora el piso se INFORMA
-   con su medicion y no bloquea; lo que bloquea es el techo.
+   de 0x800**. Exigir 0x800 rechazaba un plugin valido.
 
-2. **Los OVERRIDES no cuentan.** Un record cuyo indice de mod apunta a un master
+2. **Pero eso vale para SU cabecera.** El HEDR de `_ResourcePack.esl` dice
+   **1.71**; los otros dos ESL de la instalacion dicen **1.70** y ninguno de
+   sus 659 records propios baja de 0x800 (census/hallazgos_plugins.md,
+   entrada 19). El piso lo decide la version de la cabecera:
+
+       HEDR 1.70  ->  0x800..0xFFF
+       HEDR 1.71  ->  0x001..0xFFF   (en 1.5.97 hace falta BEES)
+
+   Con 1.71 un indice bajo se informa y se marca. Con 1.70 --o sin HEDR, que
+   se trata como 1.70-- `--marcar` se NIEGA salvo `--aceptar-piso-bajo`. Que
+   hace el motor con un 1.70 por debajo de 0x800 NO esta medido: la negativa
+   es precaucion y no ley, y por eso se puede pasar por encima. El techo no.
+
+3. **Los OVERRIDES no cuentan.** Un record cuyo indice de mod apunta a un master
    no es nuevo: modifica uno del master y conserva su FormID, asi que el rango
    no lo toca. `ccQDRSSE001-SurvivalMode.esl` --otro ESL que el juego carga--
-   trae **165** de esos, y la version anterior de este script los reportaba a
+   trae **165** de esos, y una version anterior de este script los reportaba a
    todos como "fuera de rango".
 
 Medido sobre los 3 `.esl` de una instalacion SE: **1.032 records propios, 0 por
@@ -47,11 +59,15 @@ el flag y salia con exit 0.
 Uso:
   python esl.py <plugin.esp>              solo informa (no escribe nada)
   python esl.py <plugin.esp> --marcar     pone el flag (deja .bak)
+  python esl.py <plugin.esp> --marcar --aceptar-piso-bajo
+                                          marca aunque la cabecera 1.70 no
+                                          habilite los indices bajos
   python esl.py <plugin.esp> --quitar     lo saca (deja .bak)
   python esl.py --autotest <carpeta Data> reproduce los conteos medidos
 
-Exit 0 si esta todo bien, 1 si no se puede leer, no cierra el recorrido, o hay
-un record nuevo por encima del techo.
+Exit 0 si esta todo bien, 1 si no se puede leer, no cierra el recorrido, hay
+un record nuevo por encima del techo, o --marcar encuentra uno por debajo del
+piso de su cabecera sin --aceptar-piso-bajo.
 """
 
 import argparse
@@ -65,10 +81,35 @@ BANDERA_ESM = 0x1
 # El techo es del motor: 12 bits de indice de objeto en el espacio FE:xxx.
 # Medido: 1.032 records propios de los 3 .esl de una instalacion, 0 por encima.
 TECHO_ESL = 0xFFF
-# El piso es una convencion del Creation Kit, NO del motor: _ResourcePack.esl
-# trae 368 records propios por debajo y el juego lo carga. Se informa, no
-# bloquea.
+# El piso depende de la version del HEDR (census/hallazgos_plugins.md,
+# entradas 10 y 19). 0x800 es donde empieza a numerar el Creation Kit y el
+# piso de una cabecera 1.70: los dos ESL 1.70 de la instalacion no bajan de
+# ahi (0 de 659). Con 1.71 el rango arranca en 0x001: _ResourcePack.esl trae
+# 368 records propios por debajo de 0x800 y el juego lo carga.
 PISO_CREATION_KIT = 0x800
+PISO_CABECERA_171 = 0x001
+# El HEDR es un float32: 1.70 se lee 1.7000000477 y 1.71, 1.7100000381. El
+# corte va entre los dos para no depender del redondeo.
+VERSION_RANGO_EXTENDIDO = 1.705
+
+
+def _subrecords_tes4(d):
+    """(tipo, cuerpo) de cada subrecord del TES4 de cabecera.
+
+    Un solo recorrido para masters() y version_hedr(): dos bucles escritos
+    aparte sobre los mismos bytes es como aparecieron en este repo dos
+    parsers de plugins que nadie cruzo.
+    """
+    if len(d) < 24 or d[0:4] != b"TES4":
+        return
+    tam, = struct.unpack_from("<I", d, 4)
+    fin = min(24 + tam, len(d))
+    i = 24
+    while i + 6 <= fin:
+        tipo = bytes(d[i:i + 4])
+        largo, = struct.unpack_from("<H", d, i + 4)
+        yield tipo, bytes(d[i + 6:i + 6 + largo])
+        i += 6 + largo
 
 
 def masters(d):
@@ -79,19 +120,30 @@ def masters(d):
     record modifica uno del master y conserva su FormID. El rango de ESL no lo
     toca.
     """
-    if d[0:4] != b"TES4":
-        return []
-    tam, = struct.unpack_from("<I", d, 4)
-    fin = 24 + tam
-    fuera, i = [], 24
-    while i + 6 <= fin:
-        tipo = bytes(d[i:i + 4])
-        largo, = struct.unpack_from("<H", d, i + 4)
-        if tipo == b"MAST":
-            fuera.append(bytes(d[i + 6:i + 6 + largo]).rstrip(b"\x00")
-                         .decode("cp1252", "replace"))
-        i += 6 + largo
-    return fuera
+    return [cuerpo.rstrip(b"\x00").decode("cp1252", "replace")
+            for tipo, cuerpo in _subrecords_tes4(d) if tipo == b"MAST"]
+
+
+def version_hedr(d):
+    """La version del HEDR del TES4 (1.70, 1.71...), o None si no hay HEDR.
+
+    Es lo que decide el piso de un ESL: ver piso_para().
+    """
+    for tipo, cuerpo in _subrecords_tes4(d):
+        if tipo == b"HEDR" and len(cuerpo) >= 4:
+            return struct.unpack_from("<f", cuerpo)[0]
+    return None
+
+
+def piso_para(version):
+    """El indice de objeto mas bajo que un ESL con esa cabecera habilita.
+
+    Sin version se toma el piso de 1.70: si no se sabe que rango vale, el
+    angosto es el que no deja pasar un record que el otro rechazaria.
+    """
+    if version is not None and version >= VERSION_RANGO_EXTENDIDO:
+        return PISO_CABECERA_171
+    return PISO_CREATION_KIT
 
 
 def clasificar(formids, n_masters):
@@ -184,15 +236,16 @@ AUTOTEST = [
     # Los tres .esl de la instalacion: son ESL que el juego CARGA, asi que
     # cualquier cosa que este script rechace en ellos esta rechazando de mas.
     # Ninguno tiene un record propio por encima del techo -- 1.032 en total.
+    # Y la cabecera separa el piso: el unico que baja de 0x800 es el 1.71.
     ("_ResourcePack.esl",
      {"records": 373, "masters": 3, "nuevos": 373, "overrides": 0,
-      "sobre_el_techo": 0, "bajo_el_piso_del_ck": 368}),
+      "sobre_el_techo": 0, "bajo_el_piso_del_ck": 368, "hedr": 1.71}),
     ("ccBGSSSE037-Curios.esl",
      {"records": 151, "masters": 5, "nuevos": 151, "overrides": 0,
-      "sobre_el_techo": 0, "bajo_el_piso_del_ck": 0}),
+      "sobre_el_techo": 0, "bajo_el_piso_del_ck": 0, "hedr": 1.7}),
     ("ccQDRSSE001-SurvivalMode.esl",
      {"records": 673, "masters": 5, "nuevos": 508, "overrides": 165,
-      "sobre_el_techo": 0, "bajo_el_piso_del_ck": 0}),
+      "sobre_el_techo": 0, "bajo_el_piso_del_ck": 0, "hedr": 1.7}),
 ]
 
 
@@ -219,7 +272,9 @@ def autotest(carpeta):
             continue
         mast = masters(d)
         nuevos, over = clasificar(ids, len(mast))
-        real = {"records": len(ids), "masters": len(mast),
+        version = version_hedr(d)
+        real = {"hedr": None if version is None else round(version, 2),
+                "records": len(ids), "masters": len(mast),
                 "nuevos": len(nuevos), "overrides": len(over),
                 "sobre_el_techo": sum(1 for f in nuevos
                                       if (f & 0xFFFFFF) > TECHO_ESL),
@@ -236,7 +291,7 @@ def autotest(carpeta):
                 ok += 1
             else:
                 fallo += 1
-                print("  [FALLA]  %s :: %s esperado %d, obtenido %d"
+                print("  [FALLA]  %s :: %s esperado %r, obtenido %r"
                       % (nombre, campo, valor, real[campo]))
     print("")
     print("  %d comprobaciones ok, %d fallidas, %d archivos no encontrados"
@@ -258,6 +313,9 @@ def main():
     ap.add_argument("plugin")
     ap.add_argument("--marcar", action="store_true", help="pone el flag ESL")
     ap.add_argument("--quitar", action="store_true", help="saca el flag ESL")
+    ap.add_argument("--aceptar-piso-bajo", action="store_true",
+                    help="marca aunque haya records por debajo del piso de "
+                         "su cabecera (lo que hace el motor no esta medido)")
     args = ap.parse_args()
 
     if args.marcar and args.quitar:
@@ -285,11 +343,19 @@ def main():
     print("  flags TES4 = 0x%08X   (ESL=%s, ESM=%s)"
           % (flags, bool(flags & BANDERA_ESL), bool(flags & BANDERA_ESM)))
 
+    version = version_hedr(d)
+    piso = piso_para(version)
+    cabecera = ("sin HEDR (se toma el rango de 1.70)" if version is None
+                else "%.2f" % version)
+    print("  cabecera HEDR = %s  ->  rango de ESL 0x%03X..0x%03X"
+          % (cabecera, piso, TECHO_ESL))
+
     formids, cerro = recorrer_formids(d)
     n_mast = len(masters(d))
     nuevos, overrides = clasificar(formids, n_mast)
     fuera = [f for f in nuevos if (f & 0xFFFFFF) > TECHO_ESL]
     bajos = [f for f in nuevos if (f & 0xFFFFFF) < PISO_CREATION_KIT]
+    bajo_piso = [f for f in nuevos if (f & 0xFFFFFF) < piso]
     print("  %d record(s) no-TES4: %d nuevo(s) y %d override(s) de los %d "
           "master(s)" % (len(formids), len(nuevos), len(overrides), n_mast))
     print("  nuevos: %s"
@@ -297,11 +363,21 @@ def main():
     if not cerro:
         print("  El recorrido NO cierra en el fin del archivo: el plugin esta "
               "truncado o algun tamano miente.")
-    if bajos:
-        print("  %d nuevo(s) con indice por debajo de 0x%03X. Eso es la "
-              "convencion del Creation Kit, NO un requisito del motor: "
-              "_ResourcePack.esl trae 368 asi y el juego lo carga. Se informa."
+    if bajos and piso == PISO_CABECERA_171:
+        print("  %d nuevo(s) con indice por debajo de 0x%03X: valido con "
+              "cabecera 1.71, como _ResourcePack.esl (368 asi, y el juego lo "
+              "carga). En 1.5.97 hace falta BEES."
               % (len(bajos), PISO_CREATION_KIT))
+    if bajo_piso:
+        if piso == PISO_CREATION_KIT:
+            salida = ("Ningun ESL 1.70 medido baja de ahi (0 de 659). Dos "
+                      "salidas: renumerarlos a 0x%03X..0x%03X, o guardar el "
+                      "plugin con cabecera 1.71 (y BEES en 1.5.97)."
+                      % (piso, TECHO_ESL))
+        else:
+            salida = "Renumeralos a 0x%03X..0x%03X." % (piso, TECHO_ESL)
+        print("  %d nuevo(s) por debajo de 0x%03X, el piso de la cabecera %s. %s"
+              % (len(bajo_piso), piso, cabecera, salida))
     if fuera:
         print("  POR ENCIMA del techo de ESL (indice de objeto > 0x%03X):"
               % TECHO_ESL)
@@ -328,6 +404,16 @@ def main():
         print("  NO se marca: en un ESL esos records saldrian corruptos.")
         print("  Arreglalo renumerando los records en el editor antes de convertir.")
         return 1
+    # El techo es del motor; el piso de 1.70, no esta medido. Por eso uno no
+    # tiene permiso que lo saltee y el otro si.
+    if bajo_piso and args.marcar and not args.aceptar_piso_bajo:
+        print("  NO se marca: la cabecera %s no habilita esos indices." % cabecera)
+        print("  Lo que hace el motor con eso no esta medido: es precaucion, no")
+        print("  una ley. Si sabes lo que haces: --aceptar-piso-bajo.")
+        return 1
+    if bajo_piso and args.marcar:
+        print("  AVISO: se marca con %d record(s) debajo del piso, por "
+              "--aceptar-piso-bajo." % len(bajo_piso))
     if flags & BANDERA_ESM and args.marcar:
         print("  NO se marca: el plugin esta marcado como ESM.")
         return 1

@@ -98,7 +98,7 @@ Y aparte, en [`census/`](census), las herramientas que producen los números:
 | [`census/compresor_dxt.py`](census/compresor_dxt.py) | Comprime y decodifica DXT1/DXT5 (numpy); verificado contra Pillow y contra el corpus |
 | [`census/compresor_bc7.py`](census/compresor_bc7.py) | Comprime y decodifica BC7, modos 5 y 6 (numpy); verificado contra Pillow byte a byte |
 | [`census/hallazgos.md`](census/hallazgos.md) | 44 hallazgos medidos sobre las mallas, con consulta y N cada uno |
-| [`census/hallazgos_plugins.md`](census/hallazgos_plugins.md) | 18 hallazgos sobre los plugins |
+| [`census/hallazgos_plugins.md`](census/hallazgos_plugins.md) | 19 hallazgos sobre los plugins |
 | [`census/hallazgos_texturas.md`](census/hallazgos_texturas.md) | 10 hallazgos sobre las texturas |
 | [`census/hallazgos_uv.md`](census/hallazgos_uv.md) | 6 hallazgos sobre las UV |
 

@@ -134,7 +134,9 @@ no se ve" con "no anda" antes de medir la cadena.
   está probado. `[MEASURED]` los flags, `[PROVIDER]` el efecto.
 - **`HEDR`**: `numRecords` = records + `GRUP`s, como en los 10 vanilla. El motor
   no lo valida — el hacha cargó con 105 y con 2 —, pero no hay razón para diferir.
-- **ESL**: `scripts/esl.py` comprueba el techo de `0xFFF` antes de marcar.
+- **ESL**: `scripts/esl.py` comprueba el techo de `0xFFF` antes de marcar, y el
+  piso según el `HEDR`: `0x800` con 1.70, `0x001` con 1.71
+  (`plugin-armo-arma.md`, sección ESL).
 
 ## Validar de verdad
 
