@@ -407,9 +407,13 @@ Un ESL solo admite índices de objeto hasta `0xFFF` (12 bits en el espacio
 `FE:xxx`). Por encima el motor **remapea** y el objeto sale corrupto o no sale,
 sin mensaje. Comprobar el techo **antes** de encender el flag `0x200`.
 
-El piso de `0x800` que aparece por todos lados es del Creation Kit, no del
-motor: `_ResourcePack.esl` —que Bethesda distribuye— tiene **368 de 373**
-records por debajo (`census/hallazgos_plugins.md`, entrada 10).
+El piso de `0x800` que aparece por todos lados **depende de la cabecera**.
+`_ResourcePack.esl` —que Bethesda distribuye— tiene **368 de 373** records por
+debajo, y su `HEDR` es **1.71**: ese es el rango extendido, `0x001`–`0xFFF`. Los
+dos `.esl` con `HEDR` 1.70 no bajan de `0x800` (0 de 659)
+(`census/hallazgos_plugins.md`, entradas 10 y 19). Qué hace el motor con un
+1.70 por debajo no está medido; `scripts/esl.py` se niega a marcarlo salvo
+`--aceptar-piso-bajo`.
 
 (Y avisar de la otra consecuencia: al pasar a `FE:XXX` cambian todos los
 FormIDs, así que una partida guardada pierde el objeto.)

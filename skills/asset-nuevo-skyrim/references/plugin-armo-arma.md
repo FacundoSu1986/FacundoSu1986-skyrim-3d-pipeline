@@ -114,11 +114,22 @@ renombrar a `.esl`, y así no hay que retocar el gestor de mods.
 Gana un slot de los 255 que admite Skyrim SE. Para un mod de dos records, vale
 la pena.
 
-**El requisito que no da error:** un ESL solo puede tener FormIDs nuevos cuyo
-**índice de objeto esté entre `0x800` y `0xFFF`**. Con uno fuera de rango el
-juego no se queja: lo remapea, y el objeto sale corrupto o no sale. Comprobalo
-**antes** de escribir el flag. (`0x000D62` y `0x000D63` entran; `0x000001`, que
-es el tipo de índice que asigna el CK en un plugin nuevo y vacío, no.)
+**El requisito que no da error:** un ESL tiene un rango de índices de objeto
+para sus FormIDs nuevos, y **el piso depende de la versión del `HEDR`** del
+`TES4`:
+
+| `HEDR` | Rango | Medido |
+|---|---|---|
+| 1.70 | `0x800`–`0xFFF` | los 2 `.esl` 1.70 de una instalación: 0 de 659 records por debajo de `0x800` |
+| 1.71 | `0x001`–`0xFFF` | `_ResourcePack.esl`: 368 de 373 por debajo, y el juego lo carga. En 1.5.97 la comunidad dice que hace falta BEES |
+
+El techo `0xFFF` es del motor en las dos. Con un índice por encima el juego no
+se queja: lo remapea, y el objeto sale corrupto o no sale. Qué hace con un
+1.70 por debajo de `0x800` **no está medido**. Comprobalo **antes** de
+escribir el flag (`census/hallazgos_plugins.md`, entradas 10 y 19).
+
+(`0x000D62` y `0x000D63` entran en las dos cabeceras. `0x000001` entra solo
+con 1.71. `census/escritor_plugin.py` escribe 1.71 siempre.)
 
 **Lo que rompe, y hay que avisarlo antes de convertir:** el plugin deja de
 cargarse con índice `01` y pasa a `FE:XXX`. El FormID del objeto cambia de
@@ -131,6 +142,8 @@ player.additem <formid nuevo> 1
 ```
 
 `scripts/esl.py` hace la comprobación, deja `.bak` y por defecto no escribe.
+Lee la cabecera: con 1.70 y un índice por debajo de `0x800` se niega a marcar
+salvo `--aceptar-piso-bajo`; por encima del techo se niega siempre.
 
 ## Separar "no se equipa" de "no está cargado"
 

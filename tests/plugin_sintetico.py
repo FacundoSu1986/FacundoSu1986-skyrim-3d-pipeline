@@ -56,10 +56,14 @@ def _grupo(etiqueta, contenido, tipo_grupo=0):
             + struct.pack("<I", 0) + struct.pack("<I", 0) + contenido)
 
 
-def construir(comprimir_stat=False, con_escape=False, masters=(), version=44):
+def construir(comprimir_stat=False, con_escape=False, masters=(), version=44,
+              hedr=1.7):
     """Devuelve (bytes, esperado).
 
     `version` va a TODOS los records, TES4 incluido: así salió el hacha.
+
+    `hedr` es la version del HEDR del TES4: 1.7 o 1.71. Decide que rango de
+    FormIDs habilita un ESL (census/hallazgos_plugins.md, entrada 19).
 
     `esperado` es la verdad declarada: lo que cualquier parser correcto tiene
     que recuperar de esos bytes.
@@ -87,7 +91,7 @@ def construir(comprimir_stat=False, con_escape=False, masters=(), version=44):
 
     cuerpo = _grupo(b"STAT", r_stat) + _grupo(b"ACTI", r_acti)
 
-    cab = _sub(b"HEDR", struct.pack("<fiI", 1.7, 2, 0x00000803))
+    cab = _sub(b"HEDR", struct.pack("<fiI", hedr, 2, 0x00000803))
     cab += _sub(b"CNAM", _cstr(AUTOR))
     cab += _sub(b"SNAM", _cstr(DESCRIPCION))
     # Cada master va como MAST + DATA, en ese orden, como en los plugins

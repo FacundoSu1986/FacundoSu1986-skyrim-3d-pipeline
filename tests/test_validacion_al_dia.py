@@ -40,6 +40,7 @@ CONTROLES = {
     "--autotest", "--censo", "--falsificar", "--falsificar-prn",
     "--contrato", "--identico", "--fiel", "--uv", "--verificar", "--arma",
     "--permitir-solape",   # baja a aviso el tope de solape de hornear.py
+    "--aceptar-piso-bajo",  # esl.py marca un 1.70 por debajo de 0x800
 }
 # Flags de salida, de opciones o de escritura: no hace falta documentarlos acá.
 NO_CONTROLES = {

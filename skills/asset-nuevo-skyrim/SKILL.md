@@ -271,6 +271,13 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   Por defecto **no escribe**. Comprueba el rango de FormIDs antes de marcar,
   deja `.bak`, y avisa de la consecuencia en las partidas guardadas.
 
+  **El piso lo lee de la cabecera.** Con `HEDR` 1.71 el rango es
+  `0x001`–`0xFFF` —`_ResourcePack.esl` vive ahí—; con 1.70 es `0x800`–`0xFFF`,
+  y ninguno de los dos `.esl` 1.70 medidos baja de `0x800`. Antes no miraba la
+  cabecera y marcaba un 1.70 con índice `0x001` sin avisar. Ahora ese caso se
+  niega salvo `--aceptar-piso-bajo`, porque lo que hace el motor ahí no está
+  medido; el techo se niega siempre.
+
   **Y falla cerrado**, que antes no hacía. Fallaba *abierto*: un plugin
   truncado 30 bytes hacía que el recorrido viera 1 record en vez de 2; con un
   record menos no había ninguno fuera de rango, y `--marcar` **escribía el flag
@@ -278,7 +285,8 @@ iteración cuesta minutos y una captura de pantalla. Para aprovecharla:
   pasaba justo porque no había mirado el record que tenía que mirar. Ahora, si
   el recorrido no cierra en el fin del archivo, no escribe nada.
 
-  `--autotest <carpeta Data>` reproduce el conteo de records de 6 plugins. Su
+  `--autotest <carpeta Data>` reproduce el conteo de records de 8 plugins y la
+  cabecera de los 3 `.esl`. Su
   recorrido y el de `census/parser_esm.py` dan el **mismo número en los 10**
   plugins de una instalación: 1.188.811 records.
 - **`scripts/colision_caja.py`** — comprueba las cajas de colisión de un NIF

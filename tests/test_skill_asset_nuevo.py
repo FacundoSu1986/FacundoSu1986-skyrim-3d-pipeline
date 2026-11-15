@@ -62,7 +62,7 @@ def _correr_esl(caso, datos, *flags):
         return p.returncode, p.stdout, fh.read(), ruta
 
 
-def _plugin_con_formid(form_id):
+def _plugin_con_formid(form_id, hedr=1.7):
     """El fixture de plugin con el FormID del STAT cambiado.
 
     El offset lo da el PARSER. `datos.index(b"STAT")` encuentra la ETIQUETA
@@ -70,7 +70,7 @@ def _plugin_con_formid(form_id):
     tests/test_parser_esm.py y dejo un test verde que no probaba nada.
     """
     import tempfile as _tf
-    datos, _e = plugin_sintetico.construir()
+    datos, _e = plugin_sintetico.construir(hedr=hedr)
     fd, ruta = _tf.mkstemp(suffix=".esp")
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -425,14 +425,18 @@ class ElRangoDeEslEstaMedidoTests(unittest.TestCase):
         self.assertEqual(2, len(nuevos))
         self.assertEqual([], over)
 
-    def test_el_piso_del_creation_kit_no_bloquea(self):
+    def test_con_cabecera_171_un_indice_bajo_no_bloquea(self):
         """`_ResourcePack.esl` trae 368 records propios por debajo de 0x800 y
-        el juego lo carga: el piso es del CK, no del motor."""
+        el juego lo carga. Su HEDR es 1.71: ese es el caso que este test
+        representa. Antes usaba el fixture con 1.70 y mezclaba los dos."""
         self.assertLess(esl.PISO_CREATION_KIT, esl.TECHO_ESL)
-        datos = _plugin_con_formid(0x00000001)
-        codigo, salida, _d, _r = _correr_esl(self, datos, "--marcar")
+        datos = _plugin_con_formid(0x00000001, hedr=1.71)
+        codigo, salida, despues, _r = _correr_esl(self, datos, "--marcar")
         self.assertEqual(0, codigo, salida)
+        flags, = struct.unpack_from("<I", despues, 8)
+        self.assertTrue(flags & esl.BANDERA_ESL, "no puso el flag")
         self.assertIn("por debajo", salida)
+        self.assertIn("BEES", salida)
 
     def test_pero_el_techo_SI_bloquea(self):
         """El par del de arriba, y el unico limite que el motor impone."""
@@ -465,6 +469,90 @@ class ElRangoDeEslEstaMedidoTests(unittest.TestCase):
         nuevos, over = esl.clasificar(ids, len(esl.masters(bytearray(datos))))
         self.assertEqual(2, len(over), ids)
         self.assertEqual([], nuevos)
+
+
+class ElPisoDependeDeLaCabeceraTests(unittest.TestCase):
+    """La entrada 10 de census/hallazgos_plugins.md dice que el piso de 0x800
+    es del Creation Kit y no del motor, porque `_ResourcePack.esl` trae 368
+    records debajo y carga. Ese archivo tiene HEDR 1.71; los dos ESL con
+    HEDR 1.70 no tienen ni uno (entrada 19). La version de la cabecera es lo
+    que decide el piso, y el script no la leia."""
+
+    def test_la_version_se_lee_del_HEDR(self):
+        datos, _e = plugin_sintetico.construir(hedr=1.71)
+        self.assertAlmostEqual(1.71, esl.version_hedr(bytearray(datos)),
+                               places=4)
+
+    def test_y_distingue_1_70(self):
+        """El par: si devolviera 1.71 siempre, el de arriba pasaria igual."""
+        datos, _e = plugin_sintetico.construir()
+        self.assertAlmostEqual(1.70, esl.version_hedr(bytearray(datos)),
+                               places=4)
+
+    def test_sin_HEDR_la_version_es_None(self):
+        datos, _e = plugin_sintetico.construir()
+        b = bytearray(datos)
+        i = datos.index(b"HEDR")
+        b[i:i + 4] = b"XEDR"
+        self.assertIsNone(esl.version_hedr(b))
+
+    def test_el_piso_sale_de_la_version(self):
+        self.assertEqual(0x001, esl.piso_para(1.71))
+        self.assertEqual(0x800, esl.piso_para(1.70))
+
+    def test_sin_version_el_piso_es_el_conservador(self):
+        """Sin HEDR no se sabe que rango vale: se toma el angosto."""
+        self.assertEqual(0x800, esl.piso_para(None))
+
+    def test_con_cabecera_170_un_indice_bajo_no_se_marca(self):
+        datos = _plugin_con_formid(0x00000001)
+        codigo, salida, despues, ruta = _correr_esl(self, datos, "--marcar")
+        self.assertEqual(1, codigo, salida)
+        self.assertEqual(datos, despues, "marco un ESL que 1.70 no habilita")
+        self.assertFalse(os.path.exists(ruta + ".bak"))
+        self.assertIn("1.70", salida)
+
+    def test_el_borde_0x7FF_no_se_marca(self):
+        datos = _plugin_con_formid(0x000007FF)
+        codigo, salida, despues, _r = _correr_esl(self, datos, "--marcar")
+        self.assertEqual(1, codigo, salida)
+        self.assertEqual(datos, despues)
+
+    def test_y_0x800_si(self):
+        """El par del borde: si se negara a todo lo de 1.70, los dos de
+        arriba no probarian nada."""
+        datos = _plugin_con_formid(0x00000800)
+        codigo, salida, despues, _r = _correr_esl(self, datos, "--marcar")
+        self.assertEqual(0, codigo, salida)
+        flags, = struct.unpack_from("<I", despues, 8)
+        self.assertTrue(flags & esl.BANDERA_ESL, "no puso el flag")
+
+    def test_con_aceptar_piso_bajo_se_marca_igual(self):
+        """Lo que el motor hace con 1.70 y un indice bajo no esta medido: la
+        negativa es por precaucion, no una ley, y se puede pasar por encima."""
+        datos = _plugin_con_formid(0x00000001)
+        codigo, salida, despues, _r = _correr_esl(
+            self, datos, "--marcar", "--aceptar-piso-bajo")
+        self.assertEqual(0, codigo, salida)
+        flags, = struct.unpack_from("<I", despues, 8)
+        self.assertTrue(flags & esl.BANDERA_ESL, "no puso el flag")
+
+    def test_aceptar_piso_bajo_no_salta_el_techo(self):
+        """El techo es del motor: ningun permiso lo saltea."""
+        datos = _plugin_con_formid(0x00001000, hedr=1.71)
+        codigo, salida, despues, _r = _correr_esl(
+            self, datos, "--marcar", "--aceptar-piso-bajo")
+        self.assertEqual(1, codigo, salida)
+        self.assertEqual(datos, despues)
+
+    def test_el_informe_dice_la_cabecera_y_no_falla(self):
+        """Sin --marcar no se escribe nada, asi que no hay por que salir con
+        error: se informa."""
+        datos = _plugin_con_formid(0x00000001)
+        codigo, salida, despues, _r = _correr_esl(self, datos)
+        self.assertEqual(0, codigo, salida)
+        self.assertEqual(datos, despues)
+        self.assertIn("1.70", salida)
 
 
 class LosCliNoRevientanTests(unittest.TestCase):
@@ -527,7 +615,20 @@ class LasTablasDeAutotestDeclaranAlgoTests(unittest.TestCase):
             for clave in esperado:
                 self.assertIn(clave, ("records", "masters", "nuevos",
                                       "overrides", "sobre_el_techo",
-                                      "bajo_el_piso_del_ck"))
+                                      "bajo_el_piso_del_ck", "hedr"))
+
+    def test_y_la_cabecera_de_los_ESL_que_anclan_el_piso(self):
+        """La correccion del piso esta anclada a dos archivos: uno con HEDR
+        1.71 que vive debajo de 0x800 y carga, y otro con HEDR 1.70 que no
+        baja de ahi. Sin las dos entradas, la regla no esta medida."""
+        con_171_bajo = [n for n, e in esl.AUTOTEST
+                        if e.get("hedr") == 1.71
+                        and e.get("bajo_el_piso_del_ck", 0) > 0]
+        con_170_sin_bajo = [n for n, e in esl.AUTOTEST
+                            if e.get("hedr") == 1.7
+                            and e.get("bajo_el_piso_del_ck") == 0]
+        self.assertTrue(con_171_bajo, "falta el ESL 1.71 debajo de 0x800")
+        self.assertTrue(con_170_sin_bajo, "falta un ESL 1.70 sin piso bajo")
 
     def test_y_al_menos_un_ESL_real_con_overrides(self):
         """Un ESL que el juego carga y que TIENE overrides es lo unico que
